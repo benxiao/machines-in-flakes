@@ -10,6 +10,7 @@
                            work ? false,
                            development ? false,
                            server ? false,
+                           gaming ? false, 
                            rootPool ? "zroot/root",
                            bootDevice ? "/dev/nvme0n1p3",
                            swapDevice ? "/dev/nvme0n1p2" }: {
@@ -82,9 +83,9 @@
                   };
 
                   programs.steam = {
-                    enable = enableNvidia;
-                    remotePlay.openFirewall = enableNvidia; # Open ports in the firewall for Steam Remote Play
-                    dedicatedServer.openFirewall = enableNvidia; # Open ports in the firewall for Source Dedicated Server
+                    enable = enableNvidia && gaming;
+                    remotePlay.openFirewall = enableNvidia && gaming; # Open ports in the firewall for Steam Remote Play
+                    dedicatedServer.openFirewall = enableNvidia && gaming; # Open ports in the firewall for Source Dedicated Server
                   };
                   
                   programs.gnome-disks.enable = true;
@@ -158,11 +159,11 @@
           # Lenovo T490
           apollo = nixpkgs.lib.nixosSystem (simplesystem { hostName = "apollo"; work=true;});
           # amd ryzen 7 1700
-          athena = nixpkgs.lib.nixosSystem (simplesystem { hostName = "athena"; enableNvidia = true; server = true;});
+          athena = nixpkgs.lib.nixosSystem (simplesystem { hostName = "athena"; enableNvidia = true; server = true; });
           # amd ryzen 7 3700x
           wotan = nixpkgs.lib.nixosSystem (simplesystem { hostName = "wotan"; enableNvidia = true; });
           # amd ryzen 3950x
-          dante = nixpkgs.lib.nixosSystem (simplesystem { hostName = "dante";  enableNvidia = true; work = true;});
+          dante = nixpkgs.lib.nixosSystem (simplesystem { hostName = "dante";  enableNvidia = true; work = true; gaming = true; });
         };
     };
 }
