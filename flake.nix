@@ -109,11 +109,13 @@
                     pinentry-curses
                     htop
                     vim
+                    tmux
                     lm_sensors
                     jetbrains.pycharm-community
                     smartmontools
                     jetbrains.goland
                     mendeley
+                    nmap
                     obs-studio
                     silver-searcher
                     rnix-lsp
