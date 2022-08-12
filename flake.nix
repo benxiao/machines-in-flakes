@@ -1,6 +1,6 @@
 {
   description = "my computers in flakes";
-  inputs.nixpkgs.url = "github:nixos/nixpkgs";
+  inputs.nixpkgs.url = "github:nixos/nixpkgs/release-22.05";
   outputs = { self, nixpkgs }:
     {
       nixosConfigurations =
