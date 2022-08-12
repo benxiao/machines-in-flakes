@@ -163,7 +163,9 @@
           # amd ryzen 7 1700
           athena = nixpkgs.lib.nixosSystem (simplesystem { hostName = "athena"; enableNvidia = true; server = true; });
           # amd ryzen 7 3700x
-          wotan = nixpkgs.lib.nixosSystem (simplesystem { hostName = "wotan"; enableNvidia = true; });
+          wotan = nixpkgs.lib.nixosSystem (simplesystem { hostName = "wotan"; 
+              swapDevice = "/dev/disk/by-uuid/79ef359f-1882-4427-a93e-363259bc2445";
+              bootDevice = "/dev/disk/by-uuid/07D2-41D4";});
           # amd ryzen 3950x
           dante = nixpkgs.lib.nixosSystem (simplesystem { hostName = "dante";  enableNvidia = true; work = true; gaming = true; });
         };
