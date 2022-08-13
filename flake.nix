@@ -90,6 +90,7 @@
                   
                   programs.gnome-disks.enable = true;
                   environment.systemPackages = with pkgs; [
+                    ledger-live-desktop
                     awscli2
                     awsebcli
                     docker-compose
