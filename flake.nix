@@ -11,6 +11,7 @@
                            development ? false,
                            server ? false,
                            gaming ? false, 
+                           extra_configs ? {},
                            rootPool ? "zroot/root",
                            bootDevice ? "/dev/nvme0n1p3",
                            swapDevice ? "/dev/nvme0n1p2" }: {
@@ -154,13 +155,19 @@
                       alias athena='ssh rxiao@192.168.50.69'
                       alias artemis='ssh rxiao@artemis.silverpond.com.au'
                     '';
-                })
+                } // extra_configs)
             ];
           };
         in
         {
           # Lenovo T490
-          apollo = nixpkgs.lib.nixosSystem (simplesystem { hostName = "apollo"; work=true;});
+          apollo = nixpkgs.lib.nixosSystem (simplesystem { hostName = "apollo"; work=true;
+            extra_configs = {
+                environment.interactiveShellInit = ''
+                  echo "hello world"
+                '';  
+            };  
+          });
           # amd ryzen 7 1700
           athena = nixpkgs.lib.nixosSystem (simplesystem { hostName = "athena"; enableNvidia = true; server = true; });
           # amd ryzen 7 3700x
