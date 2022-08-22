@@ -152,6 +152,8 @@
           # amd ryzen 7 1700
           athena = nixpkgs.lib.nixosSystem (simplesystem { hostName = "athena"; enableNvidia = true;  
             extra_configs = {
+              hardware.cpu.amd.updateMicrocode = true;
+              boot.kernelModules = [ "kvm-amd" ];
               services.openssh = {
                 enable = true;
                 #passwordAuthentication = true;
@@ -185,6 +187,8 @@
           # amd ryzen 3950x
           dante = nixpkgs.lib.nixosSystem (simplesystem { hostName = "dante";  enableNvidia = true; work = true;
             extra_configs = {
+                hardware.cpu.amd.updateMicrocode = true;
+                boot.kernelModules = [ "kvm-amd" ];
                 hardware.nvidia.nvidiaPersistenced = true;
                 environment.interactiveShellInit = ''
                   alias athena='ssh rxiao@192.168.50.69'
