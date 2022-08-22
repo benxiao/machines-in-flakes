@@ -162,10 +162,11 @@
                 remotePlay.openFirewall = true; # Open ports in the firewall for Steam Remote Play
                 dedicatedServer.openFirewall = true; # Open ports in the firewall for Source Dedicated Server
               };
+              hardware.nvidia.nvidiaPersistenced = true;
+              boot.initrd.postDeviceCommands = ''
+                zpool import -f data
+              '';
               systemd.services.nvidia-power-limiter = {
-                boot.initrd.postDeviceCommands = ''
-                  zpool import -f data
-                '';
                 wantedBy = ["multi-user.target"];
                 description = "set power limit for nvidia gpus";
                 serviceConfig = {
@@ -191,6 +192,7 @@
                 ''; 
                 boot.initrd.postDeviceCommands = ''
                   zpool import -f zdata
+                  zpool import -f bigdisk
                 '';
                 systemd.services.nvidia-power-limiter = {
                   wantedBy = [ "multi-user.target"];
