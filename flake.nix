@@ -11,13 +11,14 @@
                            development ? false,
                            server ? false,
                            gaming ? false, 
+                           extra_configs ? {},
                            rootPool ? "zroot/root",
                            bootDevice ? "/dev/nvme0n1p3",
                            swapDevice ? "/dev/nvme0n1p2" }: {
             system = "x86_64-linux";
             modules = [
               ({ pkgs, lib, modulesPath, ... }:
-                {
+                (lib.recursiveUpdate {
                   imports =
                     [
                       (modulesPath + "/installer/scan/not-detected.nix")
@@ -150,25 +151,65 @@
                   systemd.enableUnifiedCgroupHierarchy = false;
                   networking.firewall.enable = false;
                   system.stateVersion = "22.05"; # Did you read the comment?
-                  environment.interactiveShellInit = ''
-                      alias athena='ssh rxiao@192.168.50.69'
-                      alias artemis='ssh rxiao@artemis.silverpond.com.au'
-                    '';
-                })
+                } extra_configs))
             ];
           };
         in
         {
           # Lenovo T490
-          apollo = nixpkgs.lib.nixosSystem (simplesystem { hostName = "apollo"; work=true;});
+          apollo = nixpkgs.lib.nixosSystem (simplesystem { hostName = "apollo"; work=true;
+            extra_configs = {
+                environment.interactiveShellInit = ''
+                  alias athena='ssh rxiao@192.168.50.69'
+                  alias artemis='ssh rxiao@artemis.silverpond.com.au'
+                '';  
+            };  
+          });
           # amd ryzen 7 1700
-          athena = nixpkgs.lib.nixosSystem (simplesystem { hostName = "athena"; enableNvidia = true; server = true; });
+          athena = nixpkgs.lib.nixosSystem (simplesystem { hostName = "athena"; enableNvidia = true; server = true; 
+            extra_configs = {
+              systemd.services.nvidia-power-limiter = {
+                boot.initrd.postDeviceCommands = ''
+                  zpool import -f data
+                '';
+                wantedBy = ["multi-user.target"];
+                description = "set power limit for nvidia gpus";
+                serviceConfig = {
+                  Type = "simple";
+                  ExecStart = ''
+                    /run/current-system/sw/bin/bash -c "/run/current-system/sw/bin/nvidia-smi -i 0 -pl 75 && /run/current-system/sw/bin/nvidia-smi -i 1 -pl 205"
+                  '';
+                };
+              }; 
+            };
+          });
           # amd ryzen 7 3700x
           wotan = nixpkgs.lib.nixosSystem (simplesystem { hostName = "wotan"; 
               swapDevice = "/dev/disk/by-uuid/79ef359f-1882-4427-a93e-363259bc2445";
               bootDevice = "/dev/disk/by-uuid/07D2-41D4";});
           # amd ryzen 3950x
-          dante = nixpkgs.lib.nixosSystem (simplesystem { hostName = "dante";  enableNvidia = true; work = true; gaming = true; });
-        };
-    };
+          dante = nixpkgs.lib.nixosSystem (simplesystem { hostName = "dante";  enableNvidia = true; work = true; gaming = true; 
+            extra_configs = {
+                hardware.nvidia.nvidiaPersistenced = true;
+                environment.interactiveShellInit = ''
+                  alias athena='ssh rxiao@192.168.50.69'
+                  alias artemis='ssh rxiao@artemis.silverpond.com.au'
+                ''; 
+                boot.initrd.postDeviceCommands = ''
+                  zpool import -f zdata
+                '';
+                systemd.services.nvidia-power-limiter = {
+                  wantedBy = [ "multi-user.target"];
+                  description = "set power limit for nvidia gpus";
+                  serviceConfig = {
+                    Type = "simple";
+                    ExecStart = ''
+                      /run/current-system/sw/bin/nvidia-smi -pl 125
+                    '';
+                  }; 
+                };
+            };  
+        });
+      };
+  };
 }
