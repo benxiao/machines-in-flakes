@@ -175,7 +175,7 @@
                 wantedBy = ["multi-user.target"];
                 description = "set power limit for nvidia gpus";
                 serviceConfig = {
-                  Type = "Simple";
+                  Type = "simple";
                   ExecStart = ''
                     /run/current-system/sw/bin/bash -c "/run/current-system/sw/bin/nvidia-smi -i 0 -pl 75 && /run/current-system/sw/bin/nvidia-smi -i 1 -pl 205"
                   '';
@@ -190,6 +190,7 @@
           # amd ryzen 3950x
           dante = nixpkgs.lib.nixosSystem (simplesystem { hostName = "dante";  enableNvidia = true; work = true; gaming = true; 
             extra_configs = {
+                hardware.nvidia.nvidiaPersistenced = true;
                 environment.interactiveShellInit = ''
                   alias athena='ssh rxiao@192.168.50.69'
                   alias artemis='ssh rxiao@artemis.silverpond.com.au'
@@ -198,10 +199,10 @@
                   zpool import -f zdata
                 '';
                 systemd.services.nvidia-power-limiter = {
-                  wantedBy = ["multi-user.target"];
+                  wantedBy = [ "multi-user.target"];
                   description = "set power limit for nvidia gpus";
                   serviceConfig = {
-                    Type = "Simple";
+                    Type = "simple";
                     ExecStart = ''
                       /run/current-system/sw/bin/nvidia-smi -pl 125
                     '';
