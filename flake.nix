@@ -9,7 +9,6 @@
                            enableNvidia ? false,
                            work ? false,
                            development ? false,
-                           server ? false,
                            extra_configs ? {},
                            rootPool ? "zroot/root",
                            bootDevice ? "/dev/nvme0n1p3",
@@ -45,7 +44,6 @@
                   boot.loader.systemd-boot.enable = true;
                   boot.loader.efi.canTouchEfiVariables = true;
                   boot.kernelPackages = pkgs.linuxPackages_5_18;
-                  boot.zfs.enableUnstable = false;
 
                   networking.hostId = "00000000";
                   networking.hostName = hostName;
@@ -56,10 +54,6 @@
                     RuntimeDirectorySize=10G
                   '';
 
-                  services.openssh = {
-                    enable = server;
-                    #passwordAuthentication = true;
-                  };
                   i18n.defaultLocale = "en_AU.UTF-8";
                   services.gnome.core-utilities.enable = false;
                   services.gnome.tracker-miners.enable = false;
@@ -80,7 +74,6 @@
                     enableSSHSupport = true;
                   };
 
-                  
                   programs.gnome-disks.enable = true;
                   environment.systemPackages = with pkgs; [
                     ledger-live-desktop
@@ -124,11 +117,9 @@
                     clang
                     taplo-cli
                     julia-bin
-                    trunk
                     rust-analyzer
                     gopls
                     haskell-language-server
-                    python39Packages.python-lsp-server
                     gnome-console];
                   users.users.rxiao = {
                     isNormalUser = true;
@@ -161,6 +152,10 @@
           # amd ryzen 7 1700
           athena = nixpkgs.lib.nixosSystem (simplesystem { hostName = "athena"; enableNvidia = true; server = true; 
             extra_configs = {
+              services.openssh = {
+                enable = server;
+                #passwordAuthentication = true;
+              };
               services.xserver.displayManager.gdm.autoSuspend = true;
               programs.steam = {
                 enable = true;
