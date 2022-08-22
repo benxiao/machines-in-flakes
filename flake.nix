@@ -160,12 +160,29 @@
           apollo = nixpkgs.lib.nixosSystem (simplesystem { hostName = "apollo"; work=true;
             extra_configs = {
                 environment.interactiveShellInit = ''
-                  echo "hello world"
+                  alias athena='ssh rxiao@192.168.50.69'
+                  alias artemis='ssh rxiao@artemis.silverpond.com.au'
                 '';  
             };  
           });
           # amd ryzen 7 1700
-          athena = nixpkgs.lib.nixosSystem (simplesystem { hostName = "athena"; enableNvidia = true; server = true; });
+          athena = nixpkgs.lib.nixosSystem (simplesystem { hostName = "athena"; enableNvidia = true; server = true; 
+            extra_configs = {
+              systemd.services.nvidia-power-limiter = {
+                boot.initrd.postDeviceCommands = ''
+                  zpool import -f data
+                '';
+                wantedBy = ["multi-user.target"];
+                description = "set power limit for nvidia gpus";
+                serviceConfig = {
+                  Type = "Simple";
+                  ExecStart = ''
+                    /run/current-system/sw/bin/bash -c "/run/current-system/sw/bin/nvidia-smi -i 0 -pl 75 && /run/current-system/sw/bin/nvidia-smi -i 1 -pl 205"
+                  '';
+                };
+              }; 
+            };
+          });
           # amd ryzen 7 3700x
           wotan = nixpkgs.lib.nixosSystem (simplesystem { hostName = "wotan"; 
               swapDevice = "/dev/disk/by-uuid/79ef359f-1882-4427-a93e-363259bc2445";
@@ -189,13 +206,9 @@
                       /run/current-system/sw/bin/nvidia-smi -pl 125
                     '';
                   }; 
-                   
                 };
-                
-                 
             };  
-            
-          });
-        };
-    };
+        });
+      };
+  };
 }
