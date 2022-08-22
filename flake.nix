@@ -18,7 +18,7 @@
             system = "x86_64-linux";
             modules = [
               ({ pkgs, lib, modulesPath, ... }:
-                {
+                (lib.recursiveUpdate {
                   imports =
                     [
                       (modulesPath + "/installer/scan/not-detected.nix")
@@ -151,11 +151,7 @@
                   systemd.enableUnifiedCgroupHierarchy = false;
                   networking.firewall.enable = false;
                   system.stateVersion = "22.05"; # Did you read the comment?
-                  environment.interactiveShellInit = ''
-                      alias athena='ssh rxiao@192.168.50.69'
-                      alias artemis='ssh rxiao@artemis.silverpond.com.au'
-                    '';
-                } // extra_configs)
+                } extra_configs))
             ];
           };
         in
@@ -175,7 +171,31 @@
               swapDevice = "/dev/disk/by-uuid/79ef359f-1882-4427-a93e-363259bc2445";
               bootDevice = "/dev/disk/by-uuid/07D2-41D4";});
           # amd ryzen 3950x
-          dante = nixpkgs.lib.nixosSystem (simplesystem { hostName = "dante";  enableNvidia = true; work = true; gaming = true; });
+          dante = nixpkgs.lib.nixosSystem (simplesystem { hostName = "dante";  enableNvidia = true; work = true; gaming = true; 
+            extra_configs = {
+                environment.interactiveShellInit = ''
+                  alias athena='ssh rxiao@192.168.50.69'
+                  alias artemis='ssh rxiao@artemis.silverpond.com.au'
+                ''; 
+                boot.initrd.postDeviceCommands = ''
+                  zpool import -f zdata
+                '';
+                systemd.services.nvidia-power-limiter = {
+                  wantedBy = ["multi-user.target"];
+                  description = "set power limit for nvidia gpus";
+                  serviceConfig = {
+                    Type = "Simple";
+                    ExecStart = ''
+                      /run/current-system/sw/bin/nvidia-smi -pl 125
+                    '';
+                  }; 
+                   
+                };
+                
+                 
+            };  
+            
+          });
         };
     };
 }
