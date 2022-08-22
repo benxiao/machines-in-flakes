@@ -142,7 +142,7 @@
           # Lenovo T490
           apollo = nixpkgs.lib.nixosSystem (simplesystem { hostName = "apollo"; work=true;
             extra_configs = {
-                powerManagement.cpuFreqGovernor = true;
+                powerManagement.cpuFreqGovernor = "powersave";
                 environment.interactiveShellInit = ''
                   alias athena='ssh rxiao@192.168.50.69'
                   alias artemis='ssh rxiao@artemis.silverpond.com.au'
@@ -150,10 +150,10 @@
             };  
           });
           # amd ryzen 7 1700
-          athena = nixpkgs.lib.nixosSystem (simplesystem { hostName = "athena"; enableNvidia = true; server = true; 
+          athena = nixpkgs.lib.nixosSystem (simplesystem { hostName = "athena"; enableNvidia = true;  
             extra_configs = {
               services.openssh = {
-                enable = server;
+                enable = true;
                 #passwordAuthentication = true;
               };
               services.xserver.displayManager.gdm.autoSuspend = true;
