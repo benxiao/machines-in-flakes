@@ -10,7 +10,6 @@
                            work ? false,
                            development ? false,
                            server ? false,
-                           gaming ? false, 
                            extra_configs ? {},
                            rootPool ? "zroot/root",
                            bootDevice ? "/dev/nvme0n1p3",
@@ -38,7 +37,6 @@
 
                   } else {});
 
-                  powerManagement.cpuFreqGovernor = if !enableNvidia then lib.mkDefault "powersave" else null;
                   # sound
                   sound.enable = true;
                   nixpkgs.config.pulseaudio = true;
@@ -68,7 +66,6 @@
                   services.gnome.tracker.enable = false;
                   services.xserver.desktopManager.gnome.enable = true;
                   services.xserver.displayManager.gdm.enable = true;
-                  services.xserver.displayManager.gdm.autoSuspend = !server;
                   services.xserver.enable = true;
                   services.xserver.libinput.enable = true;
                   services.xserver.videoDrivers = if enableNvidia then [ "nvidia" ] else [ "modesetting" ];
@@ -83,11 +80,6 @@
                     enableSSHSupport = true;
                   };
 
-                  programs.steam = {
-                    enable = enableNvidia && gaming;
-                    remotePlay.openFirewall = enableNvidia && gaming; # Open ports in the firewall for Steam Remote Play
-                    dedicatedServer.openFirewall = enableNvidia && gaming; # Open ports in the firewall for Source Dedicated Server
-                  };
                   
                   programs.gnome-disks.enable = true;
                   environment.systemPackages = with pkgs; [
@@ -159,6 +151,7 @@
           # Lenovo T490
           apollo = nixpkgs.lib.nixosSystem (simplesystem { hostName = "apollo"; work=true;
             extra_configs = {
+                powerManagement.cpuFreqGovernor = true;
                 environment.interactiveShellInit = ''
                   alias athena='ssh rxiao@192.168.50.69'
                   alias artemis='ssh rxiao@artemis.silverpond.com.au'
@@ -168,6 +161,12 @@
           # amd ryzen 7 1700
           athena = nixpkgs.lib.nixosSystem (simplesystem { hostName = "athena"; enableNvidia = true; server = true; 
             extra_configs = {
+              services.xserver.displayManager.gdm.autoSuspend = true;
+              programs.steam = {
+                enable = true;
+                remotePlay.openFirewall = true; # Open ports in the firewall for Steam Remote Play
+                dedicatedServer.openFirewall = true; # Open ports in the firewall for Source Dedicated Server
+              };
               systemd.services.nvidia-power-limiter = {
                 boot.initrd.postDeviceCommands = ''
                   zpool import -f data
@@ -188,7 +187,7 @@
               swapDevice = "/dev/disk/by-uuid/79ef359f-1882-4427-a93e-363259bc2445";
               bootDevice = "/dev/disk/by-uuid/07D2-41D4";});
           # amd ryzen 3950x
-          dante = nixpkgs.lib.nixosSystem (simplesystem { hostName = "dante";  enableNvidia = true; work = true; gaming = true; 
+          dante = nixpkgs.lib.nixosSystem (simplesystem { hostName = "dante";  enableNvidia = true; work = true;
             extra_configs = {
                 hardware.nvidia.nvidiaPersistenced = true;
                 environment.interactiveShellInit = ''
@@ -208,8 +207,8 @@
                     '';
                   }; 
                 };
-            };  
-        });
+             };  
+          });
       };
   };
 }
