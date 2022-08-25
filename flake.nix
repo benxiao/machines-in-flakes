@@ -76,7 +76,7 @@
 
                   programs.gnome-disks.enable = true;
                   environment.systemPackages = with pkgs; [
-                    ledger-live-desktop
+                    libreoffice
                     awscli2
                     awsebcli
                     docker-compose
@@ -95,7 +95,6 @@
                     vlc
                     pinentry-curses
                     htop
-                    vim
                     tmux
                     lm_sensors
                     jetbrains.pycharm-community
@@ -115,11 +114,9 @@
                     rustup
                     julia-bin
                     clang
-                    taplo-cli
                     julia-bin
                     rust-analyzer
                     gopls
-                    haskell-language-server
                     gnome-console];
                   users.users.rxiao = {
                     isNormalUser = true;
