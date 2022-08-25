@@ -144,7 +144,11 @@
                 environment.interactiveShellInit = ''
                   alias athena='ssh rxiao@192.168.50.69'
                   alias artemis='ssh rxiao@artemis.silverpond.com.au'
-                '';  
+                '';
+                 
+                virtualisation.virtualbox.host.enable = true;
+                virtualisation.virtualbox.host.enableExtensionPack = true;
+                users.extraGroups.vboxusers.members = [ "user-with-access-to-virtualbox" ];
             };  
           });
           # amd ryzen 7 1700
