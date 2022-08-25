@@ -77,6 +77,7 @@
                   programs.gnome-disks.enable = true;
                   environment.systemPackages = with pkgs; [
                     libreoffice
+                    tor-browser-bundle-bin
                     awscli2
                     awsebcli
                     docker-compose
