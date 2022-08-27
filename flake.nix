@@ -8,8 +8,6 @@
           simplesystem =
             { hostName
             , enableNvidia ? false
-            , work ? false
-            , development ? false
             , extra_configs ? { }
             , rootPool ? "zroot/root"
             , bootDevice ? "/dev/nvme0n1p3"
@@ -31,14 +29,7 @@
                       swapDevices = [{ device = swapDevice; }];
                       nix = {
                         extraOptions = "experimental-features = nix-command flakes";
-                      } // (if development then {
-                        settings = {
-                          substituters = [ "https://hydra.iohk.io" "https://iohk.cachix.org" ];
-                          trusted-public-keys = [ "hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ=" "iohk.cachix.org-1:DpRUyj7h7V830dp/i6Nti+NEO2/nhblbov/8MW7Rqoo=" ];
-                        };
-
-                      } else { });
-
+                      };
                       # sound
                       sound.enable = true;
                       nixpkgs.config.pulseaudio = true;
@@ -67,7 +58,6 @@
                       services.xserver.libinput.enable = true;
                       services.xserver.videoDrivers = if enableNvidia then [ "nvidia" ] else [ "modesetting" ];
                       services.xserver.xkbOptions = "caps:none";
-                      services.tailscale.enable = work;
                       services.pcscd.enable = true;
 
                       # enable gpg
@@ -145,8 +135,8 @@
           # Lenovo T490
           apollo = nixpkgs.lib.nixosSystem (simplesystem {
             hostName = "apollo";
-            work = true;
             extra_configs = {
+              services.tailscale.enable = true;
               powerManagement.cpuFreqGovernor = "powersave";
               environment.interactiveShellInit = ''
                 alias athena='ssh rxiao@192.168.50.69'
@@ -207,9 +197,13 @@
           dante = nixpkgs.lib.nixosSystem (simplesystem {
             hostName = "dante";
             enableNvidia = true;
-            work = true;
             extra_configs = {
+              services.tailscale.enable = true;
               hardware.cpu.amd.updateMicrocode = true;
+              nix.settings = {
+                substituters = [ "https://hydra.iohk.io" "https://iohk.cachix.org" ];
+                trusted-public-keys = [ "hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ=" "iohk.cachix.org-1:DpRUyj7h7V830dp/i6Nti+NEO2/nhblbov/8MW7Rqoo=" ];
+              };
               boot.kernelModules = [ "kvm-amd" ];
               hardware.nvidia.nvidiaPersistenced = true;
               environment.interactiveShellInit = ''
@@ -229,6 +223,18 @@
                     /run/current-system/sw/bin/nvidia-smi -pl 125
                   '';
                 };
+              };
+              services.openssh = {
+                enable = true;
+                passwordAuthentication = true;
+              };
+              virtualisation.virtualbox.host.enable = true;
+              virtualisation.virtualbox.host.enableExtensionPack = true;
+              users.extraGroups.vboxusers.members = [ "user-with-access-to-virtualbox" ];
+              programs.steam = {
+                enable = true;
+                remotePlay.openFirewall = true; # Open ports in the firewall for Steam Remote Play
+                dedicatedServer.openFirewall = true; # Open ports in the firewall for Source Dedicated Server
               };
             };
           });
