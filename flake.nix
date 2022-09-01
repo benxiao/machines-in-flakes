@@ -137,6 +137,7 @@
               {
                 services.tailscale.enable = true;
                 powerManagement.cpuFreqGovernor = "powersave";
+                hardware.cpu.intel.updateMicrocode = true;
                 environment.interactiveShellInit = ''
                   alias athena='ssh rxiao@192.168.50.69'
                   alias artemis='ssh rxiao@artemis.silverpond.com.au'
