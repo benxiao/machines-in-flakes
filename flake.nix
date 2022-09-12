@@ -68,6 +68,7 @@
                     programs.gnome-disks.enable = true;
                     environment.systemPackages = with pkgs; [
                       libreoffice
+                      qbittorrent-nox
                       tor-browser-bundle-bin
                       awscli2
                       awsebcli
@@ -178,6 +179,7 @@
                 hardware.nvidia.nvidiaPersistenced = true;
                 boot.initrd.postDeviceCommands = ''
                   zpool import -f data
+                  zpool import -f torrents
                 '';
                 systemd.services.nvidia-power-limiter = {
                   wantedBy = [ "multi-user.target" ];
@@ -185,7 +187,17 @@
                   serviceConfig = {
                     Type = "simple";
                     ExecStart = ''
-                      /run/current-system/sw/bin/bash -c "/run/current-system/sw/bin/nvidia-smi -i 0 -pl 75 && /run/current-system/sw/bin/nvidia-smi -i 1 -pl 205"
+                      /run/current-system/sw/bin/bash -c "/run/current-system/sw/bin/nvidia-smi -i 0 -pl 75 
+                    '';
+                  };
+                };
+                systemd.services.qbittorrent-server = {
+                  wantedBy = [ "multi-user.target" ];
+                  description = "qbittorrent webserver";
+                  serviceConfig = {
+                    Type = "simple";
+                    ExecStart = ''
+                      /run/current-system/sw/bin/qbittorrent-nox --webui-port=8083                   
                     '';
                   };
                 };
