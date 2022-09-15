@@ -181,6 +181,7 @@
                   zpool import -f data
                   zpool import -f torrents
                 '';
+                environment.systemPackages = with pkgs; [bpytop nethogs];
                 systemd.services.nvidia-power-limiter = {
                   wantedBy = [ "multi-user.target" ];
                   description = "set power limit for nvidia gpus";
@@ -241,7 +242,7 @@
                   serviceConfig = {
                     Type = "simple";
                     ExecStart = ''
-                      /run/current-system/sw/bin/nvidia-smi -pl 125
+                      /run/current-system/sw/bin/nvidia-smi -pl 205
                     '';
                   };
                 };
