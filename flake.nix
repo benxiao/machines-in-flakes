@@ -188,7 +188,7 @@
                   serviceConfig = {
                     Type = "simple";
                     ExecStart = ''
-                      /run/current-system/sw/bin/bash -c "/run/current-system/sw/bin/nvidia-smi -i 0 -pl 75" 
+                      /run/current-system/sw/bin/bash -c "/run/current-system/sw/bin/nvidia-smi -i 0 -pl 205 &&  /run/current-system/sw/bin/nvidia-smi -i 1 -pl 75" 
                     '';
                   };
                 };
