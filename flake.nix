@@ -140,7 +140,7 @@
                 powerManagement.cpuFreqGovernor = "powersave";
                 hardware.cpu.intel.updateMicrocode = true;
                 environment.interactiveShellInit = ''
-                  alias athena='ssh rxiao@192.168.50.69'
+                  alias athena='ssh rxiao@192.168.50.187'
                   alias artemis='ssh rxiao@artemis.silverpond.com.au'
                   export RUST_BACKTRACE=1
                 '';
@@ -228,7 +228,7 @@
                 boot.kernelModules = [ "kvm-amd" ];
                 hardware.nvidia.nvidiaPersistenced = true;
                 environment.interactiveShellInit = ''
-                  alias athena='ssh rxiao@192.168.50.69'
+                  alias athena='ssh rxiao@192.168.50.187'
                   alias artemis='ssh rxiao@artemis.silverpond.com.au'
                   export RUST_BACKTRACE=1
                 '';
