@@ -39,7 +39,10 @@
 
                     networking.hostId = "00000000";
                     networking.hostName = hostName;
-                    networking.networkmanager.enable = true;
+                    networking.networkmanager = {
+                      enable = true;
+                      wifi.powersave = false;
+                    };
                     time.timeZone = "Australia/Melbourne";
 
                     services.logind.extraConfig = ''
@@ -140,7 +143,7 @@
                 powerManagement.cpuFreqGovernor = "powersave";
                 hardware.cpu.intel.updateMicrocode = true;
                 environment.interactiveShellInit = ''
-                  alias athena='ssh rxiao@192.168.50.69'
+                  alias athena='ssh rxiao@192.168.50.187'
                   alias artemis='ssh rxiao@artemis.silverpond.com.au'
                   export RUST_BACKTRACE=1
                 '';
@@ -181,13 +184,14 @@
                   zpool import -f data
                   zpool import -f torrents
                 '';
+                environment.systemPackages = with pkgs; [ bpytop nethogs ];
                 systemd.services.nvidia-power-limiter = {
                   wantedBy = [ "multi-user.target" ];
                   description = "set power limit for nvidia gpus";
                   serviceConfig = {
                     Type = "simple";
                     ExecStart = ''
-                      /run/current-system/sw/bin/bash -c "/run/current-system/sw/bin/nvidia-smi -i 0 -pl 75 
+                      /run/current-system/sw/bin/bash -c "/run/current-system/sw/bin/nvidia-smi -i 0 -pl 205 &&  /run/current-system/sw/bin/nvidia-smi -i 1 -pl 75" 
                     '';
                   };
                 };
@@ -227,7 +231,7 @@
                 boot.kernelModules = [ "kvm-amd" ];
                 hardware.nvidia.nvidiaPersistenced = true;
                 environment.interactiveShellInit = ''
-                  alias athena='ssh rxiao@192.168.50.69'
+                  alias athena='ssh rxiao@192.168.50.187'
                   alias artemis='ssh rxiao@artemis.silverpond.com.au'
                   export RUST_BACKTRACE=1
                 '';
@@ -241,7 +245,7 @@
                   serviceConfig = {
                     Type = "simple";
                     ExecStart = ''
-                      /run/current-system/sw/bin/nvidia-smi -pl 125
+                      /run/current-system/sw/bin/nvidia-smi -pl 205
                     '';
                   };
                 };
