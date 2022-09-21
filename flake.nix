@@ -35,7 +35,6 @@
                     hardware.enableAllFirmware = true;
                     boot.loader.systemd-boot.enable = true;
                     boot.loader.efi.canTouchEfiVariables = true;
-                    boot.kernelPackages = pkgs.linuxPackages_5_18;
 
                     networking.hostId = "00000000";
                     networking.hostName = hostName;
