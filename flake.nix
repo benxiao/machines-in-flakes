@@ -147,10 +147,13 @@
                   export RUST_BACKTRACE=1
                 '';
 
+                environment.systemPackages = with pkgs; [ mongodb-compass ];
                 virtualisation.virtualbox.host.enable = true;
                 virtualisation.virtualbox.host.enableExtensionPack = true;
                 users.extraGroups.vboxusers.members = [ "user-with-access-to-virtualbox" ];
+                
               });
+
           });
           # amd ryzen 7 1700
           athena = nixpkgs.lib.nixosSystem (simplesystem {
