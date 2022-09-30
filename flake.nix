@@ -3,7 +3,7 @@
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-22.05";
   inputs.nixpkgs-master.url = "github:nixos/nixpkgs";
   inputs.vscode-server.url = "github:nixos/nixpkgs";
-  outputs = { self, nixpkgs, nixpkgs-master }:
+  outputs = { self, nixpkgs, nixpkgs-master, vscode-server }:
     let
       overlay-master = final: prev: {
         master = nixpkgs-master.legacyPackages.${prev.system};
