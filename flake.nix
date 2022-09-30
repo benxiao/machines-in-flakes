@@ -1,7 +1,14 @@
 {
   description = "my computers in flakes";
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-22.05";
-  outputs = { self, nixpkgs }:
+  inputs.nixpkgs-master.url = "github:nixos/nixpkgs";
+  outputs = { self, nixpkgs, nixpkgs-master }:
+    let
+
+      overlay-master = final: prev: {
+        master = nixpkgs-master.legacyPackages.${prev.system};
+      };
+    in
     {
       nixosConfigurations =
         let
@@ -14,6 +21,8 @@
             }: {
               system = "x86_64-linux";
               modules = [
+                ({ config, pkgs, ... }: { nixpkgs.overlays = [ overlay-master ]; })
+
                 ({ pkgs, lib, modulesPath, ... }:
                   {
                     imports =
@@ -101,7 +110,7 @@
                       silver-searcher
                       rnix-lsp
                       slack
-                      helix
+                      master.helix
                       tig
                       xclip
                       chromium
@@ -147,11 +156,11 @@
                   export RUST_BACKTRACE=1
                 '';
 
-                environment.systemPackages = with pkgs; [ mongodb-compass ];
+                environment.systemPackages = with pkgs; [ mongodb-compass vscode ];
                 virtualisation.virtualbox.host.enable = true;
                 virtualisation.virtualbox.host.enableExtensionPack = true;
                 users.extraGroups.vboxusers.members = [ "user-with-access-to-virtualbox" ];
-                
+
               });
 
           });
