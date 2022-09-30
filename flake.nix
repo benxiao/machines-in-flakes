@@ -2,11 +2,12 @@
   description = "my computers in flakes";
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-22.05";
   inputs.nixpkgs-master.url = "github:nixos/nixpkgs";
+  inputs.vscode-server.url = "github:nixos/nixpkgs";
   outputs = { self, nixpkgs, nixpkgs-master }:
     let
-
       overlay-master = final: prev: {
         master = nixpkgs-master.legacyPackages.${prev.system};
+      
       };
     in
     {
@@ -21,6 +22,7 @@
             }: {
               system = "x86_64-linux";
               modules = [
+                vscode-server.nixosModule
                 ({ config, pkgs, ... }: { nixpkgs.overlays = [ overlay-master ]; })
 
                 ({ pkgs, lib, modulesPath, ... }:
@@ -95,7 +97,6 @@
                       gnome.gnome-system-monitor
                       gnome.nautilus
                       gnome.gnome-power-manager
-                      qbittorrent
                       vlc
                       pinentry-curses
                       htop
@@ -169,6 +170,7 @@
             hostName = "athena";
             hardware_configurations = ({ pkgs, lib, modulesPath, ... }:
               {
+                services.vscode-server.enable = true;
                 services.xserver.videoDrivers = [ "nvidia" ];
                 virtualisation.docker.enableNvidia = true;
                 hardware.opengl.driSupport32Bit = true;
