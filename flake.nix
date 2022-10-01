@@ -6,7 +6,11 @@
     let
 
       overlay-master = final: prev: {
-        master = nixpkgs-master.legacyPackages.${prev.system};
+        # master = nixpkgs-master.legacyPackages.${prev.system};
+        master = import nixpkgs-master {
+          system = prev.system ;
+          config.allowUnfree = true;
+        };
       };
     in
     {
@@ -101,7 +105,8 @@
                       htop
                       tmux
                       lm_sensors
-                      jetbrains.pycharm-community
+                      master.jetbrains.pycharm-community
+                      master.jetbrains.pycharm-professional
                       smartmontools
                       jetbrains.goland
                       mendeley
@@ -272,7 +277,7 @@
                   remotePlay.openFirewall = true; # Open ports in the firewall for Steam Remote Play
                   dedicatedServer.openFirewall = true; # Open ports in the firewall for Source Dedicated Server
                 };
-                environment.systemPackages = with pkgs; [ mongodb-compass ];
+                environment.systemPackages = with pkgs; [ mongodb-compass master.vscode];
               });
           });
         };
