@@ -8,7 +8,7 @@
       overlay-master = final: prev: {
         # master = nixpkgs-master.legacyPackages.${prev.system};
         master = import nixpkgs-master {
-          system = prev.system ;
+          system = prev.system;
           config.allowUnfree = true;
         };
       };
@@ -161,7 +161,7 @@
                   export RUST_BACKTRACE=1
                 '';
 
-                environment.systemPackages = with pkgs; [ mongodb-compass vscode ];
+                environment.systemPackages = with pkgs; [ mongodb-compass vscode remmina ];
                 virtualisation.virtualbox.host.enable = true;
                 virtualisation.virtualbox.host.enableExtensionPack = true;
                 users.extraGroups.vboxusers.members = [ "user-with-access-to-virtualbox" ];
@@ -184,6 +184,8 @@
                   #passwordAuthentication = true;
                 };
                 services.xserver.displayManager.gdm.autoSuspend = true;
+                services.xrdp.enable = true;
+                networking.firewall.allowedTCPPorts = [ 3389 ];
                 security.polkit.extraConfig = ''
                   polkit.addRule(function(action, subject) {
                     if (action.id == "org.freedesktop.login1.suspend" ||
@@ -277,7 +279,7 @@
                   remotePlay.openFirewall = true; # Open ports in the firewall for Steam Remote Play
                   dedicatedServer.openFirewall = true; # Open ports in the firewall for Source Dedicated Server
                 };
-                environment.systemPackages = with pkgs; [ mongodb-compass master.vscode];
+                environment.systemPackages = with pkgs; [ mongodb-compass master.vscode remmina ];
               });
           });
         };
