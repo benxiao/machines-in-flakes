@@ -22,6 +22,7 @@
             , rootPool ? "zroot/root"
             , bootDevice ? "/dev/nvme0n1p3"
             , swapDevice ? "/dev/nvme0n1p2"
+            , isServer ? false
             }: {
               system = "x86_64-linux";
               modules = [
@@ -42,8 +43,8 @@
                       extraOptions = "experimental-features = nix-command flakes";
                     };
                     # sound
-                    sound.enable = true;
-                    nixpkgs.config.pulseaudio = true;
+                    sound.enable = !isServer;
+                    nixpkgs.config.pulseaudio = !isServer;
                     nixpkgs.config.allowUnfree = true;
                     hardware.enableAllFirmware = true;
                     boot.loader.systemd-boot.enable = true;
@@ -66,8 +67,8 @@
                     services.gnome.tracker-miners.enable = false;
                     services.gnome.tracker.enable = false;
                     services.xserver.enable = true;
-                    services.xserver.desktopManager.gnome.enable = true;
-                    services.xserver.displayManager.gdm.enable = true;
+                    services.xserver.desktopManager.gnome.enable = !isServer;
+                    services.xserver.displayManager.gdm.enable = !isServer;
                     services.xserver.libinput.enable = true;
                     services.xserver.xkbOptions = "caps:none";
                     services.pcscd.enable = true;
@@ -172,6 +173,7 @@
           # amd ryzen 7 1700
           athena = nixpkgs.lib.nixosSystem (simplesystem {
             hostName = "athena";
+            isServer = true;
             hardware_configurations = ({ pkgs, lib, modulesPath, ... }:
               {
                 services.xserver.videoDrivers = [ "nvidia" ];
@@ -183,7 +185,7 @@
                   enable = true;
                   #passwordAuthentication = true;
                 };
-                services.xserver.displayManager.gdm.autoSuspend = true;
+                services.xserver.displayManager.gdm.autoSuspend = false;
                 services.xrdp.enable = true;
                 services.xserver.displayManager.sddm.enable = true;
                 services.xserver.desktopManager.plasma5.enable = true;
