@@ -65,9 +65,9 @@
                     services.gnome.core-utilities.enable = false;
                     services.gnome.tracker-miners.enable = false;
                     services.gnome.tracker.enable = false;
+                    services.xserver.enable = true;
                     services.xserver.desktopManager.gnome.enable = true;
                     services.xserver.displayManager.gdm.enable = true;
-                    services.xserver.enable = true;
                     services.xserver.libinput.enable = true;
                     services.xserver.xkbOptions = "caps:none";
                     services.pcscd.enable = true;
@@ -185,6 +185,9 @@
                 };
                 services.xserver.displayManager.gdm.autoSuspend = true;
                 services.xrdp.enable = true;
+                services.xserver.displayManager.sddm.enable = true;
+                services.xserver.desktopManager.plasma5.enable = true;
+                services.xrdp.defaultWindowManager = "startplasma-x11";
                 networking.firewall.allowedTCPPorts = [ 3389 ];
                 security.polkit.extraConfig = ''
                   polkit.addRule(function(action, subject) {
