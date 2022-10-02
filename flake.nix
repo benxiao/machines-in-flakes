@@ -137,7 +137,7 @@
                     virtualisation.docker.enable = true;
                     virtualisation.docker.storageDriver = "zfs";
                     hardware.opengl.enable = true;
-                    hardware.pulseaudio.enable = true;
+                    hardware.pulseaudio.enable = !isServer;
                     systemd.enableUnifiedCgroupHierarchy = false;
                     networking.firewall.enable = false;
                     system.stateVersion = "22.05"; # Did you read the comment?
