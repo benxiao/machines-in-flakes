@@ -7,8 +7,9 @@
     {
       nixosConfigurations =
         let
+          system = "x86_64-linux";
           master = import nixpkgs-master {
-            system = "x86_64-linux";
+            inherit system;
             config.allowUnfree = true;
           };
           simplesystem =
