@@ -17,9 +17,8 @@
             , rootPool ? "zroot/root"
             , bootDevice ? "/dev/nvme0n1p3"
             , swapDevice ? "/dev/nvme0n1p2"
-            , isServer ? false
             }: {
-              system = "x86_64-linux";
+              inherit system;
               modules = [
                 vscode-server.nixosModule
                 # ({ config, pkgs, ... }: { nixpkgs.overlays = [ overlay-master ]; })
@@ -39,8 +38,8 @@
                       extraOptions = "experimental-features = nix-command flakes";
                     };
                     # sound
-                    sound.enable = !isServer;
-                    nixpkgs.config.pulseaudio = !isServer;
+                    sound.enable = true;
+                    nixpkgs.config.pulseaudio = true;
                     nixpkgs.config.allowUnfree = true;
                     hardware.enableAllFirmware = true;
                     boot.loader.systemd-boot.enable = true;
@@ -63,8 +62,8 @@
                     services.gnome.tracker-miners.enable = false;
                     services.gnome.tracker.enable = false;
                     services.xserver.enable = true;
-                    services.xserver.desktopManager.gnome.enable = !isServer;
-                    services.xserver.displayManager.gdm.enable = !isServer;
+                    services.xserver.desktopManager.gnome.enable = true;
+                    services.xserver.displayManager.gdm.enable = true;
                     services.xserver.libinput.enable = true;
                     services.xserver.xkbOptions = "caps:none";
                     services.pcscd.enable = true;
@@ -127,7 +126,7 @@
                     virtualisation.docker.enable = true;
                     virtualisation.docker.storageDriver = "zfs";
                     hardware.opengl.enable = true;
-                    hardware.pulseaudio.enable = !isServer;
+                    hardware.pulseaudio.enable = true;
                     systemd.enableUnifiedCgroupHierarchy = false;
                     networking.firewall.enable = false;
                     system.stateVersion = "22.05"; # Did you read the comment?
@@ -163,7 +162,6 @@
           # amd ryzen 7 1700
           athena = nixpkgs.lib.nixosSystem (simplesystem {
             hostName = "athena";
-            isServer = true;
             hardware_configurations = ({ pkgs, lib, modulesPath, ... }:
               {
                 services.vscode-server.enable = true;
@@ -177,11 +175,6 @@
                   #passwordAuthentication = true;
                 };
                 services.xserver.displayManager.gdm.autoSuspend = false;
-                services.xrdp.enable = true;
-                services.xserver.displayManager.sddm.enable = true;
-                services.xserver.desktopManager.plasma5.enable = true;
-                services.xrdp.defaultWindowManager = "startplasma-x11";
-                networking.firewall.allowedTCPPorts = [ 3389 ];
                 security.polkit.extraConfig = ''
                   polkit.addRule(function(action, subject) {
                     if (action.id == "org.freedesktop.login1.suspend" ||
