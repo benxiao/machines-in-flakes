@@ -82,10 +82,7 @@
                       libreoffice
                       qbittorrent-nox
                       tor-browser-bundle-bin
-                      awscli2
-                      awsebcli
                       docker-compose
-                      evince
                       firefox
                       git
                       gnome-text-editor
@@ -107,14 +104,12 @@
                       jetbrains.goland
                       mendeley
                       nmap
-                      obs-studio
                       silver-searcher
                       rnix-lsp
                       slack
                       master.helix
                       tig
                       xclip
-                      chromium
                       nodejs
                       rustup
                       julia-bin
