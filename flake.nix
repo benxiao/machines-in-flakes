@@ -2,17 +2,12 @@
   description = "my computers in flakes";
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-22.05";
   inputs.nixpkgs-master.url = "github:nixos/nixpkgs";
-  inputs.vscode-server.url = "github:nixos/nixpkgs";
+  inputs.vscode-server.url = "github:msteen/nixos-vscode-server";
   outputs = { self, nixpkgs, nixpkgs-master, vscode-server }:
-    let
-      overlay-master = final: prev: {
-        master = nixpkgs-master.legacyPackages.${prev.system};
-      
-      };
-    in
     {
       nixosConfigurations =
         let
+          master = import nixpkgs-master { system = "x86_64-linux"; };
           simplesystem =
             { hostName
             , hardware_configurations
@@ -23,7 +18,7 @@
               system = "x86_64-linux";
               modules = [
                 vscode-server.nixosModule
-                ({ config, pkgs, ... }: { nixpkgs.overlays = [ overlay-master ]; })
+                # ({ config, pkgs, ... }: { nixpkgs.overlays = [ overlay-master ]; })
 
                 ({ pkgs, lib, modulesPath, ... }:
                   {
