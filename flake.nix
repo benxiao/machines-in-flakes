@@ -2,20 +2,15 @@
   description = "my computers in flakes";
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-22.05";
   inputs.nixpkgs-master.url = "github:nixos/nixpkgs";
-  outputs = { self, nixpkgs, nixpkgs-master }:
-    let
-
-      overlay-master = final: prev: {
-        # master = nixpkgs-master.legacyPackages.${prev.system};
-        master = import nixpkgs-master {
-          system = prev.system;
-          config.allowUnfree = true;
-        };
-      };
-    in
+  inputs.vscode-server.url = "github:msteen/nixos-vscode-server";
+  outputs = { self, nixpkgs, nixpkgs-master, vscode-server }:
     {
       nixosConfigurations =
         let
+          master = import nixpkgs-master {
+            system = "x86_64-linux";
+            config.allowUnfree = true;
+          };
           simplesystem =
             { hostName
             , hardware_configurations
@@ -26,7 +21,8 @@
             }: {
               system = "x86_64-linux";
               modules = [
-                ({ config, pkgs, ... }: { nixpkgs.overlays = [ overlay-master ]; })
+                vscode-server.nixosModule
+                # ({ config, pkgs, ... }: { nixpkgs.overlays = [ overlay-master ]; })
 
                 ({ pkgs, lib, modulesPath, ... }:
                   {
@@ -86,10 +82,7 @@
                       libreoffice
                       qbittorrent-nox
                       tor-browser-bundle-bin
-                      awscli2
-                      awsebcli
                       docker-compose
-                      evince
                       firefox
                       git
                       gnome-text-editor
@@ -100,7 +93,6 @@
                       gnome.gnome-system-monitor
                       gnome.nautilus
                       gnome.gnome-power-manager
-                      qbittorrent
                       vlc
                       pinentry-curses
                       htop
@@ -112,14 +104,12 @@
                       jetbrains.goland
                       mendeley
                       nmap
-                      obs-studio
                       silver-searcher
                       rnix-lsp
                       slack
                       master.helix
                       tig
                       xclip
-                      chromium
                       nodejs
                       rustup
                       julia-bin
@@ -176,6 +166,7 @@
             isServer = true;
             hardware_configurations = ({ pkgs, lib, modulesPath, ... }:
               {
+                services.vscode-server.enable = true;
                 services.xserver.videoDrivers = [ "nvidia" ];
                 virtualisation.docker.enableNvidia = true;
                 hardware.opengl.driSupport32Bit = true;
