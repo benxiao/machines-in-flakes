@@ -12,136 +12,156 @@
             inherit system;
             config.allowUnfree = true;
           };
+          
+          nvidiaModule = { powerlimit }: ({ pkgs, lib, modulesPath, ... }: {
+            services.xserver.videoDrivers = [ "nvidia" ];
+            hardware.nvidia.nvidiaPersistenced = true;
+            virtualisation.docker.enableNvidia = true;
+            hardware.opengl.driSupport32Bit = true;
+            systemd.services.nvidia-power-limiter = {
+              wantedBy = [ "multi-user.target" ];
+              description = "set power limit for nvidia gpus";
+              serviceConfig = {
+                Type = "simple";
+                ExecStart = ''
+                  /run/current-system/sw/bin/nvidia-smi -i 0 -pl ${builtins.toString powerlimit}
+                '';
+              };
+            };
+          });
+
           simplesystem =
             { hostName
-            , hardware_configurations
+            , additionalConfig
             , rootPool ? "zroot/root"
             , bootDevice ? "/dev/nvme0n1p3"
             , swapDevice ? "/dev/nvme0n1p2"
+            , nvidiaConfig ? null
             }: {
               inherit system;
-              modules = [
-                vscode-server.nixosModule
-                # ({ config, pkgs, ... }: { nixpkgs.overlays = [ overlay-master ]; })
+              modules =
+                (if nvidiaConfig != null then [ (nvidiaModule nvidiaConfig) ] else [ ])
+                ++
+                [
+                  vscode-server.nixosModule
 
-                ({ pkgs, lib, modulesPath, ... }:
-                  {
-                    imports =
-                      [
-                        (modulesPath + "/installer/scan/not-detected.nix")
+                  ({ pkgs, lib, modulesPath, ... }:
+                    {
+                      imports =
+                        [
+                          (modulesPath + "/installer/scan/not-detected.nix")
+                        ];
+
+                      boot.initrd.availableKernelModules = [ "nvme" ];
+                      fileSystems."/" = { device = rootPool; fsType = "zfs"; };
+                      fileSystems."/boot" = { device = bootDevice; fsType = "vfat"; };
+                      swapDevices = [{ device = swapDevice; }];
+                      nix = {
+                        extraOptions = "experimental-features = nix-command flakes";
+                      };
+                      # sound
+                      sound.enable = true;
+                      nixpkgs.config.pulseaudio = true;
+                      nixpkgs.config.allowUnfree = true;
+                      hardware.enableAllFirmware = true;
+                      boot.loader.systemd-boot.enable = true;
+                      boot.loader.efi.canTouchEfiVariables = true;
+
+                      networking.hostId = "00000000";
+                      networking.hostName = hostName;
+                      networking.networkmanager = {
+                        enable = true;
+                        wifi.powersave = false;
+                      };
+                      time.timeZone = "Australia/Melbourne";
+
+                      services.logind.extraConfig = ''
+                        RuntimeDirectorySize=10G
+                      '';
+
+                      i18n.defaultLocale = "en_AU.UTF-8";
+                      services.gnome.core-utilities.enable = false;
+                      services.gnome.tracker-miners.enable = false;
+                      services.gnome.tracker.enable = false;
+                      services.xserver.enable = true;
+                      services.xserver.desktopManager.gnome.enable = true;
+                      services.xserver.displayManager.gdm.enable = true;
+                      services.xserver.libinput.enable = true;
+                      services.xserver.xkbOptions = "caps:none";
+                      services.pcscd.enable = true;
+
+
+                      # enable gpg
+                      programs.gnupg.agent = {
+                        enable = true;
+                        pinentryFlavor = "curses";
+                        enableSSHSupport = true;
+                      };
+
+                      programs.gnome-disks.enable = true;
+                      environment.systemPackages = with pkgs; [
+                        libreoffice
+                        tor-browser-bundle-bin
+                        docker-compose
+                        firefox
+                        git
+                        gnome-text-editor
+                        gnome.baobab
+                        gnome.eog
+                        gnome.file-roller
+                        gnome.gnome-boxes
+                        gnome.gnome-system-monitor
+                        gnome.nautilus
+                        gnome.gnome-power-manager
+                        vlc
+                        pinentry-curses
+                        htop
+                        tmux
+                        lm_sensors
+                        master.jetbrains.pycharm-community
+                        master.jetbrains.pycharm-professional
+                        smartmontools
+                        jetbrains.goland
+                        mendeley
+                        nmap
+                        silver-searcher
+                        rnix-lsp
+                        slack
+                        master.helix
+                        tig
+                        xclip
+                        nodejs
+                        rustup
+                        julia-bin
+                        clang
+                        julia-bin
+                        rust-analyzer
+                        gopls
+                        gnome-console
                       ];
+                      users.users.rxiao = {
+                        isNormalUser = true;
+                        extraGroups = [ "wheel" "docker" "vboxusers" ];
+                      };
+                      virtualisation.libvirtd.enable = true;
+                      virtualisation.docker.enable = true;
+                      virtualisation.docker.storageDriver = "zfs";
+                      hardware.opengl.enable = true;
+                      hardware.pulseaudio.enable = true;
+                      systemd.enableUnifiedCgroupHierarchy = false;
+                      networking.firewall.enable = false;
+                      system.stateVersion = "22.05"; # Did you read the comment?
+                    })
+                  additionalConfig
 
-                    boot.initrd.availableKernelModules = [ "nvme" ];
-                    fileSystems."/" = { device = rootPool; fsType = "zfs"; };
-                    fileSystems."/boot" = { device = bootDevice; fsType = "vfat"; };
-                    swapDevices = [{ device = swapDevice; }];
-                    nix = {
-                      extraOptions = "experimental-features = nix-command flakes";
-                    };
-                    # sound
-                    sound.enable = true;
-                    nixpkgs.config.pulseaudio = true;
-                    nixpkgs.config.allowUnfree = true;
-                    hardware.enableAllFirmware = true;
-                    boot.loader.systemd-boot.enable = true;
-                    boot.loader.efi.canTouchEfiVariables = true;
-
-                    networking.hostId = "00000000";
-                    networking.hostName = hostName;
-                    networking.networkmanager = {
-                      enable = true;
-                      wifi.powersave = false;
-                    };
-                    time.timeZone = "Australia/Melbourne";
-
-                    services.logind.extraConfig = ''
-                      RuntimeDirectorySize=10G
-                    '';
-
-                    i18n.defaultLocale = "en_AU.UTF-8";
-                    services.gnome.core-utilities.enable = false;
-                    services.gnome.tracker-miners.enable = false;
-                    services.gnome.tracker.enable = false;
-                    services.xserver.enable = true;
-                    services.xserver.desktopManager.gnome.enable = true;
-                    services.xserver.displayManager.gdm.enable = true;
-                    services.xserver.libinput.enable = true;
-                    services.xserver.xkbOptions = "caps:none";
-                    services.pcscd.enable = true;
-
-
-                    # enable gpg
-                    programs.gnupg.agent = {
-                      enable = true;
-                      pinentryFlavor = "curses";
-                      enableSSHSupport = true;
-                    };
-
-                    programs.gnome-disks.enable = true;
-                    environment.systemPackages = with pkgs; [
-                      libreoffice
-                      qbittorrent-nox
-                      tor-browser-bundle-bin
-                      docker-compose
-                      firefox
-                      git
-                      gnome-text-editor
-                      gnome.baobab
-                      gnome.eog
-                      gnome.file-roller
-                      gnome.gnome-boxes
-                      gnome.gnome-system-monitor
-                      gnome.nautilus
-                      gnome.gnome-power-manager
-                      vlc
-                      pinentry-curses
-                      htop
-                      tmux
-                      lm_sensors
-                      master.jetbrains.pycharm-community
-                      master.jetbrains.pycharm-professional
-                      smartmontools
-                      jetbrains.goland
-                      mendeley
-                      nmap
-                      silver-searcher
-                      rnix-lsp
-                      slack
-                      master.helix
-                      tig
-                      xclip
-                      nodejs
-                      rustup
-                      julia-bin
-                      clang
-                      julia-bin
-                      rust-analyzer
-                      gopls
-                      gnome-console
-                    ];
-                    users.users.rxiao = {
-                      isNormalUser = true;
-                      extraGroups = [ "wheel" "docker" "vboxusers" ];
-                    };
-                    virtualisation.libvirtd.enable = true;
-                    virtualisation.docker.enable = true;
-                    virtualisation.docker.storageDriver = "zfs";
-                    hardware.opengl.enable = true;
-                    hardware.pulseaudio.enable = true;
-                    systemd.enableUnifiedCgroupHierarchy = false;
-                    networking.firewall.enable = false;
-                    system.stateVersion = "22.05"; # Did you read the comment?
-                  })
-                hardware_configurations
-
-              ];
+                ];
             };
         in
         {
           # Lenovo T490
           apollo = nixpkgs.lib.nixosSystem (simplesystem {
             hostName = "apollo";
-            hardware_configurations = ({ pkgs, lib, modulesPath, ... }:
+            additionalConfig = ({ pkgs, lib, modulesPath, ... }:
               {
                 services.tailscale.enable = true;
                 powerManagement.cpuFreqGovernor = "powersave";
@@ -163,17 +183,15 @@
           # amd ryzen 7 1700
           athena = nixpkgs.lib.nixosSystem (simplesystem {
             hostName = "athena";
-            hardware_configurations = ({ pkgs, lib, modulesPath, ... }:
+            nvidiaConfig = { powerlimit = 205; };
+            additionalConfig = ({ pkgs, lib, modulesPath, ... }:
               {
                 services.vscode-server.enable = true;
-                services.xserver.videoDrivers = [ "nvidia" ];
-                virtualisation.docker.enableNvidia = true;
-                hardware.opengl.driSupport32Bit = true;
                 hardware.cpu.amd.updateMicrocode = true;
                 boot.kernelModules = [ "kvm-amd" ];
                 services.openssh = {
                   enable = true;
-                  #passwordAuthentication = true;
+                  passwordAuthentication = false;
                 };
                 services.xserver.displayManager.gdm.autoSuspend = false;
                 security.polkit.extraConfig = ''
@@ -192,17 +210,7 @@
                   zpool import -f data
                   zpool import -f torrents
                 '';
-                environment.systemPackages = with pkgs; [ bpytop nethogs ];
-                systemd.services.nvidia-power-limiter = {
-                  wantedBy = [ "multi-user.target" ];
-                  description = "set power limit for nvidia gpus";
-                  serviceConfig = {
-                    Type = "simple";
-                    ExecStart = ''
-                      /run/current-system/sw/bin/bash -c "/run/current-system/sw/bin/nvidia-smi -i 0 -pl 205 &&  /run/current-system/sw/bin/nvidia-smi -i 1 -pl 75" 
-                    '';
-                  };
-                };
+                environment.systemPackages = with pkgs; [ bpytop nethogs qbittorrent-nox ];
                 systemd.services.qbittorrent-server = {
                   wantedBy = [ "multi-user.target" ];
                   description = "qbittorrent webserver";
@@ -225,11 +233,9 @@
           # amd ryzen 3950x
           dante = nixpkgs.lib.nixosSystem (simplesystem {
             hostName = "dante";
-            hardware_configurations = ({ pkgs, lib, modulesPath, ... }:
+            nvidiaConfig = { powerlimit = 205; };
+            additionalConfig = ({ pkgs, lib, modulesPath, ... }:
               {
-                services.xserver.videoDrivers = [ "nvidia" ];
-                virtualisation.docker.enableNvidia = true;
-                hardware.opengl.driSupport32Bit = true;
                 services.tailscale.enable = true;
                 hardware.cpu.amd.updateMicrocode = true;
                 nix.settings = {
@@ -237,7 +243,6 @@
                   trusted-public-keys = [ "hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ=" "iohk.cachix.org-1:DpRUyj7h7V830dp/i6Nti+NEO2/nhblbov/8MW7Rqoo=" ];
                 };
                 boot.kernelModules = [ "kvm-amd" ];
-                hardware.nvidia.nvidiaPersistenced = true;
                 environment.interactiveShellInit = ''
                   alias athena='ssh rxiao@192.168.50.187'
                   alias artemis='ssh rxiao@artemis.silverpond.com.au'
@@ -247,16 +252,6 @@
                   zpool import -f zdata
                   zpool import -f bigdisk
                 '';
-                systemd.services.nvidia-power-limiter = {
-                  wantedBy = [ "multi-user.target" ];
-                  description = "set power limit for nvidia gpus";
-                  serviceConfig = {
-                    Type = "simple";
-                    ExecStart = ''
-                      /run/current-system/sw/bin/nvidia-smi -pl 205
-                    '';
-                  };
-                };
                 services.openssh = {
                   enable = true;
                   passwordAuthentication = true;
