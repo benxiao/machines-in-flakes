@@ -13,7 +13,7 @@
             config.allowUnfree = true;
           };
           
-          nvidiaModule = { powerlimit }: ({ pkgs, lib, modulesPath, ... }: {
+          makeNvidiaModule = { powerlimit }: ({ pkgs, lib, modulesPath, ... }: {
             services.xserver.videoDrivers = [ "nvidia" ];
             hardware.nvidia.nvidiaPersistenced = true;
             virtualisation.docker.enableNvidia = true;
@@ -40,7 +40,7 @@
             }: {
               inherit system;
               modules =
-                (if nvidiaConfig != null then [ (nvidiaModule nvidiaConfig) ] else [ ])
+                (if nvidiaConfig != null then [ (makeNvidiaModule nvidiaConfig) ] else [ ])
                 ++
                 [
                   vscode-server.nixosModule
