@@ -109,15 +109,15 @@
                         gnome.gnome-system-monitor
                         gnome.nautilus
                         gnome.gnome-power-manager
+                        gnome-console
                         vlc
                         pinentry-curses
-                        htop
+                        master.htop
                         tmux
                         lm_sensors
                         master.jetbrains.pycharm-community
-                        master.jetbrains.pycharm-professional
                         smartmontools
-                        jetbrains.goland
+                        master.jetbrains.goland
                         mendeley
                         nmap
                         silver-searcher
@@ -128,12 +128,10 @@
                         xclip
                         nodejs
                         rustup
-                        julia-bin
                         clang
                         julia-bin
                         rust-analyzer
                         gopls
-                        gnome-console
                       ];
                       users.users.rxiao = {
                         isNormalUser = true;
