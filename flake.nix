@@ -221,8 +221,7 @@
                 })
 
               vscode-server.nixosModule
-              makeNvidiaModule
-              { powerlimit = 205; }
+              (makeNvidiaModule { powerlimit = 205; })
             ];
           });
           # amd ryzen 7 3700x
@@ -231,8 +230,7 @@
             swapDevice = "/dev/disk/by-uuid/79ef359f-1882-4427-a93e-363259bc2445";
             bootDevice = "/dev/disk/by-uuid/07D2-41D4";
             extraModules = [
-              makeNvidiaModule
-              { powerlimit = 125; }
+              (makeNvidiaModule { powerlimit = 125; })
             ];
           });
           # amd ryzen 3950x
@@ -271,8 +269,7 @@
                   };
                   environment.systemPackages = with pkgs; [ mongodb-compass master.vscode remmina ];
                 })
-              makeNvidiaModule
-              { powerlimit = 205; }
+              (makeNvidiaModule { powerlimit = 205; })
             ];
           });
         };
