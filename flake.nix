@@ -32,16 +32,13 @@
 
           simplesystem =
             { hostName
-            , additionalConfig
+            , extraModules ? []
             , rootPool ? "zroot/root"
             , bootDevice ? "/dev/nvme0n1p3"
             , swapDevice ? "/dev/nvme0n1p2"
-            , nvidiaConfig ? null
             }: {
               inherit system;
               modules =
-                (if nvidiaConfig != null then [ (makeNvidiaModule nvidiaConfig) ] else [ ])
-                ++
                 [
                   vscode-server.nixosModule
 
@@ -152,16 +149,15 @@
                       networking.firewall.enable = false;
                       system.stateVersion = "22.05"; # Did you read the comment?
                     })
-                  additionalConfig
 
-                ];
+                ] ++ extraModules;
             };
         in
         {
           # Lenovo T490
           apollo = nixpkgs.lib.nixosSystem (simplesystem {
             hostName = "apollo";
-            additionalConfig = ({ pkgs, lib, modulesPath, ... }:
+            extraModules = [({ pkgs, lib, modulesPath, ... }:
               {
                 services.tailscale.enable = true;
                 powerManagement.cpuFreqGovernor = "powersave";
@@ -177,14 +173,14 @@
                 virtualisation.virtualbox.host.enableExtensionPack = true;
                 users.extraGroups.vboxusers.members = [ "user-with-access-to-virtualbox" ];
 
-              });
+              })
+              ];
 
           });
           # amd ryzen 7 1700
           athena = nixpkgs.lib.nixosSystem (simplesystem {
             hostName = "athena";
-            nvidiaConfig = { powerlimit = 205; };
-            additionalConfig = ({ pkgs, lib, modulesPath, ... }:
+            extraModules = [({ pkgs, lib, modulesPath, ... }:
               {
                 services.vscode-server.enable = true;
                 hardware.cpu.amd.updateMicrocode = true;
@@ -221,20 +217,24 @@
                     '';
                   };
                 };
-              });
+              })
+              
+              makeNvidiaModule { powerlimit=205; }
+              ];
           });
           # amd ryzen 7 3700x
           wotan = nixpkgs.lib.nixosSystem (simplesystem {
             hostName = "wotan";
             swapDevice = "/dev/disk/by-uuid/79ef359f-1882-4427-a93e-363259bc2445";
             bootDevice = "/dev/disk/by-uuid/07D2-41D4";
-            hardware_configurations = ({ pkgs, lib, modulesPath, ... }: { });
+            extraModules = [
+              makeNvidiaModule { powerlimit=125; }
+            ];
           });
           # amd ryzen 3950x
           dante = nixpkgs.lib.nixosSystem (simplesystem {
             hostName = "dante";
-            nvidiaConfig = { powerlimit = 205; };
-            additionalConfig = ({ pkgs, lib, modulesPath, ... }:
+            extraModules = [({ pkgs, lib, modulesPath, ... }:
               {
                 services.tailscale.enable = true;
                 hardware.cpu.amd.updateMicrocode = true;
@@ -265,7 +265,9 @@
                   dedicatedServer.openFirewall = true; # Open ports in the firewall for Source Dedicated Server
                 };
                 environment.systemPackages = with pkgs; [ mongodb-compass master.vscode remmina ];
-              });
+              })
+              makeNvidiaModule {powerlimit=205; }
+              ];
           });
         };
     };
