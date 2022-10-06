@@ -65,10 +65,6 @@
 
                       networking.hostId = "00000000";
                       networking.hostName = hostName;
-                      networking.networkmanager = {
-                        enable = true;
-                        wifi.powersave = false;
-                      };
                       time.timeZone = "Australia/Melbourne";
 
                       services.logind.extraConfig = ''
