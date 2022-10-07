@@ -221,8 +221,8 @@
           # amd ryzen 7 3700x
           wotan = nixpkgs.lib.nixosSystem (simplesystem {
             hostName = "wotan";
-            swapDevice = "/dev/disk/by-uuid/79ef359f-1882-4427-a93e-363259bc2445";
-            bootDevice = "/dev/disk/by-uuid/07D2-41D4";
+            swapDevice = "/dev/disk/by-uuid/c99f9905-82ea-4431-a7ad-5a751deeb800";
+            bootDevice = "/dev/disk/by-uuid/53D5-A050";
             extraModules = [
               (makeNvidiaModule { powerlimit = 125; })
             ];
