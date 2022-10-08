@@ -1,6 +1,6 @@
 {
   description = "all my machines in flakes";
-  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-22.05";
+  inputs.nixpkgs.url = "github:nixos/nixpkgs";
   inputs.nixpkgs-master.url = "github:nixos/nixpkgs";
   inputs.vscode-server.url = "github:msteen/nixos-vscode-server";
   outputs = { self, nixpkgs, nixpkgs-master, vscode-server }:
@@ -13,22 +13,47 @@
             config.allowUnfree = true;
           };
 
-          intelCpuModule = ({ pkgs, lib, modulesPath, ... }: {
+          intelCpuModule = ({ ... }: {
             powerManagement.cpuFreqGovernor = "powersave";
             hardware.cpu.intel.updateMicrocode = true;
           });
 
 
-          amdCpuModule = ({ pkgs, lib, modulesPath, ... }: {
+          amdCpuModule = ({ ... }: {
             boot.kernelModules = [ "kvm-amd" ];
             hardware.cpu.amd.updateMicrocode = true;
           });
 
-          makeNvidiaModule = { powerlimit }: ({ pkgs, lib, modulesPath, ... }: {
+          desktopAppsModule = ({ pkgs, ... }: {
+            environment.systemPackages = with pkgs; [
+              vscode
+              mongodb-compass
+              slack
+              master.jetbrains.goland
+              mendeley
+              master.jetbrains.pycharm-community
+              gnome-text-editor
+              gnome.baobab
+              gnome.eog
+              gnome.file-roller
+              gnome.gnome-boxes
+              gnome.gnome-system-monitor
+              gnome.nautilus
+              gnome.gnome-power-manager
+              gnome-console
+              vlc
+              firefox
+              tor-browser-bundle-bin
+              libreoffice
+            ];
+          });
+
+          makeNvidiaModule = { powerlimit }: ({ ... }: {
             services.xserver.videoDrivers = [ "nvidia" ];
             hardware.nvidia.nvidiaPersistenced = true;
             virtualisation.docker.enableNvidia = true;
             hardware.opengl.driSupport32Bit = true;
+            systemd.enableUnifiedCgroupHierarchy = false;
             systemd.services.nvidia-power-limiter = {
               wantedBy = [ "multi-user.target" ];
               description = "set power limit for nvidia gpus";
@@ -76,8 +101,8 @@
                       sound.enable = true;
                       nixpkgs.config.pulseaudio = true;
                       nixpkgs.config.allowUnfree = true;
-                      hardware.enableAllFirmware = true;
                       boot.loader.systemd-boot.enable = true;
+                      boot.kernelPackages = pkgs.linuxPackages_5_19;
                       boot.loader.efi.canTouchEfiVariables = true;
 
                       networking.hostId = "00000000";
@@ -109,33 +134,16 @@
 
                       programs.gnome-disks.enable = true;
                       environment.systemPackages = with pkgs; [
-                        libreoffice
-                        tor-browser-bundle-bin
                         docker-compose
-                        firefox
                         git
-                        gnome-text-editor
-                        gnome.baobab
-                        gnome.eog
-                        gnome.file-roller
-                        gnome.gnome-boxes
-                        gnome.gnome-system-monitor
-                        gnome.nautilus
-                        gnome.gnome-power-manager
-                        gnome-console
-                        vlc
                         pinentry-curses
                         master.htop
                         tmux
                         lm_sensors
-                        master.jetbrains.pycharm-community
                         smartmontools
-                        master.jetbrains.goland
-                        mendeley
                         nmap
                         silver-searcher
                         rnix-lsp
-                        slack
                         master.helix
                         tig
                         xclip
@@ -155,7 +163,6 @@
                       virtualisation.docker.storageDriver = "zfs";
                       hardware.opengl.enable = true;
                       hardware.pulseaudio.enable = true;
-                      systemd.enableUnifiedCgroupHierarchy = false;
                       networking.firewall.enable = false;
                       system.stateVersion = "22.05"; # Did you read the comment?
                     })
@@ -177,10 +184,9 @@
                     alias artemis='ssh rxiao@artemis.silverpond.com.au'
                     export RUST_BACKTRACE=1
                   '';
-                  environment.systemPackages = with pkgs; [ mongodb-compass vscode ];
-
                 })
               intelCpuModule
+              desktopAppsModule
             ];
 
           });
@@ -220,11 +226,11 @@
                   };
                 })
               (makeStorageModule {
-                  postDeviceCommands = ''
-                    zpool import -f data
-                    zpool import -f torrents
-                  '';
-               })
+                postDeviceCommands = ''
+                  zpool import -f data
+                  zpool import -f torrents
+                '';
+              })
               amdCpuModule
               vscode-server.nixosModule
               (makeNvidiaModule { powerlimit = 205; })
@@ -270,16 +276,16 @@
                     remotePlay.openFirewall = true; # Open ports in the firewall for Steam Remote Play
                     dedicatedServer.openFirewall = true; # Open ports in the firewall for Source Dedicated Server
                   };
-                  environment.systemPackages = with pkgs; [ master.mongodb-compass master.vscode remmina ];
                 })
               (makeStorageModule {
-                  postDeviceCommands = ''
-                    zpool import -f zdata
-                    zpool import -f bigdisk
-                  '';
+                postDeviceCommands = ''
+                  zpool import -f zdata
+                  zpool import -f bigdisk
+                '';
               })
               amdCpuModule
               (makeNvidiaModule { powerlimit = 205; })
+              desktopAppsModule
             ];
           });
         };
