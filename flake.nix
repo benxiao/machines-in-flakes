@@ -13,6 +13,17 @@
             config.allowUnfree = true;
           };
 
+          intelCpuModule = ({ pkgs, lib, modulesPath, ... }: {
+            powerManagement.cpuFreqGovernor = "powersave";
+            hardware.cpu.intel.updateMicrocode = true;
+          });
+
+
+          amdCpuModule = ({ pkgs, lib, modulesPath, ... }: {
+            boot.kernelModules = [ "kvm-amd" ];
+            hardware.cpu.amd.updateMicrocode = true;
+          });
+
           makeNvidiaModule = { powerlimit }: ({ pkgs, lib, modulesPath, ... }: {
             services.xserver.videoDrivers = [ "nvidia" ];
             hardware.nvidia.nvidiaPersistenced = true;
@@ -30,17 +41,27 @@
             };
           });
 
+          makeStorageModule =
+            { rootPool ? "zroot/root"
+            , bootDevice ? "/dev/nvme0n1p3"
+            , swapDevice ? "/dev/nvme0n1p2"
+            , postDeviceCommands ? ""
+            }: ({ pkgs, lib, modulesPath, ... }: {
+
+              boot.initrd.availableKernelModules = [ "nvme" ];
+              fileSystems."/" = { device = rootPool; fsType = "zfs"; };
+              fileSystems."/boot" = { device = bootDevice; fsType = "vfat"; };
+              swapDevices = [{ device = swapDevice; }];
+              boot.initrd.postDeviceCommands = postDeviceCommands;
+            });
+
           simplesystem =
             { hostName
             , extraModules ? [ ]
-            , rootPool ? "zroot/root"
-            , bootDevice ? "/dev/nvme0n1p3"
-            , swapDevice ? "/dev/nvme0n1p2"
             }: {
               inherit system;
               modules =
                 [
-
                   ({ pkgs, lib, modulesPath, ... }:
                     {
                       imports =
@@ -48,10 +69,6 @@
                           (modulesPath + "/installer/scan/not-detected.nix")
                         ];
 
-                      boot.initrd.availableKernelModules = [ "nvme" ];
-                      fileSystems."/" = { device = rootPool; fsType = "zfs"; };
-                      fileSystems."/boot" = { device = bootDevice; fsType = "vfat"; };
-                      swapDevices = [{ device = swapDevice; }];
                       nix = {
                         extraOptions = "experimental-features = nix-command flakes";
                       };
@@ -151,23 +168,19 @@
           apollo = nixpkgs.lib.nixosSystem (simplesystem {
             hostName = "apollo";
             extraModules = [
+              (makeStorageModule { })
               ({ pkgs, lib, modulesPath, ... }:
                 {
                   services.tailscale.enable = true;
-                  powerManagement.cpuFreqGovernor = "powersave";
-                  hardware.cpu.intel.updateMicrocode = true;
                   environment.interactiveShellInit = ''
                     alias athena='ssh rxiao@192.168.50.187'
                     alias artemis='ssh rxiao@artemis.silverpond.com.au'
                     export RUST_BACKTRACE=1
                   '';
-
-                  environment.systemPackages = with pkgs; [ mongodb-compass vscode remmina ];
-                  virtualisation.virtualbox.host.enable = true;
-                  virtualisation.virtualbox.host.enableExtensionPack = true;
-                  users.extraGroups.vboxusers.members = [ "user-with-access-to-virtualbox" ];
+                  environment.systemPackages = with pkgs; [ mongodb-compass vscode ];
 
                 })
+              intelCpuModule
             ];
 
           });
@@ -178,8 +191,6 @@
               ({ pkgs, lib, modulesPath, ... }:
                 {
                   services.vscode-server.enable = true;
-                  hardware.cpu.amd.updateMicrocode = true;
-                  boot.kernelModules = [ "kvm-amd" ];
                   services.openssh = {
                     enable = true;
                     passwordAuthentication = false;
@@ -196,11 +207,6 @@
                       }
                     });
                   '';
-                  hardware.nvidia.nvidiaPersistenced = true;
-                  boot.initrd.postDeviceCommands = ''
-                    zpool import -f data
-                    zpool import -f torrents
-                  '';
                   environment.systemPackages = with pkgs; [ bpytop nethogs qbittorrent-nox ];
                   systemd.services.qbittorrent-server = {
                     wantedBy = [ "multi-user.target" ];
@@ -213,7 +219,13 @@
                     };
                   };
                 })
-
+              (makeStorageModule {
+                  postDeviceCommands = ''
+                    zpool import -f data
+                    zpool import -f torrents
+                  '';
+               })
+              amdCpuModule
               vscode-server.nixosModule
               (makeNvidiaModule { powerlimit = 205; })
             ];
@@ -221,10 +233,13 @@
           # amd ryzen 7 3700x
           wotan = nixpkgs.lib.nixosSystem (simplesystem {
             hostName = "wotan";
-            swapDevice = "/dev/disk/by-uuid/c99f9905-82ea-4431-a7ad-5a751deeb800";
-            bootDevice = "/dev/disk/by-uuid/53D5-A050";
             extraModules = [
+              amdCpuModule
               (makeNvidiaModule { powerlimit = 125; })
+              (makeStorageModule {
+                swapDevice = "/dev/disk/by-uuid/c99f9905-82ea-4431-a7ad-5a751deeb800";
+                bootDevice = "/dev/disk/by-uuid/53D5-A050";
+              })
             ];
           });
           # amd ryzen 3950x
@@ -234,20 +249,14 @@
               ({ pkgs, lib, modulesPath, ... }:
                 {
                   services.tailscale.enable = true;
-                  hardware.cpu.amd.updateMicrocode = true;
                   nix.settings = {
                     substituters = [ "https://hydra.iohk.io" "https://iohk.cachix.org" ];
                     trusted-public-keys = [ "hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ=" "iohk.cachix.org-1:DpRUyj7h7V830dp/i6Nti+NEO2/nhblbov/8MW7Rqoo=" ];
                   };
-                  boot.kernelModules = [ "kvm-amd" ];
                   environment.interactiveShellInit = ''
                     alias athena='ssh rxiao@192.168.50.187'
                     alias artemis='ssh rxiao@artemis.silverpond.com.au'
                     export RUST_BACKTRACE=1
-                  '';
-                  boot.initrd.postDeviceCommands = ''
-                    zpool import -f zdata
-                    zpool import -f bigdisk
                   '';
                   services.openssh = {
                     enable = true;
@@ -261,8 +270,15 @@
                     remotePlay.openFirewall = true; # Open ports in the firewall for Steam Remote Play
                     dedicatedServer.openFirewall = true; # Open ports in the firewall for Source Dedicated Server
                   };
-                  environment.systemPackages = with pkgs; [ mongodb-compass master.vscode remmina ];
+                  environment.systemPackages = with pkgs; [ master.mongodb-compass master.vscode remmina ];
                 })
+              (makeStorageModule {
+                  postDeviceCommands = ''
+                    zpool import -f zdata
+                    zpool import -f bigdisk
+                  '';
+              })
+              amdCpuModule
               (makeNvidiaModule { powerlimit = 205; })
             ];
           });
