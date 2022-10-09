@@ -280,7 +280,7 @@
                 '';
               })
               amdCpuModule
-              (makeNvidiaModule { powerlimit = 205; })
+              (makeNvidiaModule { powerlimit = 75; })
               desktopAppsModule
             ];
           });
