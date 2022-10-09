@@ -89,17 +89,14 @@
                 [
                   ({ pkgs, lib, modulesPath, ... }:
                     {
-                      imports =
-                        [
-                          (modulesPath + "/installer/scan/not-detected.nix")
-                        ];
-
-                      nix = {
-                        extraOptions = "experimental-features = nix-command flakes";
-                      };
+                      imports = [ (modulesPath + "/installer/scan/not-detected.nix") ];
+                      nix.extraOptions = "experimental-features = nix-command flakes";
                       # sound
                       sound.enable = true;
                       nixpkgs.config.pulseaudio = true;
+                      hardware.pulseaudio.enable = true;
+                      hardware.pulseaudio.support32Bit = true;
+
                       nixpkgs.config.allowUnfree = true;
                       boot.loader.systemd-boot.enable = true;
                       boot.kernelPackages = pkgs.linuxPackages_5_19;
@@ -123,7 +120,6 @@
                       services.xserver.libinput.enable = true;
                       services.xserver.xkbOptions = "caps:none";
                       services.pcscd.enable = true;
-
 
                       # enable gpg
                       programs.gnupg.agent = {
@@ -162,7 +158,6 @@
                       virtualisation.docker.enable = true;
                       virtualisation.docker.storageDriver = "zfs";
                       hardware.opengl.enable = true;
-                      hardware.pulseaudio.enable = true;
                       networking.firewall.enable = false;
                       system.stateVersion = "22.05"; # Did you read the comment?
                     })
@@ -241,7 +236,8 @@
             hostName = "wotan";
             extraModules = [
               amdCpuModule
-              (makeNvidiaModule { powerlimit = 125; })
+              desktopAppsModule
+              (makeNvidiaModule { powerlimit = 205; })
               (makeStorageModule {
                 swapDevice = "/dev/disk/by-uuid/c99f9905-82ea-4431-a7ad-5a751deeb800";
                 bootDevice = "/dev/disk/by-uuid/53D5-A050";
