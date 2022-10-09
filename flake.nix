@@ -223,7 +223,7 @@
               (makeStorageModule {
                 postDeviceCommands = ''
                   zpool import -f data
-                  zpool import -f torrents
+                  zpool import -f red4
                 '';
               })
               amdCpuModule
