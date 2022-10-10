@@ -253,7 +253,7 @@
                     trusted-public-keys = [ "hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ=" "iohk.cachix.org-1:DpRUyj7h7V830dp/i6Nti+NEO2/nhblbov/8MW7Rqoo=" ];
                   };
                   environment.interactiveShellInit = ''
-                    alias athena='ssh rxiao@192.168.50.187'
+                    alias athena='ssh rxiao@192.168.50.144'
                     alias artemis='ssh rxiao@artemis.silverpond.com.au'
                     export RUST_BACKTRACE=1
                   '';
@@ -271,7 +271,7 @@
                   };
                 })
               (makeStorageModule {
-                extraPools = [ "bigdisk" "zdata" ];
+                extraPools = [ "zdata" "bigdisk" ];
               })
               amdCpuModule
               (makeNvidiaModule {
