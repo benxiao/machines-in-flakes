@@ -70,14 +70,14 @@
             { rootPool ? "zroot/root"
             , bootDevice ? "/dev/nvme0n1p3"
             , swapDevice ? "/dev/nvme0n1p2"
-            , postDeviceCommands ? ""
+            , extraPools ? []
+            
             }: ({ pkgs, lib, modulesPath, ... }: {
-
               boot.initrd.availableKernelModules = [ "nvme" ];
               fileSystems."/" = { device = rootPool; fsType = "zfs"; };
               fileSystems."/boot" = { device = bootDevice; fsType = "vfat"; };
               swapDevices = [{ device = swapDevice; }];
-              boot.initrd.postDeviceCommands = postDeviceCommands;
+              boot.zfs.extraPools = extraPools;
             });
 
           simplesystem =
@@ -220,11 +220,7 @@
                     };
                   };
                 })
-              (makeStorageModule {
-                postDeviceCommands = ''
-                  zpool import -f data
-                  zpool import -f red4
-                '';
+              (makeStorageModule { extraPools = [red4];
               })
               amdCpuModule
               vscode-server.nixosModule
@@ -273,11 +269,7 @@
                     dedicatedServer.openFirewall = true; # Open ports in the firewall for Source Dedicated Server
                   };
                 })
-              (makeStorageModule {
-                postDeviceCommands = ''
-                  zpool import -f zdata
-                  zpool import -f bigdisk
-                '';
+              (makeStorageModule { extraPools = ["bigdisk" "zdata"]
               })
               amdCpuModule
               (makeNvidiaModule { powerlimit = 205; })
