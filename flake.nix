@@ -221,7 +221,7 @@
                   };
                 })
               (makeStorageModule {
-                extraPools = [ "red4" "torrents" ];
+                extraPools = [ "data" "red4" "torrents" ];
               })
               amdCpuModule
               vscode-server.nixosModule
@@ -271,10 +271,11 @@
                   };
                 })
               (makeStorageModule {
-                extraPools = [ "bigdisk" "zdata" ]
-                  })
-                  amdCpuModule
-                  (makeNvidiaModule { powerlimit = 205;
+                extraPools = [ "bigdisk" "zdata" ];
+              })
+              amdCpuModule
+              (makeNvidiaModule {
+                powerlimit = 205;
               })
               desktopAppsModule
             ];
