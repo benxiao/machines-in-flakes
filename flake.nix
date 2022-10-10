@@ -221,7 +221,7 @@
                   };
                 })
               (makeStorageModule {
-                extraPools = [ "red4" ];
+                extraPools = [ "red4" "torrents" ];
               })
               amdCpuModule
               vscode-server.nixosModule
