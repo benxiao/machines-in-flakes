@@ -272,7 +272,7 @@
                   };
                 })
               (makeStorageModule {
-                extraPools = [ "zdata" "bigdisk" ];
+                extraPools = [ "red2" "blue3" ];
               })
               amdCpuModule
               (makeNvidiaModule {
