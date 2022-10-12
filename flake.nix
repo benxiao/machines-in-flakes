@@ -78,6 +78,7 @@
               fileSystems."/boot" = { device = bootDevice; fsType = "vfat"; };
               swapDevices = [{ device = swapDevice; }];
               boot.zfs.extraPools = extraPools;
+              boot.zfs.forceImportAll = true;
             });
 
           simplesystem =
