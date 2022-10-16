@@ -227,7 +227,7 @@
               (makeStorageModule {
                 extraPools = [ "data" "red4" "torrents" ];
               })
-              (makeStorageModule { })
+              (makeServerModule { })
               amdCpuModule
               vscode-server.nixosModule
               (makeNvidiaModule { powerlimit = 75; })
