@@ -45,6 +45,7 @@
               firefox
               tor-browser-bundle-bin
               libreoffice
+              github-desktop
             ];
           });
 
