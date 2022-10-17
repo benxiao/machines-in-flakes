@@ -49,6 +49,25 @@
             ];
           });
 
+          makeServerModule = { allowPassWordAuthentication ? false }: ({ ... }: {
+            services.xserver.displayManager.gdm.autoSuspend = false;
+            security.polkit.extraConfig = ''
+              polkit.addRule(function(action, subject) {
+                if (action.id == "org.freedesktop.login1.suspend" ||
+                  action.id == "org.freedesktop.login1.suspend-multiple-sessions" ||
+                  action.id == "org.freedesktop.login1.hibernate" ||
+                  action.id == "org.freedesktop.login1.hibernate-multiple-sessions")
+                {
+                  return polkit.Result.NO;
+                }
+              });
+            '';
+            services.openssh = {
+              enable = true;
+              passwordAuthentication = allowPassWordAuthentication;
+            };
+          });
+
           makeNvidiaModule = { powerlimit }: ({ ... }: {
             services.xserver.videoDrivers = [ "nvidia" ];
             hardware.nvidia.nvidiaPersistenced = true;
@@ -194,22 +213,6 @@
               ({ pkgs, lib, modulesPath, ... }:
                 {
                   services.vscode-server.enable = true;
-                  services.openssh = {
-                    enable = true;
-                    passwordAuthentication = false;
-                  };
-                  services.xserver.displayManager.gdm.autoSuspend = false;
-                  security.polkit.extraConfig = ''
-                    polkit.addRule(function(action, subject) {
-                      if (action.id == "org.freedesktop.login1.suspend" ||
-                        action.id == "org.freedesktop.login1.suspend-multiple-sessions" ||
-                        action.id == "org.freedesktop.login1.hibernate" ||
-                        action.id == "org.freedesktop.login1.hibernate-multiple-sessions")
-                      {
-                        return polkit.Result.NO;
-                      }
-                    });
-                  '';
                   environment.systemPackages = with pkgs; [ bpytop nethogs qbittorrent-nox ];
                   systemd.services.qbittorrent-server = {
                     wantedBy = [ "multi-user.target" ];
@@ -225,6 +228,7 @@
               (makeStorageModule {
                 extraPools = [ "data" "red4" "torrents" ];
               })
+              (makeServerModule { })
               amdCpuModule
               vscode-server.nixosModule
               (makeNvidiaModule { powerlimit = 75; })
@@ -236,6 +240,7 @@
             extraModules = [
               amdCpuModule
               desktopAppsModule
+              (makeServerModule { })
               (makeNvidiaModule { powerlimit = 205; })
               (makeStorageModule {
                 swapDevice = "/dev/disk/by-uuid/c99f9905-82ea-4431-a7ad-5a751deeb800";
@@ -273,7 +278,7 @@
                   };
                 })
               (makeStorageModule {
-                extraPools = [ "red2" "blue3" ];
+                extraPools = [ "zdata" "bigdisk" ];
               })
               amdCpuModule
               (makeNvidiaModule {
