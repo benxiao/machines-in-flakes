@@ -34,7 +34,6 @@
               jetbrains.pycharm-community
               gnome-text-editor
               gnome.baobab
-              gnome.eog
               gnome.file-roller
               gnome.gnome-boxes
               gnome.gnome-system-monitor
@@ -46,6 +45,7 @@
               tor-browser-bundle-bin
               libreoffice
               github-desktop
+              nomacs
             ];
           });
 
