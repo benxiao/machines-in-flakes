@@ -46,6 +46,7 @@
               libreoffice
               github-desktop
               nomacs
+              joplin-desktop
             ];
           });
 
