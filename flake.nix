@@ -40,7 +40,7 @@
               gnome.nautilus
               gnome.gnome-power-manager
               gnome-console
-              vlc
+              celluloid
               firefox
               tor-browser-bundle-bin
               libreoffice
