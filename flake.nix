@@ -74,7 +74,7 @@
             hardware.nvidia.nvidiaPersistenced = true;
             virtualisation.docker.enableNvidia = true;
             hardware.opengl.driSupport32Bit = true;
-            systemd.enableUnifiedCgroupHierarchy = false;
+            # systemd.enableUnifiedCgroupHierarchy = false;
             systemd.services.nvidia-power-limiter = {
               wantedBy = [ "multi-user.target" ];
               description = "set power limit for nvidia gpus";
@@ -196,6 +196,7 @@
               ({ pkgs, lib, modulesPath, ... }:
                 {
                   services.tailscale.enable = true;
+                  environment.systemPackages = with pkgs; [ android-studio ];
                   environment.interactiveShellInit = ''
                     alias athena='ssh rxiao@192.168.50.144'
                     alias artemis='ssh rxiao@artemis.silverpond.com.au'
