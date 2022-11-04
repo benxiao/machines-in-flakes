@@ -43,10 +43,11 @@
               celluloid
               firefox
               tor-browser-bundle-bin
-              libreoffice
+              stable.libreoffice
               github-desktop
               nomacs
               joplin-desktop
+              android-studio
             ];
           });
 
@@ -121,7 +122,7 @@
 
                       nixpkgs.config.allowUnfree = true;
                       boot.loader.systemd-boot.enable = true;
-                      boot.kernelPackages = pkgs.linuxPackages_5_19;
+                      # boot.kernelPackages = pkgs.linuxPackages_5_19;
                       boot.loader.efi.canTouchEfiVariables = true;
 
                       networking.hostId = "00000000";
