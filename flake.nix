@@ -173,6 +173,7 @@
                         rust-analyzer
                         gopls
                       ];
+                      environment.variables.EDITOR = "hx";
                       users.users.rxiao = {
                         isNormalUser = true;
                         extraGroups = [ "wheel" "docker" "vboxusers" ];
