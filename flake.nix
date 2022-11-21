@@ -35,7 +35,6 @@
               gnome-text-editor
               gnome.baobab
               gnome.file-roller
-              gnome.gnome-boxes
               gnome.gnome-system-monitor
               gnome.nautilus
               gnome.gnome-power-manager
@@ -153,6 +152,7 @@
 
                       programs.gnome-disks.enable = true;
                       environment.systemPackages = with pkgs; [
+                        nix-tree
                         docker-compose
                         git
                         pinentry-curses
@@ -272,9 +272,9 @@
                     enable = true;
                     passwordAuthentication = true;
                   };
-                  virtualisation.virtualbox.host.enable = true;
-                  virtualisation.virtualbox.host.enableExtensionPack = true;
-                  users.extraGroups.vboxusers.members = [ "user-with-access-to-virtualbox" ];
+                  # virtualisation.virtualbox.host.enable = true;
+                  # virtualisation.virtualbox.host.enableExtensionPack = true;
+                  # users.extraGroups.vboxusers.members = [ "user-with-access-to-virtualbox" ];
                   programs.steam = {
                     enable = true;
                     remotePlay.openFirewall = true; # Open ports in the firewall for Steam Remote Play
