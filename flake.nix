@@ -1,6 +1,6 @@
 {
   description = "all my machines in flakes";
-  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+  inputs.nixpkgs.url = "github:nixos/nixpkgs/staging-next";
   inputs.nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-22.05";
   inputs.vscode-server.url = "github:msteen/nixos-vscode-server";
   outputs = { self, nixpkgs, nixpkgs-stable, vscode-server }:
@@ -30,7 +30,7 @@
               mongodb-compass
               slack
               jetbrains.goland
-              mendeley
+              stable.mendeley
               jetbrains.pycharm-community
               gnome-text-editor
               gnome.baobab
