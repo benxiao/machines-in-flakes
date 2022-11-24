@@ -1,6 +1,6 @@
 {
   description = "all my machines in flakes";
-  inputs.nixpkgs.url = "github:nixos/nixpkgs/staging-next";
+  inputs.nixpkgs.url = "github:nixos/nixpkgs/master";
   inputs.nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-22.05";
   inputs.vscode-server.url = "github:msteen/nixos-vscode-server";
   outputs = { self, nixpkgs, nixpkgs-stable, vscode-server }:
@@ -136,6 +136,7 @@
                       services.gnome.core-utilities.enable = false;
                       services.gnome.tracker-miners.enable = false;
                       services.gnome.tracker.enable = false;
+                      services.gnome.gnome-remote-desktop.enable = false;
                       services.xserver.enable = true;
                       services.xserver.desktopManager.gnome.enable = true;
                       services.xserver.displayManager.gdm.enable = true;
@@ -152,6 +153,7 @@
 
                       programs.gnome-disks.enable = true;
                       environment.systemPackages = with pkgs; [
+                        nix-index
                         nix-tree
                         docker-compose
                         git
