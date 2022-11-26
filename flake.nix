@@ -39,7 +39,10 @@
               gnome.nautilus
               gnome.gnome-power-manager
               gnome-console
+              gnome.gnome-chess
+              stockfish
               celluloid
+              stable.vlc
               firefox
               tor-browser-bundle-bin
               stable.libreoffice
