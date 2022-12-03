@@ -174,9 +174,9 @@
                         nodejs
                         rustup
                         clang
-                        julia-bin
                         rust-analyzer
                         gopls
+                        sysstat
                       ];
                       environment.variables.EDITOR = "hx";
                       users.users.rxiao = {
@@ -235,7 +235,7 @@
                   };
                 })
               (makeStorageModule {
-                extraPools = [ "data" "red4" "torrents" ];
+                extraPools = [ "data" "red4" "exos12" ];
               })
               (makeServerModule { })
               amdCpuModule
@@ -264,10 +264,10 @@
               ({ pkgs, lib, modulesPath, ... }:
                 {
                   services.tailscale.enable = true;
-                  nix.settings = {
-                    substituters = [ "https://hydra.iohk.io" "https://iohk.cachix.org" ];
-                    trusted-public-keys = [ "hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ=" "iohk.cachix.org-1:DpRUyj7h7V830dp/i6Nti+NEO2/nhblbov/8MW7Rqoo=" ];
-                  };
+                  # nix.settings = {
+                  #   substituters = [ "https://hydra.iohk.io" "https://iohk.cachix.org" ];
+                  #   trusted-public-keys = [ "hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ=" "iohk.cachix.org-1:DpRUyj7h7V830dp/i6Nti+NEO2/nhblbov/8MW7Rqoo=" ];
+                  # };
                   environment.interactiveShellInit = ''
                     alias athena='ssh rxiao@192.168.50.188'
                     alias artemis='ssh rxiao@artemis.silverpond.com.au'
