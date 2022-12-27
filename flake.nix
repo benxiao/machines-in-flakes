@@ -27,10 +27,11 @@
           desktopAppsModule = ({ pkgs, ... }: {
             environment.systemPackages = with pkgs; [
               vscode
+              dropbox
               mongodb-compass
               slack
               jetbrains.goland
-              stable.mendeley
+              mendeley
               jetbrains.pycharm-community
               gnome-text-editor
               gnome.baobab
@@ -271,6 +272,7 @@
                   environment.interactiveShellInit = ''
                     alias athena='ssh rxiao@192.168.50.144'
                     alias artemis='ssh rxiao@artemis.silverpond.com.au'
+                    alias mendeley='mendeley-reference-manager --no-sandbox </dev/null &>/dev/null &'
                     export RUST_BACKTRACE=1
                   '';
                   services.openssh = {
@@ -287,7 +289,7 @@
                   };
                 })
               (makeStorageModule {
-                extraPools = [ "zdata" "bigdisk" ];
+                extraPools = [ "zdata" "blue3" ];
               })
               amdCpuModule
               (makeNvidiaModule {
