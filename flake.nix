@@ -45,8 +45,10 @@
               celluloid
               vlc
               firefox
+              thunderbird
               tor-browser-bundle-bin
               libreoffice
+              qbittorrent
               github-desktop
               nomacs
               joplin-desktop
@@ -125,7 +127,7 @@
 
                       nixpkgs.config.allowUnfree = true;
                       boot.loader.systemd-boot.enable = true;
-                      # boot.kernelPackages = pkgs.linuxPackages_5_19;
+                      boot.kernelPackages = pkgs.linuxPackages_6_0;
                       boot.loader.efi.canTouchEfiVariables = true;
 
                       networking.hostId = "00000000";
@@ -159,6 +161,8 @@
                       environment.systemPackages = with pkgs; [
                         nix-index
                         nix-tree
+                        nil
+                        nixpkgs-fmt
                         docker-compose
                         git
                         pinentry-curses
@@ -168,7 +172,6 @@
                         smartmontools
                         nmap
                         silver-searcher
-                        rnix-lsp
                         helix
                         tig
                         xclip
@@ -272,7 +275,7 @@
                   environment.interactiveShellInit = ''
                     alias athena='ssh rxiao@192.168.50.144'
                     alias artemis='ssh rxiao@artemis.silverpond.com.au'
-                    alias mendeley='mendeley-reference-manager --no-sandbox </dev/null &>/dev/null &'
+                    alias mendeley='mendeley-reference-manager --no-sandbox' 
                     export RUST_BACKTRACE=1
                   '';
                   services.openssh = {
