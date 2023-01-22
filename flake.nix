@@ -171,6 +171,7 @@
                         lm_sensors
                         smartmontools
                         nmap
+                        unzip
                         silver-searcher
                         helix
                         tig
@@ -206,6 +207,7 @@
               (makeStorageModule { })
               ({ pkgs, lib, modulesPath, ... }:
                 {
+                  services.xserver.displayManager.gdm.wayland = false;
                   services.tailscale.enable = true;
                   environment.systemPackages = with pkgs; [ android-studio ];
                   environment.interactiveShellInit = ''
