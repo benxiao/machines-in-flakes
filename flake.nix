@@ -71,7 +71,7 @@
             '';
             services.openssh = {
               enable = true;
-              passwordAuthentication = allowPassWordAuthentication;
+              settings.PasswordAuthentication = allowPassWordAuthentication;
             };
           });
 
@@ -280,7 +280,7 @@
                   '';
                   services.openssh = {
                     enable = true;
-                    passwordAuthentication = true;
+                    settings.PasswordAuthentication = false;
                   };
                   # virtualisation.virtualbox.host.enable = true;
                   # virtualisation.virtualbox.host.enableExtensionPack = true;
