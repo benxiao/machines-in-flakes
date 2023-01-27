@@ -27,6 +27,7 @@
           desktopAppsModule = ({ pkgs, ... }: {
             environment.systemPackages = with pkgs; [
               vscode
+              gimp
               dropbox
               mongodb-compass
               slack
@@ -47,7 +48,7 @@
               firefox
               thunderbird
               tor-browser-bundle-bin
-              libreoffice
+              stable.libreoffice
               qbittorrent
               github-desktop
               nomacs
@@ -127,7 +128,7 @@
 
                       nixpkgs.config.allowUnfree = true;
                       boot.loader.systemd-boot.enable = true;
-                      boot.kernelPackages = pkgs.linuxPackages_6_0;
+                      boot.kernelPackages = pkgs.linuxPackages_6_1;
                       boot.loader.efi.canTouchEfiVariables = true;
 
                       networking.hostId = "00000000";
