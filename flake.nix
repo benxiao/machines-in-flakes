@@ -43,7 +43,7 @@
               gnome-console
               gnome.gnome-chess
               stockfish
-              celluloid
+              mpv
               vlc
               firefox
               thunderbird
