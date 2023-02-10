@@ -213,6 +213,7 @@
                   environment.systemPackages = with pkgs; [ android-studio ];
                   environment.interactiveShellInit = ''
                     alias athena='ssh rxiao@192.168.50.144'
+                    alias wotan='ssh rxiao.asuscomm.com -p 142857'
                     alias artemis='ssh rxiao@artemis.silverpond.com.au'
                     export RUST_BACKTRACE=1
                   '';
@@ -254,13 +255,14 @@
           wotan = nixpkgs.lib.nixosSystem (simplesystem {
             hostName = "wotan";
             extraModules = [
-              amdCpuModule
+              intelCpuModule
               desktopAppsModule
               (makeServerModule { })
               (makeNvidiaModule { powerlimit = 205; })
               (makeStorageModule {
-                swapDevice = "/dev/disk/by-uuid/c99f9905-82ea-4431-a7ad-5a751deeb800";
-                bootDevice = "/dev/disk/by-uuid/53D5-A050";
+                swapDevice = "/dev/disk/by-uuid/73bc01ab-e70f-4e78-8bd6-e6c0521518eb";
+                bootDevice = "/dev/disk/by-uuid/62A3-CEBD";
+                extraPools = [ "black1" ];
               })
             ];
           });
