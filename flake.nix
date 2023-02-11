@@ -213,7 +213,7 @@
                   environment.systemPackages = with pkgs; [ android-studio ];
                   environment.interactiveShellInit = ''
                     alias athena='ssh rxiao@192.168.50.144'
-                    alias wotan='ssh rxiao.asuscomm.com -p 142857'
+                    alias wotan='ssh rxiao.asuscomm.com -p 14285'
                     alias artemis='ssh rxiao@artemis.silverpond.com.au'
                     export RUST_BACKTRACE=1
                   '';
