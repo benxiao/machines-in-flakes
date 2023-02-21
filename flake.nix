@@ -43,7 +43,8 @@
               gnome-console
               gnome.gnome-chess
               stockfish
-              mpv
+              # mpv
+              celluloid
               vlc
               firefox
               thunderbird
@@ -164,6 +165,7 @@
                         nix-tree
                         nil
                         nixpkgs-fmt
+                        ffmpeg_5-full
                         docker-compose
                         git
                         pinentry-curses
