@@ -1,7 +1,7 @@
 {
   description = "all my machines in flakes";
-  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-  inputs.nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-22.05";
+  inputs.nixpkgs.url = "github:nixos/nixpkgs/master";
+  inputs.nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-22.11";
   inputs.vscode-server.url = "github:msteen/nixos-vscode-server";
   outputs = { self, nixpkgs, nixpkgs-stable, vscode-server }:
     {
@@ -166,6 +166,7 @@
                         nil
                         nixpkgs-fmt
                         ffmpeg_5-full
+                        btop
                         docker-compose
                         git
                         pinentry-curses
@@ -232,7 +233,7 @@
               ({ pkgs, lib, modulesPath, ... }:
                 {
                   services.vscode-server.enable = true;
-                  environment.systemPackages = with pkgs; [ bpytop nethogs qbittorrent-nox ];
+                  environment.systemPackages = with pkgs; [ nethogs qbittorrent-nox ];
                   systemd.services.qbittorrent-server = {
                     wantedBy = [ "multi-user.target" ];
                     description = "qbittorrent webserver";
