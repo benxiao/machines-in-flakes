@@ -26,6 +26,7 @@
 
           desktopAppsModule = ({ pkgs, ... }: {
             environment.systemPackages = with pkgs; [
+              ledger-live-desktop
               vscode
               gimp
               dropbox
@@ -43,6 +44,8 @@
               gnome-console
               gnome.gnome-chess
               stockfish
+              amberol
+              # elisa
               # mpv
               celluloid
               vlc
@@ -126,7 +129,7 @@
                       nixpkgs.config.pulseaudio = true;
                       hardware.pulseaudio.enable = true;
                       hardware.pulseaudio.support32Bit = true;
-
+                      hardware.ledger.enable = true;
                       nixpkgs.config.allowUnfree = true;
                       boot.loader.systemd-boot.enable = true;
                       boot.kernelPackages = pkgs.linuxPackages_6_1;
@@ -178,6 +181,7 @@
                         unzip
                         silver-searcher
                         helix
+                        wget
                         tig
                         xclip
                         nodejs
@@ -240,7 +244,7 @@
                     serviceConfig = {
                       Type = "simple";
                       ExecStart = ''
-                        /run/current-system/sw/bin/qbittorrent-nox --webui-port=8083                   
+                        ${pkgs.qbittorrent-nox}/bin/qbittorrent-nox --webui-port=8083 
                       '';
                     };
                   };
