@@ -1,6 +1,6 @@
 {
   description = "all my machines in flakes";
-  inputs.nixpkgs.url = "github:nixos/nixpkgs/master";
+  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
   inputs.nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-22.11";
   inputs.vscode-server.url = "github:msteen/nixos-vscode-server";
   outputs = { self, nixpkgs, nixpkgs-stable, vscode-server }:
@@ -165,6 +165,7 @@
                       programs.gnome-disks.enable = true;
                       environment.systemPackages = with pkgs; [
                         nix-index
+                        nix-init
                         nix-tree
                         nil
                         nixpkgs-fmt
