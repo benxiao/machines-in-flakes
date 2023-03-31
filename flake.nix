@@ -26,6 +26,7 @@
 
           desktopAppsModule = ({ pkgs, ... }: {
             environment.systemPackages = with pkgs; [
+              chromium
               ledger-live-desktop
               vscode
               gimp
@@ -188,6 +189,7 @@
                         nodejs
                         rustup
                         clang
+                        atop
                         rust-analyzer
                         gopls
                         sysstat
@@ -270,7 +272,7 @@
               (makeStorageModule {
                 swapDevice = "/dev/disk/by-uuid/73bc01ab-e70f-4e78-8bd6-e6c0521518eb";
                 bootDevice = "/dev/disk/by-uuid/62A3-CEBD";
-                extraPools = [ "black1" ];
+                extraPools = [ "black1" "sn770" ];
               })
             ];
           });
