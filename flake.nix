@@ -27,6 +27,7 @@
           desktopAppsModule = ({ pkgs, ... }: {
             environment.systemPackages = with pkgs; [
               chromium
+              microsoft-edge
               ledger-live-desktop
               vscode
               gimp
@@ -121,7 +122,7 @@
               inherit system;
               modules =
                 [
-                  ({ pkgs, lib, modulesPath, ... }:
+                  ({ pkgs, lib, config, modulesPath, ... }:
                     {
                       imports = [ (modulesPath + "/installer/scan/not-detected.nix") ];
                       nix.extraOptions = "experimental-features = nix-command flakes";
@@ -133,7 +134,10 @@
                       hardware.ledger.enable = true;
                       nixpkgs.config.allowUnfree = true;
                       boot.loader.systemd-boot.enable = true;
-                      boot.kernelPackages = pkgs.linuxPackages_6_1;
+                      # zfs
+                      boot.kernelPackages = config.boot.zfs.package.latestCompatibleLinuxPackages;
+                      services.zfs.trim.enable = true;
+
                       boot.loader.efi.canTouchEfiVariables = true;
 
                       networking.hostId = "00000000";
