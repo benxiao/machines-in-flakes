@@ -172,6 +172,7 @@
                         nix-index
                         nix-init
                         nix-tree
+                        nixpkgs-review
                         nil
                         nixpkgs-fmt
                         ffmpeg_5-full
