@@ -50,7 +50,7 @@
               # elisa
               # mpv
               celluloid
-              vlc
+              stable.vlc
               firefox
               thunderbird
               tor-browser-bundle-bin
@@ -207,6 +207,7 @@
                       virtualisation.libvirtd.enable = true;
                       virtualisation.docker.enable = true;
                       virtualisation.docker.storageDriver = "zfs";
+                      virtualisation.docker.liveRestore = false;
                       hardware.opengl.enable = true;
                       networking.firewall.enable = false;
                       system.stateVersion = "22.05"; # Did you read the comment?
@@ -242,7 +243,7 @@
           athena = nixpkgs.lib.nixosSystem (simplesystem {
             hostName = "athena";
             extraModules = [
-              ({ pkgs, lib, modulesPath, ... }:
+              ({ pkgs, lib, config, modulesPath, ... }:
                 {
                   services.vscode-server.enable = true;
                   environment.systemPackages = with pkgs; [ nethogs qbittorrent-nox ];
@@ -254,9 +255,31 @@
                       ExecStart = ''
                         ${pkgs.qbittorrent-nox}/bin/qbittorrent-nox --webui-port=8083 
                       '';
+                      ExecStop = ''
+                        kill -9 $(ps aux | grep qbittorrent | awk '{print $2}' | head -1)
+                      '';
+
+                      TimeoutStopSec = "30";
                     };
                   };
+
+                  services.nextcloud = {
+                    enable = true;
+                    package = pkgs.nextcloud26;
+                    enableBrokenCiphersForSSE = false;
+                    hostName = "athena";
+                    config.extraTrustedDomains = [ "192.168.50.*" ];
+                    # https = true;
+                    maxUploadSize = "10G";
+                    config.adminpassFile = "/var/lib/nextcloud/adminpass";
+                  };
+                  # security.acme.acceptTerms = true;
+                  # services.nginx.virtualHosts.${config.services.nextcloud.hostName} = {
+                  #   forceSSL = true;
+                  #   enableACME = true;
+                  # };
                 })
+              desktopAppsModule
               (makeStorageModule {
                 extraPools = [ "data" "red4" "exos12" ];
               })
