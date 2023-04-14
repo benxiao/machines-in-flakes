@@ -335,7 +335,7 @@
                   };
                 })
               (makeStorageModule {
-                extraPools = [ "zdata" "blue3" ];
+                extraPools = ["zdata" "blue3" "tt1t" ];
               })
               amdCpuModule
               (makeNvidiaModule {
