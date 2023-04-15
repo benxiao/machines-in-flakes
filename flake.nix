@@ -175,7 +175,7 @@
                         nixpkgs-review
                         nil
                         nixpkgs-fmt
-                        ffmpeg_5-full
+                        ffmpeg_6-full
                         btop
                         docker-compose
                         git
@@ -270,8 +270,8 @@
                     hostName = "athena";
                     config.extraTrustedDomains = [ "192.168.50.*" ];
                     # https = true;
-                    maxUploadSize = "10G";
-                    config.adminpassFile = "/var/lib/nextcloud/adminpass";
+                    maxUploadSize = "20G";
+                    config.adminpassFile = "${pkgs.writeText "adminpass" "rxiao"}";
                   };
                   # security.acme.acceptTerms = true;
                   # services.nginx.virtualHosts.${config.services.nextcloud.hostName} = {
@@ -281,7 +281,7 @@
                 })
               desktopAppsModule
               (makeStorageModule {
-                extraPools = [ "data" "red4" "exos12" ];
+                extraPools = [ "ssd0" "rock" "red4" "exos12" ];
               })
               (makeServerModule { })
               amdCpuModule
