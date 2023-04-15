@@ -298,9 +298,9 @@
               (makeServerModule { })
               (makeNvidiaModule { powerlimit = 205; })
               (makeStorageModule {
-                swapDevice = "/dev/disk/by-uuid/73bc01ab-e70f-4e78-8bd6-e6c0521518eb";
-                bootDevice = "/dev/disk/by-uuid/62A3-CEBD";
-                extraPools = [ "black1" "sn770" ];
+                swapDevice = "/dev/disk/by-uuid/283d3cd3-03c7-4e18-97f0-d003cfe1d4c0";
+                bootDevice = "/dev/disk/by-uuid/C967-EF6D";
+                extraPools = [ "black1" ];
               })
             ];
           });
