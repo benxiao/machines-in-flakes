@@ -159,7 +159,7 @@
                       services.xserver.libinput.enable = true;
                       services.xserver.xkbOptions = "caps:none";
                       services.pcscd.enable = true;
-
+                      services.tailscale.enable = true;
                       # enable gpg
                       programs.gnupg.agent = {
                         enable = true;
@@ -225,7 +225,6 @@
               ({ pkgs, lib, modulesPath, ... }:
                 {
                   services.xserver.displayManager.gdm.wayland = false;
-                  services.tailscale.enable = true;
                   environment.systemPackages = with pkgs; [ android-studio ];
                   environment.interactiveShellInit = ''
                     alias athena='ssh rxiao@192.168.50.144'
@@ -310,7 +309,6 @@
             extraModules = [
               ({ pkgs, lib, modulesPath, ... }:
                 {
-                  services.tailscale.enable = true;
                   # nix.settings = {
                   #   substituters = [ "https://hydra.iohk.io" "https://iohk.cachix.org" ];
                   #   trusted-public-keys = [ "hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ=" "iohk.cachix.org-1:DpRUyj7h7V830dp/i6Nti+NEO2/nhblbov/8MW7Rqoo=" ];
