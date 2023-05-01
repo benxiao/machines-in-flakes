@@ -160,7 +160,7 @@
                       services.xserver.libinput.enable = true;
                       services.xserver.xkbOptions = "caps:none";
                       services.pcscd.enable = true;
-
+                      services.tailscale.enable = true;
                       # enable gpg
                       programs.gnupg.agent = {
                         enable = true;
@@ -227,7 +227,6 @@
               ({ pkgs, lib, modulesPath, ... }:
                 {
                   services.xserver.displayManager.gdm.wayland = false;
-                  services.tailscale.enable = true;
                   environment.systemPackages = with pkgs; [ android-studio ];
                   environment.interactiveShellInit = ''
                     alias athena='ssh rxiao@192.168.50.144'
@@ -312,7 +311,6 @@
             extraModules = [
               ({ pkgs, lib, modulesPath, ... }:
                 {
-                  services.tailscale.enable = true;
                   environment.interactiveShellInit = ''
                     alias athena='ssh rxiao@192.168.50.144'
                     alias artemis='ssh rxiao@artemis.silverpond.com.au'
