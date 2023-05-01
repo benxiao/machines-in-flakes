@@ -267,7 +267,7 @@
                     package = pkgs.nextcloud26;
                     enableBrokenCiphersForSSE = false;
                     hostName = "athena";
-                    config.extraTrustedDomains = [ "192.168.50.*" ];
+                    config.extraTrustedDomains = [ "*.*.*.*" ];
                     # https = true;
                     maxUploadSize = "20G";
                     config.adminpassFile = "${pkgs.writeText "adminpass" "rxiao"}";
