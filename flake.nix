@@ -32,6 +32,7 @@
               vscode
               gimp
               dropbox
+              nextcloud-client
               mongodb-compass
               slack
               jetbrains.goland
@@ -188,6 +189,7 @@
                         unzip
                         silver-searcher
                         helix
+                        black
                         wget
                         tig
                         xclip
@@ -309,10 +311,6 @@
             extraModules = [
               ({ pkgs, lib, modulesPath, ... }:
                 {
-                  # nix.settings = {
-                  #   substituters = [ "https://hydra.iohk.io" "https://iohk.cachix.org" ];
-                  #   trusted-public-keys = [ "hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ=" "iohk.cachix.org-1:DpRUyj7h7V830dp/i6Nti+NEO2/nhblbov/8MW7Rqoo=" ];
-                  # };
                   environment.interactiveShellInit = ''
                     alias athena='ssh rxiao@192.168.50.144'
                     alias artemis='ssh rxiao@artemis.silverpond.com.au'
@@ -333,7 +331,7 @@
                   };
                 })
               (makeStorageModule {
-                extraPools = ["zdata" "blue3" "tt1t" ];
+                extraPools = [ "zdata" "blue3" "tt1t" ];
               })
               amdCpuModule
               (makeNvidiaModule {
