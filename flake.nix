@@ -180,6 +180,7 @@
                         btop
                         docker-compose
                         git
+                        git-lfs
                         pinentry-curses
                         htop
                         tmux
@@ -301,7 +302,7 @@
               (makeStorageModule {
                 swapDevice = "/dev/disk/by-uuid/283d3cd3-03c7-4e18-97f0-d003cfe1d4c0";
                 bootDevice = "/dev/disk/by-uuid/C967-EF6D";
-                extraPools = [ "black1" ];
+                extraPools = [  ];
               })
             ];
           });
