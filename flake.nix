@@ -31,13 +31,10 @@
               ledger-live-desktop
               vscode
               gimp
-              dropbox
               nextcloud-client
               mongodb-compass
               slack
-              jetbrains.goland
               mendeley
-              jetbrains.pycharm-community
               gnome-text-editor
               gnome.baobab
               gnome.file-roller
@@ -48,8 +45,6 @@
               gnome.gnome-chess
               stockfish
               amberol
-              # elisa
-              # mpv
               celluloid
               stable.vlc
               firefox
@@ -60,7 +55,6 @@
               github-desktop
               nomacs
               joplin-desktop
-              android-studio
             ];
           });
 
@@ -302,7 +296,7 @@
               (makeStorageModule {
                 swapDevice = "/dev/disk/by-uuid/283d3cd3-03c7-4e18-97f0-d003cfe1d4c0";
                 bootDevice = "/dev/disk/by-uuid/C967-EF6D";
-                extraPools = [  ];
+                extraPools = [ ];
               })
             ];
           });
