@@ -183,6 +183,7 @@
                         pinentry-curses
                         htop
                         tmux
+                        zellij
                         lm_sensors
                         smartmontools
                         nmap
