@@ -52,7 +52,6 @@
               tor-browser-bundle-bin
               stable.libreoffice
               qbittorrent
-              github-desktop
               nomacs
               joplin-desktop
             ];
@@ -297,6 +296,13 @@
                 swapDevice = "/dev/disk/by-uuid/283d3cd3-03c7-4e18-97f0-d003cfe1d4c0";
                 bootDevice = "/dev/disk/by-uuid/C967-EF6D";
                 extraPools = [ ];
+              })
+              ({ ... }: {
+                programs.steam = {
+                  enable = true;
+                  remotePlay.openFirewall = true; # Open ports in the firewall for Steam Remote Play
+                  dedicatedServer.openFirewall = true; # Open ports in the firewall for Source Dedicated Server
+                };
               })
             ];
           });
