@@ -1,7 +1,7 @@
 {
   description = "all my machines in flakes";
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
-  inputs.nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-22.11";
+  inputs.nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-23.05";
   inputs.vscode-server.url = "github:msteen/nixos-vscode-server";
   outputs = { self, nixpkgs, nixpkgs-stable, vscode-server }:
     {
@@ -53,6 +53,7 @@
               stable.libreoffice
               qbittorrent
               nomacs
+              # mathematica
               joplin-desktop
             ];
           });
@@ -221,6 +222,7 @@
               (makeStorageModule { })
               ({ pkgs, lib, modulesPath, ... }:
                 {
+                  environment.systemPackages = with pkgs; [ asunder ];
                   services.xserver.displayManager.gdm.wayland = false;
                   environment.interactiveShellInit = ''
                     alias athena='ssh rxiao@192.168.50.144'
