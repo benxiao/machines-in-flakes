@@ -184,7 +184,7 @@
                         nmap
                         unzip
                         silver-searcher
-                        helix
+                        stable.helix
                         black
                         wget
                         tig
