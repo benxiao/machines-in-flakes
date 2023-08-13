@@ -278,7 +278,7 @@
                 })
               desktopAppsModule
               (makeStorageModule {
-                extraPools = [ "ssd0"  "red4" "exos12" ];
+                extraPools = [ "ssd0" "red4" "exos12" ];
               })
               (makeServerModule { })
               amdCpuModule

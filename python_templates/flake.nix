@@ -25,16 +25,16 @@
                   # override package
                   # thrift = pkgs.thrift.overrideAttrs (old: { doCheck = false; });
 
-                  
+
                 };
               };
             };
-      
+
             my-python = pkgs-python.python310.override {
               # super important
               self = my-python;
               packageOverrides = self: super: {
-                mmengine = super.mmengine.overridePythonAttrs(old: { doCheck = false; nativeBuildInputs = []; });
+                mmengine = super.mmengine.overridePythonAttrs (old: { doCheck = false; nativeBuildInputs = [ ]; });
                 # override python packages
                 # torch = super.torch-bin;
                 # torchvision = super.torchvision-bin;
@@ -42,19 +42,19 @@
               };
             };
 
-            
+
           in
-            pkgs.mkShell {
-              buildInputs = [
-                pkgs.just
-                (my-python.withPackages (p: with p; [
-                  # pandas
-                  # cramjam
-                  mmengine
-                  pytest
-                ]))
-              ];
-            };
-    });
+          pkgs.mkShell {
+            buildInputs = [
+              pkgs.just
+              (my-python.withPackages (p: with p; [
+                # pandas
+                # cramjam
+                mmengine
+                pytest
+              ]))
+            ];
+          };
+      });
 
 }
