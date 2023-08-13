@@ -7,7 +7,8 @@
 
       };
     };
-}}:
+  }
+}:
 let
   changeVersion = overrideFunc: version: hash: overrideFunc (oldAttrs: rec {
     inherit version;
@@ -20,7 +21,7 @@ let
     # super important
     self = my-python;
     packageOverrides = self: super: {
-      mmengine = super.mmengine.overridePythonAttrs(old: { doCheck = false; nativeBuildInputs = []; });
+      mmengine = super.mmengine.overridePythonAttrs (old: { doCheck = false; nativeBuildInputs = [ ]; });
       # override python packages
       # torch = super.torch-bin;
       # torchvision = super.torchvision-bin;
@@ -29,17 +30,17 @@ let
   };
 
 
-in 
-  pkgs.mkShell {
-    buildInputs = [
-      pkgs.just
-      (my-python.withPackages (p: with p; [
-        # pandas
-        # cramjam
-        mmengine
-        pytest
-      ]))
-    ];
-  }
+in
+pkgs.mkShell {
+  buildInputs = [
+    pkgs.just
+    (my-python.withPackages (p: with p; [
+      # pandas
+      # cramjam
+      mmengine
+      pytest
+    ]))
+  ];
+}
   
 
