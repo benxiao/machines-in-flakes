@@ -191,6 +191,7 @@
                         smartmontools
                         nmap
                         unzip
+                        rar
                         silver-searcher
                         stable.helix
                         black
