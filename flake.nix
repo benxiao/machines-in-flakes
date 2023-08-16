@@ -58,6 +58,14 @@
             ];
           });
 
+          printerModule = ({ ... }: {
+            services.printing.enable = true;
+            services.avahi.enable = true;
+            services.avahi.nssmdns = true;
+            # for a WiFi printer
+            services.avahi.openFirewall = true;
+          });
+
           makeServerModule = { allowPassWordAuthentication ? false }: ({ ... }: {
             services.xserver.displayManager.gdm.autoSuspend = false;
             security.polkit.extraConfig = ''
@@ -232,6 +240,7 @@
                   '';
                 })
               intelCpuModule
+              printerModule
               desktopAppsModule
             ];
 
@@ -291,6 +300,7 @@
             hostName = "wotan";
             extraModules = [
               intelCpuModule
+              printerModule
               desktopAppsModule
               (makeServerModule { })
               (makeNvidiaModule { powerlimit = 205; })
@@ -299,7 +309,15 @@
                 bootDevice = "/dev/disk/by-uuid/C967-EF6D";
                 extraPools = [ ];
               })
-              ({ ... }: {
+              ({ pkgs, ... }: {
+                environment.systemPackages = with pkgs; [ openshot-qt ];
+                environment.interactiveShellInit = ''
+                  alias athena='ssh rxiao@192.168.50.144'
+                  alias artemis='ssh rxiao@artemis.silverpond.com.au'
+                  alias mendeley='mendeley-reference-manager --no-sandbox' 
+                  export RUST_BACKTRACE=1
+                '';
+
                 programs.steam = {
                   enable = true;
                   remotePlay.openFirewall = true; # Open ports in the firewall for Steam Remote Play
@@ -337,6 +355,7 @@
                 extraPools = [ "zdata" "blue3" "tt1t" "rock" ];
               })
               amdCpuModule
+              printerModule
               (makeNvidiaModule {
                 powerlimit = 205;
               })
