@@ -134,6 +134,7 @@
                       nixpkgs.config.pulseaudio = true;
                       hardware.pulseaudio.enable = true;
                       hardware.pulseaudio.support32Bit = true;
+                      hardware.bluetooth.enable = true;
                       hardware.ledger.enable = true;
                       nixpkgs.config.allowUnfree = true;
                       boot.loader.systemd-boot.enable = true;
@@ -205,6 +206,7 @@
                         rust-analyzer
                         gopls
                         sysstat
+                        betterlockscreen
                       ];
                       environment.variables.EDITOR = "hx";
                       users.users.rxiao = {
@@ -252,8 +254,12 @@
             extraModules = [
               ({ pkgs, lib, config, modulesPath, ... }:
                 {
+                  environment.interactiveShellInit = ''
+                    alias slide-show=feh -Y -x -q -D 100 -B black -F -Z -z -r
+                  '';
+
                   services.vscode-server.enable = true;
-                  environment.systemPackages = with pkgs; [ nethogs qbittorrent-nox ];
+                  environment.systemPackages = with pkgs; [ nethogs qbittorrent-nox feh];
                   systemd.services.qbittorrent-server = {
                     wantedBy = [ "multi-user.target" ];
                     description = "qbittorrent webserver";
