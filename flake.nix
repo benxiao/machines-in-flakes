@@ -255,7 +255,9 @@
               ({ pkgs, lib, config, modulesPath, ... }:
                 {
                   environment.interactiveShellInit = ''
-                    alias slide-show=feh -Y -x -q -D 100 -B black -F -Z -z -r
+                    function slide-show(){
+                      feh -Y -x -q -D 100 -B black -F -Z -z -r "$@";
+                    }
                   '';
 
                   services.vscode-server.enable = true;
