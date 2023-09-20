@@ -27,6 +27,8 @@
           desktopAppsModule = ({ pkgs, ... }: {
             environment.systemPackages = with pkgs; [
               chromium
+              betterlockscreen
+              openshot-qt
               microsoft-edge
               ledger-live-desktop
               vscode
@@ -361,7 +363,7 @@
                   };
                 })
               (makeStorageModule {
-                extraPools = [ "zdata" "blue3" "tt1t" "rock" ];
+                extraPools = [ "zdata" "blue3" "tt1t" "tt1tb" ];
               })
               amdCpuModule
               printerModule
