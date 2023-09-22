@@ -318,9 +318,9 @@
               (makeServerModule { })
               (makeNvidiaModule { powerlimit = 205; })
               (makeStorageModule {
-                swapDevice = "/dev/disk/by-uuid/283d3cd3-03c7-4e18-97f0-d003cfe1d4c0";
-                bootDevice = "/dev/disk/by-uuid/C967-EF6D";
-                extraPools = [ ];
+                swapDevice = "/dev/disk/by-uuid/c99f9905-82ea-4431-a7ad-5a751deeb800";
+                bootDevice = "/dev/disk/by-uuid/53D5-A050";
+                extraPools = [ "wotan" ];
               })
               ({ pkgs, ... }: {
                 environment.systemPackages = with pkgs; [ openshot-qt ];
