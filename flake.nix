@@ -33,6 +33,8 @@
               ledger-live-desktop
               vscode
               gimp
+              jetbrains.pycharm-community
+              jetbrains.goland
               nextcloud-client
               mongodb-compass
               slack
@@ -196,7 +198,7 @@
                         unzip
                         rar
                         silver-searcher
-                        stable.helix
+                        helix
                         black
                         wget
                         tig
@@ -263,7 +265,7 @@
                   '';
 
                   services.vscode-server.enable = true;
-                  environment.systemPackages = with pkgs; [ nethogs qbittorrent-nox feh];
+                  environment.systemPackages = with pkgs; [ nethogs qbittorrent-nox feh ];
                   systemd.services.qbittorrent-server = {
                     wantedBy = [ "multi-user.target" ];
                     description = "qbittorrent webserver";
@@ -353,9 +355,13 @@
                     enable = true;
                     settings.PasswordAuthentication = false;
                   };
-                  # virtualisation.virtualbox.host.enable = true;
-                  # virtualisation.virtualbox.host.enableExtensionPack = true;
-                  # users.extraGroups.vboxusers.members = [ "user-with-access-to-virtualbox" ];
+
+                  virtualisation.virtualbox.host.enable = true;
+                  virtualisation.virtualbox.host.enableExtensionPack = true;
+                  users.extraGroups.vboxusers.members = [ "user-with-access-to-virtualbox" ];
+                  virtualisation.virtualbox.guest.enable = true;
+                  virtualisation.virtualbox.guest.x11 = true;
+
                   programs.steam = {
                     enable = true;
                     remotePlay.openFirewall = true; # Open ports in the firewall for Steam Remote Play
@@ -365,7 +371,7 @@
               (makeStorageModule {
                 swapDevice = "/dev/disk/by-uuid/45c86fa9-ddbf-45c6-96a6-220fac48667c";
                 bootDevice = "/dev/disk/by-uuid/B9A1-4A5D";
-                extraPools = [ "zdata" "blue3" "tt1tb" "dante"];
+                extraPools = [ "zdata" "blue3" "timetec0" "timetec1" "dante" ];
               })
               amdCpuModule
               printerModule
