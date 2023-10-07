@@ -1,6 +1,8 @@
-{ pkgs ? import <nixpkgs> {
+{ pkgs ? import /home/rxiao/nixpkgs {
     config = {
       allowUnfree = true;
+      cudaSupport = true;
+      cudaCapabilities = [ "8.6" ];
       packageOverrides = pkgs: rec{
         # override package
         # thrift = pkgs.thrift.overrideAttrs (old: { doCheck = false; });
@@ -17,11 +19,13 @@ let
     };
   });
 
-  my-python = pkgs.python310.override {
+  my-python = pkgs.python311.override {
     # super important
     self = my-python;
     packageOverrides = self: super: {
       mmengine = super.mmengine.overridePythonAttrs (old: { doCheck = false; nativeBuildInputs = [ ]; });
+      # torch = super.torch-bin;
+      # torchvision = super.torchvision-bin;
       # override python packages
       # torch = super.torch-bin;
       # torchvision = super.torchvision-bin;
@@ -37,7 +41,11 @@ pkgs.mkShell {
     (my-python.withPackages (p: with p; [
       # pandas
       # cramjam
-      mmengine
+      # torch
+      # mmengine
+      python-lsp-server
+      pandas
+      jupyter
       pytest
     ]))
   ];
