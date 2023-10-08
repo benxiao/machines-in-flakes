@@ -24,6 +24,14 @@
             hardware.cpu.amd.updateMicrocode = true;
           });
 
+          virtualboxModule = ({ ... }: {
+            virtualisation.virtualbox.host.enable = true;
+            virtualisation.virtualbox.host.enableExtensionPack = true;
+            users.extraGroups.vboxusers.members = [ "user-with-access-to-virtualbox" ];
+            virtualisation.virtualbox.guest.enable = true;
+            virtualisation.virtualbox.guest.x11 = true;
+          });
+
           desktopAppsModule = ({ pkgs, ... }: {
             environment.systemPackages = with pkgs; [
               chromium
@@ -143,7 +151,9 @@
                       nixpkgs.config.allowUnfree = true;
                       boot.loader.systemd-boot.enable = true;
                       # zfs
-                      boot.kernelPackages = config.boot.zfs.package.latestCompatibleLinuxPackages;
+                      # guestaddition on linuxPackages_6_5 is not building at 8 oct 2023
+                      # boot.kernelPackages = config.boot.zfs.package.latestCompatibleLinuxPackages;
+                      boot.kernelPackages = pkgs.linuxPackages_6_1;
                       services.zfs.trim.enable = true;
 
                       boot.loader.efi.canTouchEfiVariables = true;
@@ -356,12 +366,6 @@
                     settings.PasswordAuthentication = false;
                   };
 
-                  virtualisation.virtualbox.host.enable = true;
-                  virtualisation.virtualbox.host.enableExtensionPack = true;
-                  users.extraGroups.vboxusers.members = [ "user-with-access-to-virtualbox" ];
-                  virtualisation.virtualbox.guest.enable = true;
-                  virtualisation.virtualbox.guest.x11 = true;
-
                   programs.steam = {
                     enable = true;
                     remotePlay.openFirewall = true; # Open ports in the firewall for Steam Remote Play
@@ -375,6 +379,7 @@
               })
               amdCpuModule
               printerModule
+              virtualboxModule
               (makeNvidiaModule {
                 powerlimit = 205;
               })
