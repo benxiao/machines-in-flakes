@@ -34,8 +34,9 @@
 
           desktopAppsModule = ({ pkgs, ... }: {
             environment.systemPackages = with pkgs; [
-              chromium
+              stable.chromium
               betterlockscreen
+              stable.postman
               openshot-qt
               microsoft-edge
               ledger-live-desktop
@@ -361,10 +362,6 @@
                     alias mendeley='mendeley-reference-manager --no-sandbox' 
                     export RUST_BACKTRACE=1
                   '';
-                  services.openssh = {
-                    enable = true;
-                    settings.PasswordAuthentication = false;
-                  };
 
                   programs.steam = {
                     enable = true;
@@ -380,6 +377,9 @@
               amdCpuModule
               printerModule
               virtualboxModule
+              (makeServerModule {
+                allowPassWordAuthentication = true;                
+              })
               (makeNvidiaModule {
                 powerlimit = 205;
               })
