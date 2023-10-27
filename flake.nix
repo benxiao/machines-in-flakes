@@ -315,7 +315,7 @@
               (makeServerModule { })
               amdCpuModule
               vscode-server.nixosModule
-              (makeNvidiaModule { powerlimit = 75; })
+              # (makeNvidiaModule { powerlimit = 75; })
             ];
           });
           # amd ryzen 7 3700x
