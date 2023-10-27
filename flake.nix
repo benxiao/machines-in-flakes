@@ -253,7 +253,6 @@
                   environment.interactiveShellInit = ''
                     alias athena='ssh rxiao@192.168.50.144'
                     alias wotan='ssh rxiao.asuscomm.com -p 14285'
-                    alias artemis='ssh rxiao@artemis.silverpond.com.au'
                     export RUST_BACKTRACE=1
                   '';
                 })
@@ -276,33 +275,33 @@
                   '';
 
                   services.vscode-server.enable = true;
-                  environment.systemPackages = with pkgs; [ nethogs qbittorrent-nox feh ];
-                  systemd.services.qbittorrent-server = {
-                    wantedBy = [ "multi-user.target" ];
-                    description = "qbittorrent webserver";
-                    serviceConfig = {
-                      Type = "simple";
-                      ExecStart = ''
-                        ${pkgs.qbittorrent-nox}/bin/qbittorrent-nox --webui-port=8083 
-                      '';
-                      ExecStop = ''
-                        kill -9 $(ps aux | grep qbittorrent | awk '{print $2}' | head -1)
-                      '';
+                  # environment.systemPackages = with pkgs; [ nethogs qbittorrent-nox feh ];
+                  # systemd.services.qbittorrent-server = {
+                  #   wantedBy = [ "multi-user.target" ];
+                  #   description = "qbittorrent webserver";
+                  #   serviceConfig = {
+                  #     Type = "simple";
+                  #     ExecStart = ''
+                  #       ${pkgs.qbittorrent-nox}/bin/qbittorrent-nox --webui-port=8083 
+                  #     '';
+                  #     ExecStop = ''
+                  #       kill -9 $(ps aux | grep qbittorrent | awk '{print $2}' | head -1)
+                  #     '';
 
-                      TimeoutStopSec = "30";
-                    };
-                  };
+                  #     TimeoutStopSec = "30";
+                  #   };
+                  # };
 
-                  services.nextcloud = {
-                    enable = true;
-                    package = pkgs.nextcloud27;
-                    enableBrokenCiphersForSSE = false;
-                    hostName = "athena";
-                    config.extraTrustedDomains = [ "*.*.*.*" ];
-                    # https = true;
-                    maxUploadSize = "20G";
-                    config.adminpassFile = "${pkgs.writeText "adminpass" "rxiao"}";
-                  };
+                  # services.nextcloud = {
+                  #   enable = true;
+                  #   package = pkgs.nextcloud27;
+                  #   enableBrokenCiphersForSSE = false;
+                  #   hostName = "athena";
+                  #   config.extraTrustedDomains = [ "*.*.*.*" ];
+                  #   # https = true;
+                  #   maxUploadSize = "20G";
+                  #   config.adminpassFile = "${pkgs.writeText "adminpass" "rxiao"}";
+                  # };
                   # security.acme.acceptTerms = true;
                   # services.nginx.virtualHosts.${config.services.nextcloud.hostName} = {
                   #   forceSSL = true;
@@ -337,7 +336,6 @@
                 environment.systemPackages = with pkgs; [ openshot-qt ];
                 environment.interactiveShellInit = ''
                   alias athena='ssh rxiao@192.168.50.144'
-                  alias artemis='ssh rxiao@artemis.silverpond.com.au'
                   alias mendeley='mendeley-reference-manager --no-sandbox' 
                   export RUST_BACKTRACE=1
                 '';
