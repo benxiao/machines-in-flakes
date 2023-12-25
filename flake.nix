@@ -61,6 +61,7 @@
               celluloid
               stable.vlc
               firefox
+              opera
               thunderbird
               tor-browser-bundle-bin
               stable.libreoffice
@@ -74,7 +75,7 @@
           printerModule = ({ ... }: {
             services.printing.enable = true;
             services.avahi.enable = true;
-            services.avahi.nssmdns = true;
+            services.avahi.nssmdns4 = true;
             # for a WiFi printer
             services.avahi.openFirewall = true;
           });
@@ -150,13 +151,9 @@
                       hardware.bluetooth.enable = true;
                       hardware.ledger.enable = true;
                       nixpkgs.config.allowUnfree = true;
+                      
                       boot.loader.systemd-boot.enable = true;
-                      # zfs
-                      # guestaddition on linuxPackages_6_5 is not building at 8 oct 2023
-                      # boot.kernelPackages = config.boot.zfs.package.latestCompatibleLinuxPackages;
-                      boot.kernelPackages = pkgs.linuxPackages_6_1;
-                      services.zfs.trim.enable = true;
-
+                      boot.kernelPackages = config.boot.zfs.package.latestCompatibleLinuxPackages;
                       boot.loader.efi.canTouchEfiVariables = true;
 
                       networking.hostId = "00000000";
@@ -179,6 +176,7 @@
                       services.xserver.xkbOptions = "caps:none";
                       services.pcscd.enable = true;
                       services.tailscale.enable = true;
+                      services.zfs.trim.enable = true;
                       # enable gpg
                       programs.gnupg.agent = {
                         enable = true;
