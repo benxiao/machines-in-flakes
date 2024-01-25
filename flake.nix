@@ -2,8 +2,9 @@
   description = "all my machines in flakes";
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
   inputs.nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-23.05";
+ inputs.nixos-hardware.url = "github:NixOS/nixos-hardware/master";
   inputs.vscode-server.url = "github:msteen/nixos-vscode-server";
-  outputs = { self, nixpkgs, nixpkgs-stable, vscode-server }:
+  outputs = { self, nixpkgs, nixpkgs-stable, nixos-hardware, vscode-server }:
     {
       nixosConfigurations =
         let
@@ -257,6 +258,7 @@
               intelCpuModule
               printerModule
               desktopAppsModule
+              nixos-hardware.nixosModules.lenovo-thinkpad-t490
             ];
 
           });
