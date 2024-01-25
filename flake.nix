@@ -370,7 +370,7 @@
               (makeStorageModule {
                 swapDevice = "/dev/disk/by-uuid/45c86fa9-ddbf-45c6-96a6-220fac48667c";
                 bootDevice = "/dev/disk/by-uuid/B9A1-4A5D";
-                extraPools = [ "zdata" "blue3" "timetec0" "timetec1" "dante" ];
+                extraPools = [ "zdata" "blue3" "dante" "tank" ];
               })
               amdCpuModule
               printerModule
