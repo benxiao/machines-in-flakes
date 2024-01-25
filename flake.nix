@@ -251,7 +251,6 @@
                   services.xserver.displayManager.gdm.wayland = false;
                   environment.interactiveShellInit = ''
                     alias athena='ssh rxiao@192.168.50.144'
-                    alias wotan='ssh rxiao.asuscomm.com -p 14285'
                     export RUST_BACKTRACE=1
                   '';
                 })
