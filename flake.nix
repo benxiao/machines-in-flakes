@@ -2,7 +2,7 @@
   description = "all my machines in flakes";
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
   inputs.nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-23.05";
- inputs.nixos-hardware.url = "github:NixOS/nixos-hardware/master";
+  inputs.nixos-hardware.url = "github:NixOS/nixos-hardware/master";
   inputs.vscode-server.url = "github:msteen/nixos-vscode-server";
   outputs = { self, nixpkgs, nixpkgs-stable, nixos-hardware, vscode-server }:
     {
@@ -152,7 +152,7 @@
                       hardware.bluetooth.enable = true;
                       hardware.ledger.enable = true;
                       nixpkgs.config.allowUnfree = true;
-                      
+
                       boot.loader.systemd-boot.enable = true;
                       boot.kernelPackages = config.boot.zfs.package.latestCompatibleLinuxPackages;
                       boot.loader.efi.canTouchEfiVariables = true;
@@ -375,7 +375,7 @@
               printerModule
               virtualboxModule
               (makeServerModule {
-                allowPassWordAuthentication = true;                
+                allowPassWordAuthentication = true;
               })
               (makeNvidiaModule {
                 powerlimit = 205;
