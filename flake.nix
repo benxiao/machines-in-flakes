@@ -35,7 +35,8 @@
 
           desktopAppsModule = ({ pkgs, ... }: {
             environment.systemPackages = with pkgs; [
-              stable.chromium
+              tree
+              chromium
               betterlockscreen
               stable.postman
               openshot-qt
@@ -60,12 +61,12 @@
               stockfish
               amberol
               celluloid
-              stable.vlc
+              vlc
               firefox
               opera
               thunderbird
               tor-browser-bundle-bin
-              stable.libreoffice
+              libreoffice
               qbittorrent
               nomacs
               # mathematica
