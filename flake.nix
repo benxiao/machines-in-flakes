@@ -59,7 +59,6 @@
               gnome-console
               gnome.gnome-chess
               stockfish
-              amberol
               celluloid
               vlc
               firefox
@@ -69,7 +68,6 @@
               libreoffice
               qbittorrent
               nomacs
-              # mathematica
               joplin-desktop
             ];
           });
@@ -361,6 +359,11 @@
                     export RUST_BACKTRACE=1
                   '';
 
+                  environment.systemPackages = with pkgs; [
+                    audacity
+                    jetbrains.rust-rover
+                    near-cli
+                  ];
                   programs.steam = {
                     enable = true;
                     remotePlay.openFirewall = true; # Open ports in the firewall for Steam Remote Play
