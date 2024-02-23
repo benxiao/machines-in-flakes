@@ -37,6 +37,7 @@
             environment.systemPackages = with pkgs; [
               tree
               chromium
+              audacity
               betterlockscreen
               stable.postman
               openshot-qt
@@ -45,6 +46,7 @@
               vscode
               gimp
               jetbrains.pycharm-community
+              jetbrains.rust-rover
               jetbrains.goland
               nextcloud-client
               mongodb-compass
@@ -249,7 +251,7 @@
                   environment.systemPackages = with pkgs; [ asunder ];
                   services.xserver.displayManager.gdm.wayland = false;
                   environment.interactiveShellInit = ''
-                    alias athena='ssh rxiao@192.168.50.144'
+                    alias athena='ssh rxiao@192.168.51.144'
                     export RUST_BACKTRACE=1
                   '';
                 })
@@ -333,7 +335,7 @@
               ({ pkgs, ... }: {
                 environment.systemPackages = with pkgs; [ openshot-qt ];
                 environment.interactiveShellInit = ''
-                  alias athena='ssh rxiao@192.168.50.144'
+                  alias athena='ssh rxiao@192.168.51.144'
                   alias mendeley='mendeley-reference-manager --no-sandbox' 
                   export RUST_BACKTRACE=1
                 '';
@@ -353,9 +355,7 @@
               ({ pkgs, lib, modulesPath, ... }:
                 {
                   environment.interactiveShellInit = ''
-                    alias athena='ssh rxiao@192.168.50.144'
-                    alias artemis='ssh rxiao@artemis.silverpond.com.au'
-                    alias mendeley='mendeley-reference-manager --no-sandbox' 
+                    alias athena='ssh rxiao@192.168.51.144'
                     export RUST_BACKTRACE=1
                   '';
 
