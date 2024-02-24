@@ -36,6 +36,7 @@
           desktopAppsModule = ({ pkgs, ... }: {
             environment.systemPackages = with pkgs; [
               tree
+              alacritty
               chromium
               audacity
               betterlockscreen
