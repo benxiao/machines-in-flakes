@@ -207,7 +207,9 @@
                         pinentry-curses
                         htop
                         zellij
+                        pueue
                         tokei
+                        tealdeer
                         lm_sensors
                         smartmontools
                         nmap
