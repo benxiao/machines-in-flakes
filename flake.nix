@@ -36,7 +36,6 @@
           desktopAppsModule = ({ pkgs, ... }: {
             environment.systemPackages = with pkgs; [
               tree
-              alacritty
               chromium
               audacity
               betterlockscreen
@@ -59,7 +58,7 @@
               gnome.gnome-system-monitor
               gnome.nautilus
               gnome.gnome-power-manager
-              gnome-console
+              alacritty
               gnome.gnome-chess
               stockfish
               celluloid
@@ -75,6 +74,11 @@
             ];
           });
 
+          # makeGoogleSDKPackage =  { pkgs } : 
+          #   pkgs.google-cloud-sdk.withExtraComponents( with pkgs.google-cloud-sdk.components; [
+          #     gke-gcloud-auth-plugin
+          # ]);
+          
           printerModule = ({ ... }: {
             services.printing.enable = true;
             services.avahi.enable = true;
@@ -202,7 +206,6 @@
                         git-lfs
                         pinentry-curses
                         htop
-                        tmux
                         zellij
                         lm_sensors
                         smartmontools
@@ -240,6 +243,7 @@
 
                 ] ++ extraModules;
             };
+
         in
         {
           # Lenovo T490
@@ -249,7 +253,10 @@
               (makeStorageModule { })
               ({ pkgs, lib, modulesPath, ... }:
                 {
-                  environment.systemPackages = with pkgs; [ asunder ];
+                  environment.systemPackages = with pkgs; [
+                    asunder
+                    google-cloud-sdk
+                  ];
                   services.xserver.displayManager.gdm.wayland = false;
                   environment.interactiveShellInit = ''
                     alias athena='ssh rxiao@192.168.51.144'
