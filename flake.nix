@@ -207,6 +207,7 @@
                         pinentry-curses
                         htop
                         zellij
+                        tokei
                         lm_sensors
                         smartmontools
                         nmap
@@ -283,42 +284,10 @@
                   '';
 
                   services.vscode-server.enable = true;
-                  # environment.systemPackages = with pkgs; [ nethogs qbittorrent-nox feh ];
-                  # systemd.services.qbittorrent-server = {
-                  #   wantedBy = [ "multi-user.target" ];
-                  #   description = "qbittorrent webserver";
-                  #   serviceConfig = {
-                  #     Type = "simple";
-                  #     ExecStart = ''
-                  #       ${pkgs.qbittorrent-nox}/bin/qbittorrent-nox --webui-port=8083 
-                  #     '';
-                  #     ExecStop = ''
-                  #       kill -9 $(ps aux | grep qbittorrent | awk '{print $2}' | head -1)
-                  #     '';
-
-                  #     TimeoutStopSec = "30";
-                  #   };
-                  # };
-
-                  # services.nextcloud = {
-                  #   enable = true;
-                  #   package = pkgs.nextcloud27;
-                  #   enableBrokenCiphersForSSE = false;
-                  #   hostName = "athena";
-                  #   config.extraTrustedDomains = [ "*.*.*.*" ];
-                  #   # https = true;
-                  #   maxUploadSize = "20G";
-                  #   config.adminpassFile = "${pkgs.writeText "adminpass" "rxiao"}";
-                  # };
-                  # security.acme.acceptTerms = true;
-                  # services.nginx.virtualHosts.${config.services.nextcloud.hostName} = {
-                  #   forceSSL = true;
-                  #   enableACME = true;
-                  # };
                 })
               desktopAppsModule
               (makeStorageModule {
-                extraPools = [ "ssd0" "red4" "exos12" ];
+                extraPools = ["blue2t" "ssd0" "red4" "exos12" ];
               })
               (makeServerModule { })
               amdCpuModule
