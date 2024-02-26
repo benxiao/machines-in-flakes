@@ -205,11 +205,12 @@
                         git
                         git-lfs
                         pinentry-curses
-                        htop
+                        bottom
                         zellij
                         pueue
                         tokei
-                        procs
+                        choose
+                        fd
                         tealdeer
                         lm_sensors
                         smartmontools
