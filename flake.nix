@@ -209,6 +209,7 @@
                         zellij
                         pueue
                         tokei
+                        procs
                         tealdeer
                         lm_sensors
                         smartmontools
@@ -262,7 +263,7 @@
                   ];
                   services.xserver.displayManager.gdm.wayland = false;
                   environment.interactiveShellInit = ''
-                    alias athena='ssh rxiao@192.168.51.144'
+                    alias athena='ssh rxiao@192.168.50.144'
                     export RUST_BACKTRACE=1
                   '';
                 })
@@ -314,7 +315,7 @@
               ({ pkgs, ... }: {
                 environment.systemPackages = with pkgs; [ openshot-qt ];
                 environment.interactiveShellInit = ''
-                  alias athena='ssh rxiao@192.168.51.144'
+                  alias athena='ssh rxiao@192.168.50.144'
                   alias mendeley='mendeley-reference-manager --no-sandbox' 
                   export RUST_BACKTRACE=1
                 '';
@@ -334,7 +335,7 @@
               ({ pkgs, lib, modulesPath, ... }:
                 {
                   environment.interactiveShellInit = ''
-                    alias athena='ssh rxiao@192.168.51.144'
+                    alias athena='ssh rxiao@192.168.50.144'
                     export RUST_BACKTRACE=1
                   '';
 
