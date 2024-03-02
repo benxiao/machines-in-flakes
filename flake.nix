@@ -216,7 +216,7 @@
                         smartmontools
                         nmap
                         unzip
-                        rar
+                        ouch
                         silver-searcher
                         helix
                         black
