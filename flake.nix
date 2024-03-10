@@ -309,8 +309,8 @@
               (makeServerModule { })
               (makeNvidiaModule { powerlimit = 205; })
               (makeStorageModule {
-                swapDevice = "/dev/disk/by-uuid/c99f9905-82ea-4431-a7ad-5a751deeb800";
-                bootDevice = "/dev/disk/by-uuid/53D5-A050";
+                swapDevice = "/dev/nvme2n1p2";
+                bootDevice = "/dev/disk/by-uuid/DED6-AF46";
                 extraPools = [ "wotan" ];
               })
               ({ pkgs, ... }: {
