@@ -68,7 +68,6 @@
               thunderbird
               tor-browser-bundle-bin
               libreoffice
-              qbittorrent
               nomacs
               joplin-desktop
             ];
@@ -200,7 +199,6 @@
                         nil
                         nixpkgs-fmt
                         ffmpeg_6-full
-                        btop
                         docker-compose
                         git
                         git-lfs
