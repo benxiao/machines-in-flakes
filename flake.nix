@@ -41,7 +41,6 @@
               betterlockscreen
               stable.postman
               openshot-qt
-              microsoft-edge
               ledger-live-desktop
               vscode
               gimp
@@ -262,7 +261,7 @@
                   ];
                   services.xserver.displayManager.gdm.wayland = false;
                   environment.interactiveShellInit = ''
-                    alias athena='ssh rxiao@192.168.50.144'
+                    alias athena='ssh rxiao@athena.pinto-stargazer.ts.net'
                     export RUST_BACKTRACE=1
                   '';
                 })
@@ -314,7 +313,7 @@
               ({ pkgs, ... }: {
                 environment.systemPackages = with pkgs; [ openshot-qt ];
                 environment.interactiveShellInit = ''
-                  alias athena='ssh rxiao@192.168.50.144'
+                  alias athena='ssh rxiao@athena.pinto-stargazer.ts.net'
                   alias mendeley='mendeley-reference-manager --no-sandbox' 
                   export RUST_BACKTRACE=1
                 '';
@@ -334,7 +333,7 @@
               ({ pkgs, lib, modulesPath, ... }:
                 {
                   environment.interactiveShellInit = ''
-                    alias athena='ssh rxiao@192.168.50.144'
+                    alias athena='ssh rxiao@athena.pinto-stargazer.ts.net'
                     export RUST_BACKTRACE=1
                   '';
 
