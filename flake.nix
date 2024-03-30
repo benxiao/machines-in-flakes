@@ -76,7 +76,7 @@
           #   pkgs.google-cloud-sdk.withExtraComponents( with pkgs.google-cloud-sdk.components; [
           #     gke-gcloud-auth-plugin
           # ]);
-          
+
           printerModule = ({ ... }: {
             services.printing.enable = true;
             services.avahi.enable = true;
@@ -203,8 +203,9 @@
                         git-lfs
                         pinentry-curses
                         bottom
+                        broot
+                        bandwhich
                         zellij
-                        pueue
                         tokei
                         choose
                         fd
@@ -288,7 +289,7 @@
                 })
               desktopAppsModule
               (makeStorageModule {
-                extraPools = ["blue2t" "ssd0" "red4" "exos12" ];
+                extraPools = [ "blue2t" "ssd0" "red4" "exos12" "exos16" ];
               })
               (makeServerModule { })
               amdCpuModule
