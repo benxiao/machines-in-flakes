@@ -107,6 +107,7 @@
           makeNvidiaModule = { powerlimit }: ({ ... }: {
             services.xserver.videoDrivers = [ "nvidia" ];
             hardware.nvidia.nvidiaPersistenced = true;
+            hardware.nvidia.modesetting.enable = true;
             virtualisation.docker.enableNvidia = true;
             hardware.opengl.driSupport32Bit = true;
             # systemd.enableUnifiedCgroupHierarchy = false;
@@ -121,6 +122,38 @@
               };
             };
           });
+
+          checkRouterAliveModule = { pkgs, ... }: {
+            systemd.services.router-monitor = {
+              description = "Router Monitor Service";
+              after = [ "network.target" ];
+              wantedBy = [ "multi-user.target" ];
+              serviceConfig = {
+                ExecStart = pkgs.writeShellScript "router-monitor" ''
+                  ROUTER_IP='192.168.50.1';
+                  MAX_ATTEMPTS=5;
+                  SLEEP_INTERVAL=10s;
+                  attempt=0;
+                  while true; do
+                    if ${pkgs.iputils}/bin/ping -c 1 $ROUTER_IP > /dev/null; then
+                      attempt=0;
+                      echo 'Router is reachable. No action required.';
+                    else
+                      echo "Router is unreachable. Attempt $attempt of $MAX_ATTEMPTS.";
+                      attempt=$((attempt + 1));
+                      if [ $attempt -ge $MAX_ATTEMPTS ]; then
+                        echo 'Router has been unreachable for $MAX_ATTEMPTS attempts. Initiating shutdown.';
+                        poweroff
+                      fi;
+                    fi;
+                    sleep $SLEEP_INTERVAL;
+                  done
+                '';
+                Restart = "on-failure";
+                Type = "simple";
+              };
+            };
+          };
 
           makeStorageModule =
             { rootPool ? "zroot/root"
@@ -265,6 +298,7 @@
                     alias athena='ssh rxiao@athena.pinto-stargazer.ts.net'
                     export RUST_BACKTRACE=1
                   '';
+
                 })
               intelCpuModule
               printerModule
@@ -273,7 +307,7 @@
             ];
 
           });
-          # amd ryzen 7 1700
+          # amd ryzen 7 3700x
           athena = nixpkgs.lib.nixosSystem (simplesystem {
             hostName = "athena";
             extraModules = [
@@ -288,6 +322,7 @@
                   services.vscode-server.enable = true;
                 })
               desktopAppsModule
+              checkRouterAliveModule
               (makeStorageModule {
                 extraPools = [ "blue2t" "ssd0" "red4" "exos12" "exos16" ];
               })
@@ -297,7 +332,7 @@
               # (makeNvidiaModule { powerlimit = 75; })
             ];
           });
-          # amd ryzen 7 3700x
+          # intel 13500
           wotan = nixpkgs.lib.nixosSystem (simplesystem {
             hostName = "wotan";
             extraModules = [
