@@ -107,6 +107,7 @@
           makeNvidiaModule = { powerlimit }: ({ ... }: {
             services.xserver.videoDrivers = [ "nvidia" ];
             hardware.nvidia.nvidiaPersistenced = true;
+            hardware.nvidia.modesetting.enable = true;
             virtualisation.docker.enableNvidia = true;
             hardware.opengl.driSupport32Bit = true;
             # systemd.enableUnifiedCgroupHierarchy = false;
