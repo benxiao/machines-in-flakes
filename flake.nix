@@ -30,7 +30,7 @@
             virtualisation.virtualbox.host.enableExtensionPack = true;
             users.extraGroups.vboxusers.members = [ "user-with-access-to-virtualbox" ];
             virtualisation.virtualbox.guest.enable = true;
-            virtualisation.virtualbox.guest.x11 = true;
+            # virtualisation.virtualbox.guest.x11 = true;
           });
 
           desktopAppsModule = ({ pkgs, ... }: {
@@ -323,6 +323,7 @@
                 })
               desktopAppsModule
               checkRouterAliveModule
+              (makeNvidiaModule { powerlimit = 125; })
               (makeStorageModule {
                 extraPools = [ "blue2t" "ssd0" "red4" "exos12" "exos16" ];
               })
