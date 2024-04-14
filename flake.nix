@@ -26,10 +26,20 @@
           });
 
           virtualboxModule = ({ ... }: {
-            virtualisation.virtualbox.host.enable = true;
-            virtualisation.virtualbox.host.enableExtensionPack = true;
+            virtualisation.virtualbox.host = {
+              enable = true;
+              enableKvm = true;
+              addNetworkInterface = false;
+              enableHardening = false;
+              enableExtensionPack = true;
+            };
             users.extraGroups.vboxusers.members = [ "user-with-access-to-virtualbox" ];
-            virtualisation.virtualbox.guest.enable = true;
+            virtualisation.virtualbox.guest = {
+              enable = true;
+              seamless = true;
+              draganddrop = true;
+              clipboard = true;
+            };
             # virtualisation.virtualbox.guest.x11 = true;
           });
 
@@ -327,7 +337,7 @@
               (makeStorageModule {
                 extraPools = [ "blue2t" "ssd0" "red4" "exos12" "exos16" ];
               })
-              (makeServerModule { })
+              (makeServerModule { allowPassWordAuthentication = false; })
               amdCpuModule
               vscode-server.nixosModule
               # (makeNvidiaModule { powerlimit = 75; })
@@ -394,7 +404,7 @@
               printerModule
               virtualboxModule
               (makeServerModule {
-                allowPassWordAuthentication = true;
+                allowPassWordAuthentication = false;
               })
               (makeNvidiaModule {
                 powerlimit = 205;
