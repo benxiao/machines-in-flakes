@@ -246,6 +246,7 @@
                         git-lfs
                         pinentry-curses
                         bottom
+                        iotop
                         broot
                         bandwhich
                         zellij
