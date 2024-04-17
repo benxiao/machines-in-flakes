@@ -175,7 +175,7 @@
               boot.zfs.forceImportAll = true;
             });
 
-          simplesystem =
+          basicSystemModule =
             { hostName
             , extraModules ? [ ]
             }: {
@@ -290,7 +290,7 @@
         in
         {
           # Lenovo T490
-          apollo = nixpkgs.lib.nixosSystem (simplesystem {
+          apollo = nixpkgs.lib.nixosSystem (basicSystemModule {
             hostName = "apollo";
             extraModules = [
               (makeStorageModule { })
@@ -315,7 +315,7 @@
 
           });
           # amd ryzen 7 3700x
-          athena = nixpkgs.lib.nixosSystem (simplesystem {
+          athena = nixpkgs.lib.nixosSystem (basicSystemModule {
             hostName = "athena";
             extraModules = [
               ({ pkgs, lib, config, modulesPath, ... }:
@@ -337,11 +337,11 @@
               (makeServerModule { allowPassWordAuthentication = false; })
               amdCpuModule
               vscode-server.nixosModule
-              # (makeNvidiaModule { powerlimit = 75; })
+              googleSDKPackageModule
             ];
           });
           # intel 13500
-          wotan = nixpkgs.lib.nixosSystem (simplesystem {
+          wotan = nixpkgs.lib.nixosSystem (basicSystemModule {
             hostName = "wotan";
             extraModules = [
               intelCpuModule
@@ -371,7 +371,7 @@
             ];
           });
           # amd ryzen 3950x
-          dante = nixpkgs.lib.nixosSystem (simplesystem {
+          dante = nixpkgs.lib.nixosSystem (basicSystemModule {
             hostName = "dante";
             extraModules = [
               ({ pkgs, lib, modulesPath, ... }:
