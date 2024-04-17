@@ -25,24 +25,6 @@
             hardware.cpu.amd.updateMicrocode = true;
           });
 
-          virtualboxModule = ({ ... }: {
-            virtualisation.virtualbox.host = {
-              enable = true;
-              enableKvm = true;
-              addNetworkInterface = false;
-              enableHardening = false;
-              enableExtensionPack = true;
-            };
-            users.extraGroups.vboxusers.members = [ "user-with-access-to-virtualbox" ];
-            virtualisation.virtualbox.guest = {
-              enable = true;
-              seamless = true;
-              draganddrop = true;
-              clipboard = true;
-            };
-            # virtualisation.virtualbox.guest.x11 = true;
-          });
-
           desktopAppsModule = ({ pkgs, ... }: {
             environment.systemPackages = with pkgs; [
               tree
@@ -61,6 +43,7 @@
               mongodb-compass
               slack
               mendeley
+              gnome.gnome-boxes
               gnome-text-editor
               gnome.baobab
               gnome.file-roller
@@ -82,10 +65,18 @@
             ];
           });
 
-          # makeGoogleSDKPackage =  { pkgs } : 
-          #   pkgs.google-cloud-sdk.withExtraComponents( with pkgs.google-cloud-sdk.components; [
-          #     gke-gcloud-auth-plugin
-          # ]);
+          googleSDKPackageModule = ({ pkgs, ... }:
+            let
+              gdk = pkgs.google-cloud-sdk.withExtraComponents
+                (with pkgs.google-cloud-sdk.components; [
+                  gke-gcloud-auth-plugin
+                ]);
+            in
+            {
+              environment.systemPackages = [
+                gdk
+              ];
+            });
 
           printerModule = ({ ... }: {
             services.printing.enable = true;
@@ -120,7 +111,6 @@
             hardware.nvidia.modesetting.enable = true;
             virtualisation.docker.enableNvidia = true;
             hardware.opengl.driSupport32Bit = true;
-            # systemd.enableUnifiedCgroupHierarchy = false;
             systemd.services.nvidia-power-limiter = {
               wantedBy = [ "multi-user.target" ];
               description = "set power limit for nvidia gpus";
@@ -285,7 +275,7 @@
                       virtualisation.docker.liveRestore = false;
                       hardware.opengl.enable = true;
                       networking.firewall.enable = false;
-                      system.stateVersion = "22.05"; # Did you read the comment?
+                      system.stateVersion = "23.11";
                     })
 
                 ] ++ extraModules;
@@ -302,7 +292,6 @@
                 {
                   environment.systemPackages = with pkgs; [
                     asunder
-                    google-cloud-sdk
                   ];
                   services.xserver.displayManager.gdm.wayland = false;
                   environment.interactiveShellInit = ''
@@ -314,6 +303,7 @@
               intelCpuModule
               printerModule
               desktopAppsModule
+              googleSDKPackageModule
               nixos-hardware.nixosModules.lenovo-thinkpad-t490
             ];
 
@@ -403,7 +393,6 @@
               })
               amdCpuModule
               printerModule
-              virtualboxModule
               (makeServerModule {
                 allowPassWordAuthentication = false;
               })
@@ -411,6 +400,7 @@
                 powerlimit = 205;
               })
               desktopAppsModule
+              googleSDKPackageModule
             ];
           });
         };
