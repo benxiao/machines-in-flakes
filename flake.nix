@@ -1,15 +1,21 @@
 {
   description = "all my machines in flakes";
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
-  inputs.nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-23.05";
+  inputs.nixpkgs-legacy.url = "github:nixos/nixpkgs/nixos-23.05";  
+  inputs.nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-23.11";
   inputs.nixos-hardware.url = "github:NixOS/nixos-hardware/master";
   inputs.vscode-server.url = "github:msteen/nixos-vscode-server";
-  outputs = { self, nixpkgs, nixpkgs-stable, nixos-hardware, vscode-server }:
+  outputs = { self, nixpkgs, nixpkgs-stable, nixpkgs-legacy,  nixos-hardware, vscode-server }:
     {
       nixosConfigurations =
         let
           system = "x86_64-linux";
           stable = import nixpkgs-stable {
+            inherit system;
+            config.allowUnfree = true;
+          };
+          
+          legacy = import nixpkgs-legacy {
             inherit system;
             config.allowUnfree = true;
           };
@@ -27,11 +33,10 @@
 
           desktopAppsModule = ({ pkgs, ... }: {
             environment.systemPackages = with pkgs; [
-              tree
               chromium
               audacity
               betterlockscreen
-              stable.postman
+              legacy.postman
               openshot-qt
               ledger-live-desktop
               vscode
@@ -255,6 +260,7 @@
                         wget
                         tig
                         xclip
+                        tree
                         nodejs
                         rustup
                         clang
