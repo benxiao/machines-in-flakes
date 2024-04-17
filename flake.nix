@@ -1,11 +1,11 @@
 {
   description = "all my machines in flakes";
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
-  inputs.nixpkgs-legacy.url = "github:nixos/nixpkgs/nixos-23.05";  
+  inputs.nixpkgs-legacy.url = "github:nixos/nixpkgs/nixos-23.05";
   inputs.nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-23.11";
   inputs.nixos-hardware.url = "github:NixOS/nixos-hardware/master";
   inputs.vscode-server.url = "github:msteen/nixos-vscode-server";
-  outputs = { self, nixpkgs, nixpkgs-stable, nixpkgs-legacy,  nixos-hardware, vscode-server }:
+  outputs = { self, nixpkgs, nixpkgs-stable, nixpkgs-legacy, nixos-hardware, vscode-server }:
     {
       nixosConfigurations =
         let
@@ -14,7 +14,7 @@
             inherit system;
             config.allowUnfree = true;
           };
-          
+
           legacy = import nixpkgs-legacy {
             inherit system;
             config.allowUnfree = true;
@@ -83,10 +83,11 @@
               ];
             });
 
-          printerModule = ({ ... }: {
+          printerModule = ({ pkgs, ... }: {
             services.printing.enable = true;
             services.avahi.enable = true;
             services.avahi.nssmdns4 = true;
+            services.printing.drivers = [ pkgs.brlaser pkgs.brgenml1lpr pkgs.brgenml1cupswrapper ];
             # for a WiFi printer
             services.avahi.openFirewall = true;
           });
