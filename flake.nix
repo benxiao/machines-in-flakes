@@ -347,6 +347,7 @@
             extraModules = [
               intelCpuModule
               printerModule
+              googleSDKPackageModule
               desktopAppsModule
               (makeServerModule { })
               (makeNvidiaModule { powerlimit = 205; })
