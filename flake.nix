@@ -44,7 +44,7 @@
               jetbrains.pycharm-community
               jetbrains.rust-rover
               jetbrains.goland
-              nextcloud-client
+              legacy.nextcloud-client
               mongodb-compass
               slack
               mendeley
@@ -387,6 +387,8 @@
                     audacity
                     jetbrains.rust-rover
                     near-cli
+                    temporal
+                    temporal-cli
                   ];
                   programs.steam = {
                     enable = true;
