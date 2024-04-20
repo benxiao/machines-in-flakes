@@ -254,10 +254,10 @@
                         smartmontools
                         nmap
                         unzip
+                        pv
                         ouch
                         silver-searcher
                         helix
-                        black
                         wget
                         tig
                         xclip
