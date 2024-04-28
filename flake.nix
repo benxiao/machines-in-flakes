@@ -238,6 +238,7 @@
                         nixpkgs-fmt
                         ffmpeg_6-full
                         docker-compose
+                        openssl
                         git
                         git-lfs
                         pinentry-curses
@@ -267,6 +268,7 @@
                         clang
                         atop
                         rust-analyzer
+                        go
                         gopls
                         sysstat
                         betterlockscreen
