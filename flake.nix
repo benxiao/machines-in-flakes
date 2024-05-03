@@ -335,7 +335,7 @@
               checkRouterAliveModule
               (makeNvidiaModule { powerlimit = 125; })
               (makeStorageModule {
-                extraPools = [ "blue2t" "ssd0" "red4" "exos12" "exos16" ];
+                extraPools = [ "blue2t" "bigdisk"  "exos16" ];
               })
               (makeServerModule { allowPassWordAuthentication = false; })
               amdCpuModule
