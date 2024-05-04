@@ -216,7 +216,7 @@
                       services.xserver.enable = true;
                       services.xserver.desktopManager.gnome.enable = true;
                       services.xserver.displayManager.gdm.enable = true;
-                      services.xserver.libinput.enable = true;
+                      services.libinput.enable = true;
                       services.xserver.xkb.options = "caps:none";
                       services.pcscd.enable = true;
                       services.tailscale.enable = true;
