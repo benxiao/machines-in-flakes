@@ -41,10 +41,8 @@
               ledger-live-desktop
               vscode
               gimp
-              jetbrains.pycharm-community
-              jetbrains.rust-rover
               jetbrains.goland
-              legacy.nextcloud-client
+              nextcloud-client
               mongodb-compass
               slack
               mendeley
@@ -54,6 +52,7 @@
               gnome.file-roller
               gnome.gnome-system-monitor
               gnome.nautilus
+              gnome.gnome-logs
               gnome.gnome-power-manager
               alacritty
               gnome.gnome-chess
@@ -75,6 +74,7 @@
               gdk = pkgs.google-cloud-sdk.withExtraComponents
                 (with pkgs.google-cloud-sdk.components; [
                   gke-gcloud-auth-plugin
+                  pubsub-emulator
                 ]);
             in
             {
@@ -263,20 +263,17 @@
                         tig
                         xclip
                         tree
-                        nodejs
-                        rustup
-                        clang
                         atop
-                        rust-analyzer
                         go
+                        golangci-lint
                         gopls
+                        go-mockery
                         sysstat
-                        betterlockscreen
                       ];
                       environment.variables.EDITOR = "hx";
                       users.users.rxiao = {
                         isNormalUser = true;
-                        extraGroups = [ "wheel" "docker" "vboxusers" ];
+                        extraGroups = [ "wheel" "docker" ];
                       };
                       virtualisation.libvirtd.enable = true;
                       virtualisation.docker.enable = true;
@@ -284,7 +281,7 @@
                       virtualisation.docker.liveRestore = false;
                       hardware.opengl.enable = true;
                       networking.firewall.enable = false;
-                      system.stateVersion = "23.11";
+                      system.stateVersion = "24.05";
                     })
 
                 ] ++ extraModules;
@@ -331,7 +328,6 @@
 
                   services.vscode-server.enable = true;
                 })
-              desktopAppsModule
               checkRouterAliveModule
               (makeNvidiaModule { powerlimit = 125; })
               (makeStorageModule {
