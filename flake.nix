@@ -352,7 +352,7 @@
               (makeStorageModule {
                 swapDevice = "/dev/nvme2n1p2";
                 bootDevice = "/dev/disk/by-uuid/DED6-AF46";
-                extraPools = [ "wotan" ];
+                extraPools = [ "wotan" "red4" ];
               })
               ({ pkgs, ... }: {
                 environment.systemPackages = with pkgs; [ openshot-qt ];
