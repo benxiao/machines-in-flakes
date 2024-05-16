@@ -138,7 +138,7 @@
                 ExecStart = pkgs.writeShellScript "router-monitor" ''
                   ROUTER_IP='192.168.50.1';
                   MAX_ATTEMPTS=5;
-                  SLEEP_INTERVAL=10s;
+                  SLEEP_INTERVAL=30s;
                   attempt=0;
                   while true; do
                     if ${pkgs.iputils}/bin/ping -c 1 $ROUTER_IP > /dev/null; then
