@@ -320,18 +320,12 @@
             extraModules = [
               ({ pkgs, lib, config, modulesPath, ... }:
                 {
-                  environment.interactiveShellInit = ''
-                    function slide-show(){
-                      feh -Y -x -q -D 100 -B black -F -Z -z -r "$@";
-                    }
-                  '';
-
                   services.vscode-server.enable = true;
                 })
               checkRouterAliveModule
               (makeNvidiaModule { powerlimit = 125; })
               (makeStorageModule {
-                extraPools = [ "blue2t" "bigdisk"  "exos16" ];
+                extraPools = [ "blue2t" "bigdisk" "ssd0" "exos16" ];
               })
               (makeServerModule { allowPassWordAuthentication = false; })
               amdCpuModule
@@ -383,7 +377,6 @@
 
                   environment.systemPackages = with pkgs; [
                     audacity
-                    jetbrains.rust-rover
                     near-cli
                     temporal
                     temporal-cli
