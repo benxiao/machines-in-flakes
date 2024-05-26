@@ -378,6 +378,8 @@
                   environment.systemPackages = with pkgs; [
                     audacity
                     near-cli
+                    postgresql
+                    go-migrate
                     temporal
                     temporal-cli
                   ];
