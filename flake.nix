@@ -323,7 +323,7 @@
                   services.vscode-server.enable = true;
                 })
               checkRouterAliveModule
-              (makeNvidiaModule { powerlimit = 125; })
+              (makeNvidiaModule { powerlimit = 200; })
               (makeStorageModule {
                 extraPools = [ "blue2t" "bigdisk" "ssd0" "exos16" ];
               })
