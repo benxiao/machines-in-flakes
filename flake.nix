@@ -116,7 +116,7 @@
             hardware.nvidia.nvidiaPersistenced = true;
             hardware.nvidia.modesetting.enable = true;
             virtualisation.docker.enableNvidia = true;
-            hardware.opengl.driSupport32Bit = true;
+            hardware.graphics.enable32Bit = true;
             systemd.services.nvidia-power-limiter = {
               wantedBy = [ "multi-user.target" ];
               description = "set power limit for nvidia gpus";
@@ -279,7 +279,7 @@
                       virtualisation.docker.enable = true;
                       virtualisation.docker.storageDriver = "zfs";
                       virtualisation.docker.liveRestore = false;
-                      hardware.opengl.enable = true;
+                      hardware.graphics.enable = true;
                       networking.firewall.enable = false;
                       system.stateVersion = "24.05";
                     })
@@ -299,7 +299,6 @@
                   environment.systemPackages = with pkgs; [
                     asunder
                   ];
-                  services.xserver.displayManager.gdm.wayland = false;
                   environment.interactiveShellInit = ''
                     alias athena='ssh rxiao@athena.pinto-stargazer.ts.net'
                     export RUST_BACKTRACE=1
