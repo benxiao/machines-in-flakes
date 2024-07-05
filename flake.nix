@@ -48,10 +48,10 @@
               mendeley
               gnome.gnome-boxes
               gnome-text-editor
-              gnome.baobab
-              gnome.file-roller
-              gnome.gnome-system-monitor
-              gnome.nautilus
+              baobab
+              file-roller
+              gnome-system-monitor
+              nautilus
               gnome.gnome-logs
               gnome.gnome-power-manager
               alacritty
@@ -220,6 +220,7 @@
                       services.xserver.xkb.options = "caps:none";
                       services.pcscd.enable = true;
                       services.tailscale.enable = true;
+                      # services.twingate.enable = true;
                       services.zfs.trim.enable = true;
                       # enable gpg
                       programs.gnupg.agent = {
