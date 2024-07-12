@@ -37,12 +37,12 @@
               audacity
               betterlockscreen
               legacy.postman
-              openshot-qt
+              stable.openshot-qt
               ledger-live-desktop
               vscode
               gimp
               jetbrains.goland
-              nextcloud-client
+              stable.nextcloud-client
               mongodb-compass
               slack
               mendeley
