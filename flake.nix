@@ -370,10 +370,13 @@
             extraModules = [
               ({ pkgs, lib, modulesPath, ... }:
                 {
-                  environment.interactiveShellInit = ''
-                    alias athena='ssh rxiao@athena.pinto-stargazer.ts.net'
-                    export RUST_BACKTRACE=1
-                  '';
+                  programs.bash.shellAliases = {
+                    athena="ssh rxiao@athena.pinto-stargazer.ts.net";
+                  };
+                  environment.variables = {
+                    MOZ_ENABLE_WAYLAND = 0;
+                    RUST_BACKTRACE=1;
+                  };
 
                   environment.systemPackages = with pkgs; [
                     audacity
