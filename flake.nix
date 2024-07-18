@@ -187,8 +187,6 @@
                     {
                       imports = [ (modulesPath + "/installer/scan/not-detected.nix") ];
                       nix.extraOptions = "experimental-features = nix-command flakes";
-                      # sound
-                      sound.enable = true;
                       nixpkgs.config.pulseaudio = true;
                       hardware.pulseaudio.enable = true;
                       hardware.pulseaudio.support32Bit = true;
