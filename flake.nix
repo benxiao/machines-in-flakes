@@ -344,7 +344,7 @@
               (makeStorageModule {
                 swapDevice = "/dev/nvme2n1p2";
                 bootDevice = "/dev/disk/by-uuid/DED6-AF46";
-                extraPools = [ "wotan" "red4" ];
+                extraPools = [ "wotan" ];
               })
               ({ pkgs, ... }: {
                 environment.systemPackages = with pkgs; [ openshot-qt ];
@@ -354,6 +354,20 @@
                   export RUST_BACKTRACE=1
                 '';
 
+                services.plex = {
+                  enable = true;
+                  openFirewall = true;
+                };
+
+                services.ollama = {
+                  enable = true;
+                  acceleration = "cuda";
+                };
+
+                services.open-webui = {
+                  enable = true;
+                  port = 3001;
+                };
                 programs.steam = {
                   enable = true;
                   remotePlay.openFirewall = true; # Open ports in the firewall for Steam Remote Play
@@ -369,13 +383,12 @@
               ({ pkgs, lib, modulesPath, ... }:
                 {
                   programs.bash.shellAliases = {
-                    athena="ssh rxiao@athena.pinto-stargazer.ts.net";
+                    athena = "ssh rxiao@athena.pinto-stargazer.ts.net";
                   };
                   environment.variables = {
                     MOZ_ENABLE_WAYLAND = 0;
-                    RUST_BACKTRACE=1;
+                    RUST_BACKTRACE = 1;
                   };
-
                   environment.systemPackages = with pkgs; [
                     audacity
                     near-cli
