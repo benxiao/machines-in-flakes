@@ -115,8 +115,8 @@
             services.xserver.videoDrivers = [ "nvidia" ];
             hardware.nvidia.nvidiaPersistenced = true;
             hardware.nvidia.modesetting.enable = true;
-            virtualisation.docker.enableNvidia = true;
             hardware.graphics.enable32Bit = true;
+            hardware.nvidia-container-toolkit.enable = true;
             systemd.services.nvidia-power-limiter = {
               wantedBy = [ "multi-user.target" ];
               description = "set power limit for nvidia gpus";
@@ -230,7 +230,7 @@
                       programs.gnome-disks.enable = true;
                       environment.systemPackages = with pkgs; [
                         nix-index
-                        nix-init
+                        stable.nix-init
                         nix-tree
                         nixpkgs-review
                         nil
@@ -244,7 +244,7 @@
                         bottom
                         iotop
                         broot
-                        bandwhich
+                        stable.bandwhich
                         zellij
                         tokei
                         choose
