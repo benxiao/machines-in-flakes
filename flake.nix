@@ -46,16 +46,16 @@
               mongodb-compass
               slack
               mendeley
-              gnome.gnome-boxes
+              gnome-boxes
               gnome-text-editor
               baobab
               file-roller
               gnome-system-monitor
               nautilus
               gnome.gnome-logs
-              gnome.gnome-power-manager
+              gnome-power-manager
               alacritty
-              gnome.gnome-chess
+              gnome-chess
               stockfish
               celluloid
               vlc
@@ -80,6 +80,20 @@
             {
               environment.systemPackages = [
                 gdk
+              ];
+            });
+
+          python3Module  = ({ pkgs, ... }:
+            let
+              python3WithPackages = pkgs.python3.withPackages(p: with p; [
+                ipython
+                pandas
+                jupyter
+              ]);
+            in
+            {
+              environment.systemPackages = [
+                python3WithPackages
               ];
             });
 
@@ -114,6 +128,7 @@
           makeNvidiaModule = { powerlimit }: ({ ... }: {
             services.xserver.videoDrivers = [ "nvidia" ];
             hardware.nvidia.nvidiaPersistenced = true;
+            hardware.nvidia.open = false;
             hardware.nvidia.modesetting.enable = true;
             hardware.graphics.enable32Bit = true;
             hardware.nvidia-container-toolkit.enable = true;
@@ -218,7 +233,6 @@
                       services.xserver.xkb.options = "caps:none";
                       services.pcscd.enable = true;
                       services.tailscale.enable = true;
-                      # services.twingate.enable = true;
                       services.zfs.trim.enable = true;
                       # enable gpg
                       programs.gnupg.agent = {
@@ -339,6 +353,7 @@
               printerModule
               googleSDKPackageModule
               desktopAppsModule
+              python3Module
               (makeServerModule { })
               (makeNvidiaModule { powerlimit = 205; })
               (makeStorageModule {
