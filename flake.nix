@@ -46,21 +46,20 @@
               mongodb-compass
               slack
               mendeley
-              gnome.gnome-boxes
+              gnome-boxes
               gnome-text-editor
               baobab
               file-roller
               gnome-system-monitor
               nautilus
-              gnome.gnome-logs
-              gnome.gnome-power-manager
+              gnome-logs
+              gnome-power-manager
               alacritty
-              gnome.gnome-chess
+              gnome-chess
               stockfish
               celluloid
               vlc
               firefox
-              opera
               thunderbird
               tor-browser-bundle-bin
               libreoffice
@@ -114,19 +113,12 @@
           makeNvidiaModule = { powerlimit }: ({ ... }: {
             services.xserver.videoDrivers = [ "nvidia" ];
             hardware.nvidia.nvidiaPersistenced = true;
+            hardware.nvidia.open = false;
             hardware.nvidia.modesetting.enable = true;
             hardware.graphics.enable32Bit = true;
+            # docker  run  --device=nvidia.com/gpu=0 --rm nvidia/cuda:11.0.3-base-ubuntu20.04 nvidia-smi
             hardware.nvidia-container-toolkit.enable = true;
-            systemd.services.nvidia-power-limiter = {
-              wantedBy = [ "multi-user.target" ];
-              description = "set power limit for nvidia gpus";
-              serviceConfig = {
-                Type = "simple";
-                ExecStart = ''
-                  /run/current-system/sw/bin/nvidia-smi -i 0 -pl ${builtins.toString powerlimit}
-                '';
-              };
-            };
+            
           });
 
           checkRouterAliveModule = { pkgs, ... }: {
@@ -187,9 +179,6 @@
                     {
                       imports = [ (modulesPath + "/installer/scan/not-detected.nix") ];
                       nix.extraOptions = "experimental-features = nix-command flakes";
-                      nixpkgs.config.pulseaudio = true;
-                      hardware.pulseaudio.enable = true;
-                      hardware.pulseaudio.support32Bit = true;
                       hardware.bluetooth.enable = true;
                       hardware.ledger.enable = true;
                       nixpkgs.config.allowUnfree = true;
@@ -275,12 +264,14 @@
                         extraGroups = [ "wheel" "docker" ];
                       };
                       virtualisation.libvirtd.enable = true;
-                      virtualisation.docker.enable = true;
-                      virtualisation.docker.storageDriver = "zfs";
-                      virtualisation.docker.liveRestore = false;
+                      virtualisation.docker = {
+                        enable = true;
+                        storageDriver = "zfs";
+                        liveRestore = false;
+                      };
                       hardware.graphics.enable = true;
                       networking.firewall.enable = false;
-                      system.stateVersion = "24.05";
+                      system.stateVersion = "24.11";
                     })
 
                 ] ++ extraModules;
