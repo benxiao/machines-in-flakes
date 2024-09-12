@@ -82,6 +82,20 @@
               ];
             });
 
+          python3Module  = ({ pkgs, ... }:
+            let
+              python3WithPackages = pkgs.python3.withPackages(p: with p; [
+                ipython
+                pandas
+                jupyter
+              ]);
+            in
+            {
+              environment.systemPackages = [
+                python3WithPackages
+              ];
+            });
+
           printerModule = ({ pkgs, ... }: {
             services.printing.enable = true;
             services.avahi.enable = true;
@@ -207,7 +221,6 @@
                       services.xserver.xkb.options = "caps:none";
                       services.pcscd.enable = true;
                       services.tailscale.enable = true;
-                      # services.twingate.enable = true;
                       services.zfs.trim.enable = true;
                       # enable gpg
                       programs.gnupg.agent = {
@@ -330,6 +343,7 @@
               printerModule
               googleSDKPackageModule
               desktopAppsModule
+              python3Module
               (makeServerModule { })
               (makeNvidiaModule { powerlimit = 205; })
               (makeStorageModule {
