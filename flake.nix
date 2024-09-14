@@ -358,26 +358,6 @@
                   alias mendeley='mendeley-reference-manager --no-sandbox' 
                   export RUST_BACKTRACE=1
                 '';
-
-                services.plex = {
-                  enable = true;
-                  openFirewall = true;
-                };
-
-                services.ollama = {
-                  enable = true;
-                  acceleration = "cuda";
-                };
-
-                services.open-webui = {
-                  enable = true;
-                  port = 3001;
-                };
-                programs.steam = {
-                  enable = true;
-                  remotePlay.openFirewall = true; # Open ports in the firewall for Steam Remote Play
-                  dedicatedServer.openFirewall = true; # Open ports in the firewall for Source Dedicated Server
-                };
               })
             ];
           });
