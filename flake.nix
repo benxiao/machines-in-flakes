@@ -282,6 +282,9 @@
                         enable = true;
                         storageDriver = "zfs";
                         liveRestore = false;
+                        daemon.settings = {
+                          dns=["8.8.8.8"];
+                        };
                       };
                       hardware.graphics.enable = true;
                       networking.firewall.enable = false;
