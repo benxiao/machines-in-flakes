@@ -41,7 +41,7 @@
               ledger-live-desktop
               vscode
               gimp
-              jetbrains.goland
+              stable.jetbrains.goland
               stable.nextcloud-client
               mongodb-compass
               slack
@@ -231,6 +231,7 @@
 
                       programs.gnome-disks.enable = true;
                       environment.systemPackages = with pkgs; [
+                        bartib
                         nix-index
                         stable.nix-init
                         nix-tree
