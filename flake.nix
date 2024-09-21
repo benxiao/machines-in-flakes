@@ -85,10 +85,12 @@
           python3Module  = ({ pkgs, ... }:
             let
               python3WithPackages = pkgs.python3.withPackages(p: with p; [
+                python-lsp-server
                 ipython
                 pandas
                 jupyter
-              ]);
+              ]
+            );
             in
             {
               environment.systemPackages = [
@@ -193,12 +195,12 @@
                     {
                       imports = [ (modulesPath + "/installer/scan/not-detected.nix") ];
                       nix.extraOptions = "experimental-features = nix-command flakes";
+                      nixpkgs.config.allowUnfree = true;
+                      
                       hardware.bluetooth.enable = true;
                       hardware.ledger.enable = true;
-                      nixpkgs.config.allowUnfree = true;
 
                       boot.loader.systemd-boot.enable = true;
-                      boot.kernelPackages = config.boot.zfs.package.latestCompatibleLinuxPackages;
                       boot.loader.efi.canTouchEfiVariables = true;
 
                       networking.hostId = "00000000";
@@ -218,7 +220,6 @@
                       services.xserver.desktopManager.gnome.enable = true;
                       services.xserver.displayManager.gdm.enable = true;
                       services.libinput.enable = true;
-                      services.xserver.xkb.options = "caps:none";
                       services.pcscd.enable = true;
                       services.tailscale.enable = true;
                       services.zfs.trim.enable = true;
