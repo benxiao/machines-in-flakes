@@ -126,7 +126,7 @@
             };
           });
 
-          makeNvidiaModule = { powerlimit }: ({ ... }: {
+          nvidiaModule =  ({ ... }: {
             services.xserver.videoDrivers = [ "nvidia" ];
             hardware.nvidia.nvidiaPersistenced = true;
             hardware.nvidia.open = false;
@@ -330,7 +330,7 @@
                   services.vscode-server.enable = true;
                 })
               checkRouterAliveModule
-              (makeNvidiaModule { powerlimit = 200; })
+              nvidiaModule
               (makeStorageModule {
                 extraPools = [ "blue2t" "bigdisk" "ssd0" "exos16" ];
               })
@@ -350,7 +350,7 @@
               desktopAppsModule
               python3Module
               (makeServerModule { })
-              (makeNvidiaModule { powerlimit = 205; })
+              (nvidiaModule)
               (makeStorageModule {
                 swapDevice = "/dev/nvme2n1p2";
                 bootDevice = "/dev/disk/by-uuid/DED6-AF46";
@@ -403,9 +403,7 @@
               (makeServerModule {
                 allowPassWordAuthentication = false;
               })
-              (makeNvidiaModule {
-                powerlimit = 205;
-              })
+              nvidiaModule
               desktopAppsModule
               googleSDKPackageModule
             ];
