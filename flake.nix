@@ -315,6 +315,7 @@
                 })
               intelCpuModule
               printerModule
+              python3Module
               desktopAppsModule
               googleSDKPackageModule
               nixos-hardware.nixosModules.lenovo-thinkpad-t490
