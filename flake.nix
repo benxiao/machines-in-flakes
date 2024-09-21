@@ -82,19 +82,22 @@
               ];
             });
 
-          python3Module  = ({ pkgs, ... }:
+          makePython3Module = {
+            additionalPkgFun ? p: []
+          }: ({ pkgs, ... }:
             let
-              python3WithPackages = pkgs.python3.withPackages(p: with p; [
+              defaultPkgFun = p: with p; [
                 python-lsp-server
                 ipython
                 pandas
                 jupyter
-              ]
-            );
+              ] ++ additionalPkgFun(p);
+              
+              python3env = pkgs.python3.withPackages(defaultPkgFun);
             in
             {
               environment.systemPackages = [
-                python3WithPackages
+                python3env
               ];
             });
 
@@ -294,7 +297,6 @@
 
                 ] ++ extraModules;
             };
-
         in
         {
           # Lenovo T490
@@ -315,7 +317,11 @@
                 })
               intelCpuModule
               printerModule
-              python3Module
+              (makePython3Module{additionalPkgFun=p:[
+              p.langchain-community
+              p.langchain
+              p.langchain-chroma
+              ];})
               desktopAppsModule
               googleSDKPackageModule
               nixos-hardware.nixosModules.lenovo-thinkpad-t490
@@ -349,7 +355,7 @@
               printerModule
               googleSDKPackageModule
               desktopAppsModule
-              python3Module
+              (makePython3Module { })
               (makeServerModule { })
               (nvidiaModule)
               (makeStorageModule {
