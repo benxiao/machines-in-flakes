@@ -411,6 +411,7 @@
                 allowPassWordAuthentication = false;
               })
               nvidiaModule
+              (makePython3Module{})
               desktopAppsModule
               googleSDKPackageModule
             ];
