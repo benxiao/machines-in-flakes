@@ -256,6 +256,7 @@
                         tokei
                         choose
                         fd
+                        rnr
                         tealdeer
                         lm_sensors
                         smartmontools
