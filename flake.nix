@@ -1,8 +1,8 @@
 {
   description = "all my machines in flakes";
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
-  inputs.nixpkgs-legacy.url = "github:nixos/nixpkgs/nixos-23.05";
-  inputs.nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-23.11";
+  inputs.nixpkgs-legacy.url = "github:nixos/nixpkgs/nixos-23.11";
+  inputs.nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-24.05";
   inputs.nixos-hardware.url = "github:NixOS/nixos-hardware/master";
   inputs.vscode-server.url = "github:msteen/nixos-vscode-server";
   outputs = { self, nixpkgs, nixpkgs-stable, nixpkgs-legacy, nixos-hardware, vscode-server }:
@@ -36,7 +36,7 @@
               chromium
               audacity
               betterlockscreen
-              legacy.postman
+              postman
               stable.openshot-qt
               ledger-live-desktop
               vscode
@@ -257,6 +257,7 @@
                         tokei
                         choose
                         fd
+                        rnr
                         tealdeer
                         lm_sensors
                         smartmontools
@@ -412,6 +413,7 @@
                 allowPassWordAuthentication = false;
               })
               nvidiaModule
+              (makePython3Module{})
               desktopAppsModule
               googleSDKPackageModule
             ];
