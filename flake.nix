@@ -93,7 +93,7 @@
                 jupyter
               ] ++ additionalPkgFun(p);
               
-              python3env = pkgs.python3.withPackages(defaultPkgFun);
+              python3env = stable.python3.withPackages(defaultPkgFun);
             in
             {
               environment.systemPackages = [
@@ -236,6 +236,7 @@
                       programs.gnome-disks.enable = true;
                       environment.systemPackages = with pkgs; [
                         bartib
+                        btop
                         nix-index
                         stable.nix-init
                         nix-tree
@@ -287,7 +288,7 @@
                         storageDriver = "zfs";
                         liveRestore = false;
                         daemon.settings = {
-                          dns=["8.8.8.8"];
+                          dns=["8.8.8.8" "1.1.1.1"];
                         };
                       };
                       hardware.graphics.enable = true;
@@ -318,9 +319,9 @@
               intelCpuModule
               printerModule
               (makePython3Module{additionalPkgFun=p:[
-              p.langchain-community
-              p.langchain
-              p.langchain-chroma
+              # p.langchain-community
+              # p.langchain
+              # p.langchain-chroma
               ];})
               desktopAppsModule
               googleSDKPackageModule
@@ -339,7 +340,7 @@
               checkRouterAliveModule
               nvidiaModule
               (makeStorageModule {
-                extraPools = [ "blue2t" "bigdisk" "ssd0" "exos16" ];
+                extraPools = [ "blue2t" "ssd0" ];
               })
               (makeServerModule { allowPassWordAuthentication = false; })
               amdCpuModule
