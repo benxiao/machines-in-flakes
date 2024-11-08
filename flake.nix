@@ -216,8 +216,8 @@
 
                       i18n.defaultLocale = "en_AU.UTF-8";
                       services.gnome.core-utilities.enable = false;
-                      services.gnome.tracker-miners.enable = false;
-                      services.gnome.tracker.enable = false;
+                      services.gnome.localsearch.enable = false;
+                      services.gnome.tinysparql.enable = false;
                       services.gnome.gnome-remote-desktop.enable = false;
                       services.xserver.enable = true;
                       services.xserver.desktopManager.gnome.enable = true;
