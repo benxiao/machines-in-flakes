@@ -1,8 +1,8 @@
 {
   description = "all my machines in flakes";
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
-  inputs.nixpkgs-legacy.url = "github:nixos/nixpkgs/nixos-23.11";
-  inputs.nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-24.05";
+  inputs.nixpkgs-legacy.url = "github:nixos/nixpkgs/nixos-24.05";
+  inputs.nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-24.11";
   inputs.nixos-hardware.url = "github:NixOS/nixos-hardware/master";
   inputs.vscode-server.url = "github:msteen/nixos-vscode-server";
   outputs = { self, nixpkgs, nixpkgs-stable, nixpkgs-legacy, nixos-hardware, vscode-server }:
