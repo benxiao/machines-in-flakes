@@ -42,7 +42,7 @@
               vscode
               gimp
               stable.jetbrains.goland
-              stable.nextcloud-client
+              nextcloud-client
               mongodb-compass
               slack
               mendeley
