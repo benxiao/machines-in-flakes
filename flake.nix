@@ -34,6 +34,7 @@
           desktopAppsModule = ({ pkgs, ... }: {
             environment.systemPackages = with pkgs; [
               chromium
+              google-chrome
               audacity
               betterlockscreen
               postman
@@ -82,18 +83,18 @@
               ];
             });
 
-          makePython3Module = {
-            additionalPkgFun ? p: []
-          }: ({ pkgs, ... }:
+          makePython3Module =
+            { additionalPkgFun ? p: [ ]
+            }: ({ pkgs, ... }:
             let
               defaultPkgFun = p: with p; [
                 python-lsp-server
                 ipython
                 pandas
                 jupyter
-              ] ++ additionalPkgFun(p);
-              
-              python3env = stable.python3.withPackages(defaultPkgFun);
+              ] ++ additionalPkgFun (p);
+
+              python3env = stable.python3.withPackages (defaultPkgFun);
             in
             {
               environment.systemPackages = [
@@ -129,7 +130,7 @@
             };
           });
 
-          nvidiaModule =  ({ ... }: {
+          nvidiaModule = ({ ... }: {
             services.xserver.videoDrivers = [ "nvidia" ];
             hardware.nvidia.nvidiaPersistenced = true;
             hardware.nvidia.open = false;
@@ -137,7 +138,7 @@
             hardware.graphics.enable32Bit = true;
             # docker  run  --device=nvidia.com/gpu=0 --rm nvidia/cuda:11.0.3-base-ubuntu20.04 nvidia-smi
             hardware.nvidia-container-toolkit.enable = true;
-            
+
           });
 
           checkRouterAliveModule = { pkgs, ... }: {
@@ -199,11 +200,14 @@
                       imports = [ (modulesPath + "/installer/scan/not-detected.nix") ];
                       nix.extraOptions = "experimental-features = nix-command flakes";
                       nixpkgs.config.allowUnfree = true;
-                      
+
                       hardware.bluetooth.enable = true;
                       hardware.ledger.enable = true;
 
                       boot.loader.systemd-boot.enable = true;
+                      boot.initrd.preLVMCommands = ''
+                        export LVM_SUPPRESS_FD_WARNINGS=1
+                      '';
                       boot.loader.efi.canTouchEfiVariables = true;
 
                       networking.hostId = "00000000";
@@ -289,7 +293,7 @@
                         storageDriver = "zfs";
                         liveRestore = false;
                         daemon.settings = {
-                          dns=["8.8.8.8" "1.1.1.1"];
+                          dns = [ "8.8.8.8" "1.1.1.1" ];
                         };
                       };
                       hardware.graphics.enable = true;
@@ -319,11 +323,13 @@
                 })
               intelCpuModule
               printerModule
-              (makePython3Module{additionalPkgFun=p:[
-              # p.langchain-community
-              # p.langchain
-              # p.langchain-chroma
-              ];})
+              (makePython3Module {
+                additionalPkgFun = p: [
+                  # p.langchain-community
+                  # p.langchain
+                  # p.langchain-chroma
+                ];
+              })
               desktopAppsModule
               googleSDKPackageModule
               nixos-hardware.nixosModules.lenovo-thinkpad-t490
@@ -413,7 +419,7 @@
                 allowPassWordAuthentication = false;
               })
               nvidiaModule
-              (makePython3Module{})
+              (makePython3Module { })
               desktopAppsModule
               googleSDKPackageModule
             ];
