@@ -1,16 +1,16 @@
 {
   description = "all my machines in flakes";
-  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
+  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-24.11";
   inputs.nixpkgs-legacy.url = "github:nixos/nixpkgs/nixos-24.05";
-  inputs.nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-24.11";
+  inputs.nixpkgs-unstable.url = "github:nixos/nixpkgs/nixpkgs-unstable";
   inputs.nixos-hardware.url = "github:NixOS/nixos-hardware/master";
   inputs.vscode-server.url = "github:msteen/nixos-vscode-server";
-  outputs = { self, nixpkgs, nixpkgs-stable, nixpkgs-legacy, nixos-hardware, vscode-server }:
+  outputs = { self, nixpkgs, nixpkgs-unstable, nixpkgs-legacy, nixos-hardware, vscode-server }:
     {
       nixosConfigurations =
         let
           system = "x86_64-linux";
-          stable = import nixpkgs-stable {
+          unstable = import nixpkgs-unstable {
             inherit system;
             config.allowUnfree = true;
           };
@@ -34,15 +34,15 @@
           desktopAppsModule = ({ pkgs, ... }: {
             environment.systemPackages = with pkgs; [
               chromium
-              google-chrome
+              unstable.google-chrome
               audacity
               betterlockscreen
               postman
-              stable.openshot-qt
+              openshot-qt
               ledger-live-desktop
               vscode
               gimp
-              stable.jetbrains.goland
+              jetbrains.goland
               nextcloud-client
               mongodb-compass
               slack
@@ -94,7 +94,7 @@
                 jupyter
               ] ++ additionalPkgFun (p);
 
-              python3env = stable.python3.withPackages (defaultPkgFun);
+              python3env = unstable.python3.withPackages (defaultPkgFun);
             in
             {
               environment.systemPackages = [
@@ -242,7 +242,7 @@
                         bartib
                         btop
                         nix-index
-                        stable.nix-init
+                        nix-init
                         nix-tree
                         nixpkgs-review
                         nil
@@ -256,7 +256,7 @@
                         bottom
                         iotop
                         broot
-                        stable.bandwhich
+                        bandwhich
                         zellij
                         tokei
                         choose
