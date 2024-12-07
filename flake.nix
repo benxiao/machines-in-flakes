@@ -347,7 +347,7 @@
               checkRouterAliveModule
               nvidiaModule
               (makeStorageModule {
-                extraPools = [ "blue2t" ];
+                extraPools = [ "blue2t" "c7" ];
               })
               (makeServerModule { allowPassWordAuthentication = false; })
               amdCpuModule
