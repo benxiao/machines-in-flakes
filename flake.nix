@@ -343,6 +343,13 @@
               ({ pkgs, lib, config, modulesPath, ... }:
                 {
                   services.vscode-server.enable = true;
+                  systemd.services.restart-containers = {
+                    wantedBy = [ "multi-user.target" ];
+                    after = [ "docker.service" ];
+                    script = ''
+                      cd /home/rxiao/nut && docker-compose down && docker-compose up -d
+                    '';
+                  };
                 })
               checkRouterAliveModule
               nvidiaModule
