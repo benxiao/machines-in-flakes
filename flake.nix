@@ -3,14 +3,21 @@
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-24.11";
   inputs.nixpkgs-legacy.url = "github:nixos/nixpkgs/nixos-24.05";
   inputs.nixpkgs-unstable.url = "github:nixos/nixpkgs/nixpkgs-unstable";
+  inputs.nixpkgs-master.url = "github:nixos/nixpkgs/master";
+
   inputs.nixos-hardware.url = "github:NixOS/nixos-hardware/master";
   inputs.vscode-server.url = "github:msteen/nixos-vscode-server";
-  outputs = { self, nixpkgs, nixpkgs-unstable, nixpkgs-legacy, nixos-hardware, vscode-server }:
+  outputs = { self, nixpkgs, nixpkgs-unstable, nixpkgs-master, nixpkgs-legacy, nixos-hardware, vscode-server }:
     {
       nixosConfigurations =
         let
           system = "x86_64-linux";
           unstable = import nixpkgs-unstable {
+            inherit system;
+            config.allowUnfree = true;
+          };
+
+          master = import nixpkgs-master {
             inherit system;
             config.allowUnfree = true;
           };
@@ -247,7 +254,7 @@
                         nixpkgs-review
                         nil
                         nixpkgs-fmt
-                        ffmpeg_6-full
+                        unstable.ffmpeg-full
                         docker-compose
                         openssl
                         git
@@ -270,7 +277,7 @@
                         pv
                         ouch
                         silver-searcher
-                        helix
+                        master.helix
                         wget
                         tig
                         xclip
