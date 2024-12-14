@@ -296,6 +296,7 @@
                           dns = [ "8.8.8.8" "1.1.1.1" ];
                         };
                       };
+                      systemd.services.docker.after = [ "zfs-import.service" "zfs-zed.service" ];
                       hardware.graphics.enable = true;
                       networking.firewall.enable = false;
                       system.stateVersion = "24.11";
@@ -347,6 +348,7 @@
                     wantedBy = [ "multi-user.target" ];
                     after = [ "docker.service" ];
                     script = ''
+                      sleep 60 # wait until everything is ready
                       for app in nut ollama
                       do
                         cd /home/rxiao/$app && ${pkgs.docker-compose}/bin/docker-compose down \
@@ -358,7 +360,7 @@
               checkRouterAliveModule
               nvidiaModule
               (makeStorageModule {
-                extraPools = [ "blue2t" "c7" ];
+                extraPools = [ "blue2t" "c7" "blue2ta" "exos16" ];
               })
               (makeServerModule { allowPassWordAuthentication = false; })
               amdCpuModule
