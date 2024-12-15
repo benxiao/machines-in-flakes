@@ -290,6 +290,9 @@
                         sysstat
                       ];
                       environment.variables.EDITOR = "hx";
+                      environment.shellAliases = {
+                        nix-generations = "nix profile history --profile /nix/var/nix/profiles/system";
+                      };
                       users.users.rxiao = {
                         isNormalUser = true;
                         extraGroups = [ "wheel" "docker" ];
@@ -323,8 +326,10 @@
                   environment.systemPackages = with pkgs; [
                     asunder
                   ];
+                  environment.shellAliases = {
+                    athena = "ssh rxiao@athena.pinto-stargazer.ts.net";
+                  };
                   environment.interactiveShellInit = ''
-                    alias athena='ssh rxiao@athena.pinto-stargazer.ts.net'
                     export RUST_BACKTRACE=1
                   '';
 
@@ -407,7 +412,7 @@
             extraModules = [
               ({ pkgs, lib, modulesPath, ... }:
                 {
-                  programs.bash.shellAliases = {
+                  environment.shellAliases = {
                     athena = "ssh rxiao@athena.pinto-stargazer.ts.net";
                   };
                   environment.variables = {
