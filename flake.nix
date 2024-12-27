@@ -331,6 +331,7 @@
                   };
                   environment.interactiveShellInit = ''
                     export RUST_BACKTRACE=1
+                    ${pkgs.freshfetch}/bin/freshfetch
                   '';
 
                 })
