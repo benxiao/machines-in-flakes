@@ -378,6 +378,7 @@
               (makeServerModule { allowPassWordAuthentication = false; })
               amdCpuModule
               vscode-server.nixosModule
+              (makePython3Module {})
               googleSDKPackageModule
             ];
           });
