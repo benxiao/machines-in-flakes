@@ -63,6 +63,7 @@
               gnome-logs
               gnome-power-manager
               alacritty
+              ghostty
               gnome-chess
               stockfish
               celluloid
