@@ -62,7 +62,7 @@
               nautilus
               gnome-logs
               gnome-power-manager
-              alacritty
+              # alacritty
               ghostty
               gnome-chess
               stockfish
