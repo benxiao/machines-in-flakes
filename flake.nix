@@ -194,6 +194,7 @@
               swapDevices = [{ device = swapDevice; }];
               boot.zfs.extraPools = extraPools;
               boot.zfs.forceImportAll = true;
+              boot.zfs.package = pkgs.zfs_unstable;
             });
 
           makeSystemModule =
