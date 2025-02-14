@@ -380,7 +380,7 @@
               (makeServerModule { allowPassWordAuthentication = false; })
               amdCpuModule
               vscode-server.nixosModule
-              (makePython3Module {})
+              (makePython3Module { })
               googleSDKPackageModule
             ];
           });
@@ -440,7 +440,7 @@
               (makeStorageModule {
                 swapDevice = "/dev/disk/by-uuid/45c86fa9-ddbf-45c6-96a6-220fac48667c";
                 bootDevice = "/dev/disk/by-uuid/B9A1-4A5D";
-                extraPools = [ "dante" ];
+                extraPools = [ "dante" "tank" ];
               })
               amdCpuModule
               printerModule
