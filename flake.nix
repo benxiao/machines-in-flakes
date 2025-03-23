@@ -333,7 +333,7 @@
                   };
                   environment.interactiveShellInit = ''
                     export RUST_BACKTRACE=1
-                    ${pkgs.freshfetch}/bin/freshfetch
+                    ${pkgs.fastfetch}/bin/fastfetch -l small
                   '';
 
                 })
@@ -358,6 +358,10 @@
             extraModules = [
               ({ pkgs, lib, config, modulesPath, ... }:
                 {
+                  environment.interactiveShellInit = ''
+                    export RUST_BACKTRACE=1
+                    ${pkgs.fastfetch}/bin/fastfetch -l small
+                  '';
                   services.vscode-server.enable = true;
                   systemd.services.restart-broken-containers-after-reboot = {
                     wantedBy = [ "multi-user.target" ];
