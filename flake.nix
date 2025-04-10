@@ -217,6 +217,9 @@
                       boot.initrd.preLVMCommands = ''
                         export LVM_SUPPRESS_FD_WARNINGS=1
                       '';
+                      boot.extraModprobeConfig = ''
+                          options zfs zfs_arc_max=8884901888
+                        '';
                       boot.loader.efi.canTouchEfiVariables = true;
 
                       networking.hostId = "00000000";
