@@ -1,7 +1,7 @@
 {
   description = "all my machines in flakes";
-  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-24.11";
-  inputs.nixpkgs-legacy.url = "github:nixos/nixpkgs/nixos-24.05";
+  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-25.05";
+  inputs.nixpkgs-legacy.url = "github:nixos/nixpkgs/nixos-24.11";
   inputs.nixpkgs-unstable.url = "github:nixos/nixpkgs/nixpkgs-unstable";
   inputs.nixpkgs-master.url = "github:nixos/nixpkgs/master";
 
@@ -314,7 +314,7 @@
                       systemd.services.docker.after = [ "zfs-import.service" "zfs-zed.service" ];
                       hardware.graphics.enable = true;
                       networking.firewall.enable = false;
-                      system.stateVersion = "24.11";
+                      system.stateVersion = "25.05";
                     })
 
                 ] ++ extraModules;
