@@ -1,7 +1,7 @@
 {
   description = "all my machines in flakes";
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-25.05";
-  inputs.nixpkgs-legacy.url = "github:nixos/nixpkgs/nixos-24.05";
+  inputs.nixpkgs-legacy.url = "github:nixos/nixpkgs/nixos-24.11";
   inputs.nixpkgs-unstable.url = "github:nixos/nixpkgs/nixpkgs-unstable";
   inputs.nixpkgs-master.url = "github:nixos/nixpkgs/master";
 
@@ -194,7 +194,6 @@
               swapDevices = [{ device = swapDevice; }];
               boot.zfs.extraPools = extraPools;
               boot.zfs.forceImportAll = true;
-              # boot.zfs.package = pkgs.zfs_unstable;
             });
 
           makeSystemModule =
