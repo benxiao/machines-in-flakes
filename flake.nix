@@ -1,7 +1,7 @@
 {
   description = "all my machines in flakes";
-  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-25.05";
-  inputs.nixpkgs-legacy.url = "github:nixos/nixpkgs/nixos-24.11";
+  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-25.11";
+  inputs.nixpkgs-legacy.url = "github:nixos/nixpkgs/nixos-25.05";
   inputs.nixpkgs-unstable.url = "github:nixos/nixpkgs/nixpkgs-unstable";
   inputs.nixpkgs-master.url = "github:nixos/nixpkgs/master";
 
@@ -45,7 +45,7 @@
               audacity
               betterlockscreen
               postman
-              openshot-qt
+              # openshot-qt
               ledger-live-desktop
               vscode
               gimp
@@ -70,7 +70,7 @@
               vlc
               firefox
               thunderbird
-              tor-browser-bundle-bin
+              tor-browser
               libreoffice
               nomacs
               joplin-desktop
@@ -120,7 +120,7 @@
           });
 
           makeServerModule = { allowPassWordAuthentication ? false }: ({ ... }: {
-            services.xserver.displayManager.gdm.autoSuspend = false;
+            services.displayManager.gdm.autoSuspend = false;
             security.polkit.extraConfig = ''
               polkit.addRule(function(action, subject) {
                 if (action.id == "org.freedesktop.login1.suspend" ||
@@ -225,9 +225,9 @@
                       networking.hostName = hostName;
                       time.timeZone = "Australia/Melbourne";
 
-                      services.logind.extraConfig = ''
-                        RuntimeDirectorySize=10G
-                      '';
+                      # services.logind.extraConfig = ''
+                      #   RuntimeDirectorySize=10G
+                      # '';
 
                       i18n.defaultLocale = "en_AU.UTF-8";
                       services.gnome.core-apps.enable = false;
@@ -235,8 +235,8 @@
                       services.gnome.tinysparql.enable = false;
                       services.gnome.gnome-remote-desktop.enable = false;
                       services.xserver.enable = true;
-                      services.xserver.desktopManager.gnome.enable = true;
-                      services.xserver.displayManager.gdm.enable = true;
+                      services.desktopManager.gnome.enable = true;
+                      services.displayManager.gdm.enable = true;
                       services.libinput.enable = true;
                       services.pcscd.enable = true;
                       services.tailscale.enable = true;
@@ -407,7 +407,7 @@
                 extraPools = [ "wotan" ];
               })
               ({ pkgs, ... }: {
-                environment.systemPackages = with pkgs; [ openshot-qt ];
+                # environment.systemPackages = with pkgs; [ openshot-qt ];
                 environment.interactiveShellInit = ''
                   alias athena='ssh rxiao@athena.pinto-stargazer.ts.net'
                   alias mendeley='mendeley-reference-manager --no-sandbox' 
