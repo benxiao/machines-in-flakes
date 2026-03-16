@@ -19,6 +19,7 @@
           unstable = import nixpkgs-unstable {
             inherit system;
             config.allowUnfree = true;
+            config.permittedInsecurePackages = [ "openclaw-2026.2.26" ];
           };
 
           master = import nixpkgs-master {
@@ -429,6 +430,15 @@
                     mendeley = "mendeley-reference-manager --no-sandbox";
                   };
                 };
+              })
+              ({ ... }: {
+                services.ollama = {
+                  enable = true;
+                  acceleration = "cuda";
+                  package = unstable.ollama;
+                };
+                environment.systemPackages = [ unstable.openclaw unstable.opencode ];
+                nixpkgs.config.permittedInsecurePackages = [ "openclaw-2026.2.26" ];
               })
             ];
           });
