@@ -378,6 +378,8 @@
             extraModules = [
               ({ pkgs, lib, config, modulesPath, ... }:
                 {
+                  networking.firewall.enable = true;
+                  networking.firewall.allowedTCPPorts = [ 22 ];
                   services.vscode-server.enable = true;
                   systemd.services.restart-broken-containers-after-reboot = {
                     wantedBy = [ "multi-user.target" ];
