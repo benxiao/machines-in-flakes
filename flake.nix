@@ -7,7 +7,11 @@
 
   inputs.nixos-hardware.url = "github:NixOS/nixos-hardware/master";
   inputs.vscode-server.url = "github:msteen/nixos-vscode-server";
-  outputs = { self, nixpkgs, nixpkgs-unstable, nixpkgs-master, nixpkgs-legacy, nixos-hardware, vscode-server }:
+  inputs.home-manager = {
+    url = "github:nix-community/home-manager/release-25.11";
+    inputs.nixpkgs.follows = "nixpkgs";
+  };
+  outputs = { self, nixpkgs, nixpkgs-unstable, nixpkgs-master, nixpkgs-legacy, nixos-hardware, vscode-server, home-manager }:
     {
       nixosConfigurations =
         let
@@ -203,6 +207,7 @@
               inherit system;
               modules =
                 [
+                  home-manager.nixosModules.home-manager
                   ({ pkgs, lib, config, modulesPath, ... }:
                     {
                       imports = [ (modulesPath + "/installer/scan/not-detected.nix") ];
@@ -265,6 +270,7 @@
                         git-lfs
                         pinentry-curses
                         bottom
+                        unstable.claude-code
                         iotop
                         broot
                         bandwhich
@@ -293,10 +299,6 @@
                         go-mockery
                         sysstat
                       ];
-                      environment.variables.EDITOR = "hx";
-                      environment.shellAliases = {
-                        nix-generations = "nix profile history --profile /nix/var/nix/profiles/system";
-                      };
                       users.users.rxiao = {
                         isNormalUser = true;
                         extraGroups = [ "wheel" "docker" ];
@@ -314,6 +316,25 @@
                       hardware.graphics.enable = true;
                       networking.firewall.enable = false;
                       system.stateVersion = "25.05";
+
+                      home-manager.useGlobalPkgs = true;
+                      home-manager.useUserPackages = true;
+                      home-manager.users.rxiao = { pkgs, ... }: {
+                        programs.bash = {
+                          enable = true;
+                          initExtra = ''
+                            ${pkgs.fastfetch}/bin/fastfetch -l small
+                          '';
+                          sessionVariables = {
+                            RUST_BACKTRACE = "1";
+                            EDITOR = "hx";
+                          };
+                          shellAliases = {
+                            nix-generations = "nix profile history --profile /nix/var/nix/profiles/system";
+                          };
+                        };
+                        home.stateVersion = "25.05";
+                      };
                     })
 
                 ] ++ extraModules;
@@ -330,14 +351,11 @@
                   environment.systemPackages = with pkgs; [
                     asunder
                   ];
-                  environment.shellAliases = {
-                    athena = "ssh rxiao@athena.pinto-stargazer.ts.net";
+                  home-manager.users.rxiao = { ... }: {
+                    programs.bash.shellAliases = {
+                      athena = "ssh rxiao@athena.pinto-stargazer.ts.net";
+                    };
                   };
-                  environment.interactiveShellInit = ''
-                    export RUST_BACKTRACE=1
-                    ${pkgs.fastfetch}/bin/fastfetch -l small
-                  '';
-
                 })
               intelCpuModule
               printerModule
@@ -360,10 +378,6 @@
             extraModules = [
               ({ pkgs, lib, config, modulesPath, ... }:
                 {
-                  environment.interactiveShellInit = ''
-                    export RUST_BACKTRACE=1
-                    ${pkgs.fastfetch}/bin/fastfetch -l small
-                  '';
                   services.vscode-server.enable = true;
                   systemd.services.restart-broken-containers-after-reboot = {
                     wantedBy = [ "multi-user.target" ];
@@ -406,13 +420,13 @@
                 bootDevice = "/dev/disk/by-uuid/DED6-AF46";
                 extraPools = [ "wotan" ];
               })
-              ({ pkgs, ... }: {
-                # environment.systemPackages = with pkgs; [ openshot-qt ];
-                environment.interactiveShellInit = ''
-                  alias athena='ssh rxiao@athena.pinto-stargazer.ts.net'
-                  alias mendeley='mendeley-reference-manager --no-sandbox' 
-                  export RUST_BACKTRACE=1
-                '';
+              ({ ... }: {
+                home-manager.users.rxiao = { ... }: {
+                  programs.bash.shellAliases = {
+                    athena = "ssh rxiao@athena.pinto-stargazer.ts.net";
+                    mendeley = "mendeley-reference-manager --no-sandbox";
+                  };
+                };
               })
             ];
           });
@@ -422,16 +436,8 @@
             extraModules = [
               ({ pkgs, lib, modulesPath, ... }:
                 {
-                  environment.shellAliases = {
-                    athena = "ssh rxiao@athena.pinto-stargazer.ts.net";
-                  };
-                  environment.variables = {
-                    MOZ_ENABLE_WAYLAND = 0;
-                    RUST_BACKTRACE = 1;
-                  };
                   environment.systemPackages = with pkgs; [
                     audacity
-                    near-cli
                     postgresql
                     go-migrate
                     temporal
@@ -441,6 +447,14 @@
                     enable = true;
                     remotePlay.openFirewall = true; # Open ports in the firewall for Steam Remote Play
                     dedicatedServer.openFirewall = true; # Open ports in the firewall for Source Dedicated Server
+                  };
+                  home-manager.users.rxiao = { ... }: {
+                    programs.bash.shellAliases = {
+                      athena = "ssh rxiao@athena.pinto-stargazer.ts.net";
+                    };
+                    programs.bash.sessionVariables = {
+                      MOZ_ENABLE_WAYLAND = "0";
+                    };
                   };
                 })
               (makeStorageModule {
