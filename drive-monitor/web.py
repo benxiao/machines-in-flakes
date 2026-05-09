@@ -273,7 +273,9 @@ def get_zfs_pools() -> list[dict]:
         vdevs = pinfo.get("vdevs", [])
         for vdev in vdevs:
             for disk in vdev["disks"]:
-                disk["dev"] = disk_id_map.get(disk["id"], "")
+                disk["dev"] = disk_id_map.get(disk["id"]) or (
+                    disk["id"] if re.match(r'^(sd[a-z]+|nvme\d+n?\d*|hd[a-z]+)$', disk["id"]) else ""
+                )
         size_int = int(size_b) if size_b.isdigit() else 0
         free_int = int(free_b) if free_b.isdigit() else 0
         pools.append({
