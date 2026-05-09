@@ -230,16 +230,23 @@ def parse_zpool_status() -> dict[str, dict]:
             parts = s.split()
             name, state = parts[0], (parts[1] if len(parts) > 1 else "")
 
+            def parse_errors(p: list) -> dict:
+                try:
+                    return {"read": int(p[2]), "write": int(p[3]), "cksum": int(p[4])}
+                except (IndexError, ValueError):
+                    return {"read": 0, "write": 0, "cksum": 0}
+
             if indent == 0:
-                pass  # pool name row, skip
+                info[pool].update(parse_errors(parts))
             elif indent == 2:
                 vdev_type = name.split("-")[0] if re.match(r'(mirror|raidz\d?|draid)', name) else "disk"
                 if vdev_type == "disk":
-                    info[pool]["vdevs"].append({"type": "disk", "name": name, "state": state, "disks": [{"id": name, "state": state}]})
+                    disk = {"id": name, "state": state, **parse_errors(parts)}
+                    info[pool]["vdevs"].append({"type": "disk", "name": name, "state": state, "disks": [disk]})
                 else:
                     info[pool]["vdevs"].append({"type": vdev_type, "name": name, "state": state, "disks": []})
             elif indent == 4 and info[pool]["vdevs"]:
-                info[pool]["vdevs"][-1]["disks"].append({"id": name, "state": state})
+                info[pool]["vdevs"][-1]["disks"].append({"id": name, "state": state, **parse_errors(parts)})
 
     return info
 
@@ -425,12 +432,16 @@ def render_page(drives: list, pools: list) -> str:
                 brand = html_mod.escape(dr.get("brand", ""))
                 model = html_mod.escape(dr.get("model", "")[:30])
                 dev_label = html_mod.escape(dev or disk["id"][:20])
+                d_read, d_write, d_cksum = disk.get("read", 0), disk.get("write", 0), disk.get("cksum", 0)
+                any_err = d_read or d_write or d_cksum
+                derr = f'<span class="derr{"bad" if any_err else "ok"}">R:{d_read} W:{d_write} CK:{d_cksum}</span>'
                 disk_rows.append(
                     f'<div class="disk-row">'
                     f'<span class="ddot {dot_cls}">●</span>'
                     f'<span class="ddev">{dev_label}</span>'
                     f'{f"<span class=\"dbrand\">{brand}</span>" if brand else ""}'
                     f'<span class="dmodel">{model}</span>'
+                    f'{derr}'
                     f'</div>'
                 )
             disks_html = "".join(disk_rows)
@@ -446,6 +457,16 @@ def render_page(drives: list, pools: list) -> str:
 
         vdevs_html = "".join(vdev_rows)
 
+        def err_span(label: str, val: int) -> str:
+            cls = " verr" if val > 0 else ""
+            return f'<span class="perr{cls}">{label} {val}</span>'
+
+        errs_html = (
+            err_span("R", p.get("read", 0)) +
+            err_span("W", p.get("write", 0)) +
+            err_span("CK", p.get("cksum", 0))
+        )
+
         pool_cards.append(f'''<div class="pool-card">
   <div class="pool-head">
     <span class="pname">{html_mod.escape(p["name"])}</span>
@@ -453,6 +474,7 @@ def render_page(drives: list, pools: list) -> str:
     <span class="psize">{p["size"]}</span>
     {bar}
     <span class="pfrag">frag {html_mod.escape(str(p["frag"]))}%</span>
+    <span class="perrs">{errs_html}</span>
   </div>
   <div class="pool-vdevs">{vdevs_html}</div>
   <div class="pool-scrub {"pool-err" if has_err else ""}">{html_mod.escape(p["scan"] or "no scrub recorded")} · {html_mod.escape(p["errors"])}</div>
@@ -526,6 +548,11 @@ def render_page(drives: list, pools: list) -> str:
     .dmodel{{color:#8b949e;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px}}
     .pool-scrub{{font-size:.73rem;color:#6e7681;border-top:1px solid #21262d;padding-top:8px;margin-top:2px}}
     .pool-err{{color:#f85149}}
+    .perrs{{margin-left:auto;display:flex;gap:6px}}
+    .perr{{font-size:.7rem;font-variant-numeric:tabular-nums;color:#6e7681;background:#21262d;padding:1px 5px;border-radius:4px}}
+    .perr.verr{{color:#f85149;background:#3a1a1a;font-weight:700}}
+    .derrok{{font-size:.68rem;color:#6e7681;margin-left:auto}}
+    .derrbad{{font-size:.68rem;color:#f85149;font-weight:700;margin-left:auto}}
     .bar{{background:#21262d;border-radius:4px;height:16px;min-width:100px;position:relative}}
     .bfill{{height:100%;border-radius:4px}}
     .blbl{{position:absolute;right:5px;top:0;font-size:.68rem;line-height:16px;color:#e6edf3;font-weight:700}}
