@@ -263,7 +263,7 @@ def get_zfs_pools() -> list[dict]:
         parts = line.split("\t")
         if len(parts) < 6:
             continue
-        name, health, size_b, alloc_b, _, frag = parts[:6]
+        name, health, size_b, alloc_b, free_b, frag = parts[:6]
         try:
             used_pct = round(int(alloc_b) / int(size_b) * 100)
         except (ValueError, ZeroDivisionError):
@@ -275,11 +275,13 @@ def get_zfs_pools() -> list[dict]:
             for disk in vdev["disks"]:
                 disk["dev"] = disk_id_map.get(disk["id"], "")
         size_int = int(size_b) if size_b.isdigit() else 0
+        free_int = int(free_b) if free_b.isdigit() else 0
         pools.append({
             "name": name,
             "health": health,
             "size": fmt_bytes(size_int),
             "size_bytes": size_int,
+            "free": fmt_bytes(free_int),
             "used_pct": used_pct,
             "frag": frag.rstrip("%"),
             "scan": pinfo.get("scan", ""),
@@ -493,6 +495,8 @@ def render_page(drives: list, pools: list) -> str:
     <span class="pc-right">
       <span class="psize">{p["size"]}</span>
       <span class="pdot">·</span>
+      <span class="pfree">{p["free"]} free</span>
+      <span class="pdot">·</span>
       <span class="pfrag">frag {html_mod.escape(str(p["frag"]))}%</span>
       <span class="pdot">·</span>
       <div class="pc-errs">{errs_html}</div>
@@ -564,6 +568,7 @@ def render_page(drives: list, pools: list) -> str:
     .pname{{font-size:1.05rem;font-weight:700;color:#e6edf3}}
     .pc-right{{display:flex;align-items:center;gap:8px;flex-wrap:wrap}}
     .psize{{font-size:.78rem;color:#8b949e}}
+    .pfree{{font-size:.78rem;color:#3fb950}}
     .pfrag{{font-size:.78rem;color:#6e7681}}
     .pdot{{color:#30363d;font-size:.8rem}}
     .pc-bar-wrap{{display:flex;align-items:center;gap:8px;margin-bottom:12px}}
