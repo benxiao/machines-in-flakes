@@ -7,16 +7,10 @@ import re
 import socket
 import socketserver
 import subprocess
-import threading
-import time
 import http.server
 from datetime import datetime
 
 PORT = 10090
-CACHE_TTL = 86400  # seconds (24h)
-
-_cache: dict = {"data": None, "ts": 0.0}
-_cache_lock = threading.Lock()
 
 
 def run(*args: str) -> str:
@@ -286,18 +280,7 @@ def get_zfs_pools() -> list[dict]:
 
 
 def get_data() -> tuple[list, list]:
-    now = time.time()
-    with _cache_lock:
-        if _cache["data"] is not None and (now - _cache["ts"]) < CACHE_TTL:
-            return _cache["data"]  # type: ignore[return-value]
-
-    data = (get_all_drives(), get_zfs_pools())
-
-    with _cache_lock:
-        _cache["data"] = data
-        _cache["ts"] = time.time()
-
-    return data
+    return get_all_drives(), get_zfs_pools()
 
 
 def health_badge(passed: bool | None) -> str:
