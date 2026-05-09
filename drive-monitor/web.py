@@ -2,6 +2,8 @@
 """Drive health monitoring web server. Runs on port 10090."""
 import html as html_mod
 import json
+import os
+import re
 import socket
 import socketserver
 import subprocess
@@ -31,6 +33,43 @@ def fmt_bytes(b: int) -> str:
             return f"{b:.0f}{unit}"
         b //= 1024
     return f"{b}P"
+
+
+_BRAND_PREFIXES = [
+    ("ST",    "Seagate"),
+    ("WD",    "WD"),
+    ("SHPP",  "SK Hynix"),
+    ("HFS",   "SK Hynix"),
+    ("BC5",   "SK Hynix"),
+    ("MZ",    "Samsung"),
+    ("CT",    "Crucial"),
+    ("MTFD",  "Micron"),
+    ("SSDSC", "Intel"),
+    ("SSDPE", "Intel"),
+    ("KBG",   "Kioxia"),
+    ("THNS",  "Toshiba"),
+    ("MQ",    "Toshiba"),
+    ("HUS",   "HGST"),
+    ("HUC",   "HGST"),
+]
+
+_KNOWN_BRANDS = [
+    "Seagate", "Western Digital", "Samsung", "Crucial", "Intel",
+    "Toshiba", "HGST", "Hitachi", "SK hynix", "Micron", "Kioxia", "Timetec",
+]
+
+
+def extract_brand(model_name: str, model_family: str) -> str:
+    for brand in _KNOWN_BRANDS:
+        if model_family.lower().startswith(brand.lower()):
+            return brand
+        if model_name.lower().startswith(brand.lower()):
+            return brand
+    upper = model_name.upper()
+    for prefix, brand in _BRAND_PREFIXES:
+        if upper.startswith(prefix):
+            return brand
+    return ""
 
 
 def get_attr_raw(table: list, name: str) -> int | None:
@@ -74,9 +113,13 @@ def parse_drive(dev: str) -> dict:
     cap = d.get("user_capacity", {}).get("bytes", 0)
     size_str = f"{cap / 1e12:.1f}T" if cap >= 1e12 else f"{cap / 1e9:.0f}G"
 
+    model_name = d.get("model_name", "")
+    model_family = d.get("model_family", "")
+
     result: dict = {
         "dev": dev.replace("/dev/", ""),
-        "model": d.get("model_name", d.get("model_family", "Unknown")),
+        "brand": extract_brand(model_name, model_family),
+        "model": model_name or model_family or "Unknown",
         "size": size_str,
         "type": dtype,
         "temp": d.get("temperature", {}).get("current"),
@@ -131,19 +174,79 @@ def get_all_drives() -> list[dict]:
     return [parse_drive(dev) for dev in devs]
 
 
+def _base_dev(dev: str) -> str:
+    """Strip partition suffix: nvme0n1p1 → nvme0n1, sda1 → sda."""
+    m = re.match(r'(nvme\d+n\d+)p\d+$', dev)
+    if m:
+        return m.group(1)
+    m = re.match(r'(sd[a-z]+)\d+$', dev)
+    if m:
+        return m.group(1)
+    return dev
+
+
+def build_disk_id_map() -> dict[str, str]:
+    """Return {disk_id: base_dev_name} by reading /dev/disk/by-id/ symlinks."""
+    result: dict = {}
+    by_id = "/dev/disk/by-id"
+    try:
+        for entry in os.listdir(by_id):
+            try:
+                target = os.readlink(os.path.join(by_id, entry))
+                dev = _base_dev(os.path.basename(target))
+                result[entry] = dev
+                # also index without trailing -partN so bare EUI names resolve too
+                clean = re.sub(r'-part\d+$', '', entry)
+                result.setdefault(clean, dev)
+            except OSError:
+                pass
+    except OSError:
+        pass
+    return result
+
+
 def parse_zpool_status() -> dict[str, dict]:
+    """Parse zpool status into per-pool dicts with scan/errors/vdev topology."""
     out = run("zpool", "status")
     info: dict = {}
-    pool = None
+    pool: str | None = None
+    in_config = False
+
     for line in out.splitlines():
         s = line.strip()
+
         if s.startswith("pool:"):
             pool = s.split(":", 1)[1].strip()
-            info[pool] = {}
-        elif s.startswith("scan:") and pool is not None:
+            info[pool] = {"scan": "", "errors": "No known data errors", "vdevs": []}
+            in_config = False
+            continue
+        if pool is None:
+            continue
+        if s.startswith("scan:"):
             info[pool]["scan"] = s.split(":", 1)[1].strip()
-        elif s.startswith("errors:") and pool is not None:
+        elif s.startswith("errors:"):
             info[pool]["errors"] = s.split(":", 1)[1].strip()
+            in_config = False
+        elif s == "config:":
+            in_config = True
+        elif in_config and line.startswith("\t") and s and "NAME" not in s:
+            # Measure indent by spaces after the leading tab
+            rest = line[1:]
+            indent = len(rest) - len(rest.lstrip())
+            parts = s.split()
+            name, state = parts[0], (parts[1] if len(parts) > 1 else "")
+
+            if indent == 0:
+                pass  # pool name row, skip
+            elif indent == 2:
+                vdev_type = name.split("-")[0] if re.match(r'(mirror|raidz\d?|draid)', name) else "disk"
+                if vdev_type == "disk":
+                    info[pool]["vdevs"].append({"type": "disk", "name": name, "state": state, "disks": [{"id": name, "state": state}]})
+                else:
+                    info[pool]["vdevs"].append({"type": vdev_type, "name": name, "state": state, "disks": []})
+            elif indent == 4 and info[pool]["vdevs"]:
+                info[pool]["vdevs"][-1]["disks"].append({"id": name, "state": state})
+
     return info
 
 
@@ -152,6 +255,7 @@ def get_zfs_pools() -> list[dict]:
     if not out.strip():
         return []
     status = parse_zpool_status()
+    disk_id_map = build_disk_id_map()
     pools = []
     for line in out.splitlines():
         parts = line.split("\t")
@@ -162,14 +266,21 @@ def get_zfs_pools() -> list[dict]:
             used_pct = round(int(alloc_b) / int(size_b) * 100)
         except (ValueError, ZeroDivisionError):
             used_pct = 0
+        pinfo = status.get(name, {})
+        # Resolve each disk id to its /dev name
+        vdevs = pinfo.get("vdevs", [])
+        for vdev in vdevs:
+            for disk in vdev["disks"]:
+                disk["dev"] = disk_id_map.get(disk["id"], "")
         pools.append({
             "name": name,
             "health": health,
             "size": fmt_bytes(int(size_b)) if size_b.isdigit() else size_b,
             "used_pct": used_pct,
             "frag": frag.rstrip("%"),
-            "scan": status.get(name, {}).get("scan", ""),
-            "errors": status.get(name, {}).get("errors", "No known data errors"),
+            "scan": pinfo.get("scan", ""),
+            "errors": pinfo.get("errors", "No known data errors"),
+            "vdevs": vdevs,
         })
     return pools
 
@@ -292,6 +403,7 @@ def render_drive_card(d: dict) -> str:
     <span class="dev">{html_mod.escape(d["dev"])}</span>
     <span class="tbadge t-{dtype}">{d["type"]}</span>
   </div>
+  {f'<div class="brand">{html_mod.escape(d["brand"])}</div>' if d.get("brand") else ""}
   <div class="model" title="{html_mod.escape(d["model"])}">{html_mod.escape(d["model"][:28])}</div>
   <div class="drsize">{d["size"]}</div>
   <div class="hrow">{health_badge(d.get("health"))}</div>
@@ -304,33 +416,66 @@ def render_page(drives: list, pools: list) -> str:
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     fail_count = sum(1 for d in drives if d.get("health") is False)
 
+    # Build a lookup from dev name → drive info for cross-referencing
+    drive_by_dev = {d["dev"]: d for d in drives if not d.get("error")}
+
     cards_html = "\n".join(render_drive_card(d) for d in drives)
 
-    pool_rows = []
+    pool_cards = []
     for p in pools:
         u = p["used_pct"]
         bar_col = "#e74c3c" if u > 90 else "#f39c12" if u > 75 else "#2ecc71"
         bar = f'<div class="bar"><div class="bfill" style="width:{u}%;background:{bar_col}"></div><span class="blbl">{u}%</span></div>'
         has_err = p["errors"] != "No known data errors"
-        pool_rows.append(
-            f'<tr>'
-            f'<td class="pname">{html_mod.escape(p["name"])}</td>'
-            f'<td>{pool_badge(p["health"])}</td>'
-            f'<td>{p["size"]}</td>'
-            f'<td>{bar}</td>'
-            f'<td class="frag">{html_mod.escape(str(p["frag"]))}%</td>'
-            f'<td class="scrub">{html_mod.escape(p["scan"])}</td>'
-            f'<td class="{"errbad" if has_err else "errok"}">{html_mod.escape(p["errors"])}</td>'
-            f'</tr>'
-        )
 
-    pool_html = (
-        '<table class="ptable"><thead><tr>'
-        '<th>Pool</th><th>Health</th><th>Size</th><th>Used</th>'
-        '<th>Frag</th><th>Last Scrub</th><th>Errors</th>'
-        f'</tr></thead><tbody>{"".join(pool_rows)}</tbody></table>'
-        if pool_rows else "<p>No ZFS pools found.</p>"
-    )
+        # Vdev structure HTML
+        vdev_rows = []
+        for vdev in p.get("vdevs", []):
+            vtype = vdev["type"].upper()
+            disk_rows = []
+            for disk in vdev["disks"]:
+                dev = disk.get("dev", "")
+                dstate = disk["state"]
+                dot_cls = "dok" if dstate == "ONLINE" else "dfail"
+                # Look up drive info
+                dr = drive_by_dev.get(dev, {})
+                brand = html_mod.escape(dr.get("brand", ""))
+                model = html_mod.escape(dr.get("model", "")[:30])
+                dev_label = html_mod.escape(dev or disk["id"][:20])
+                disk_rows.append(
+                    f'<div class="disk-row">'
+                    f'<span class="ddot {dot_cls}">●</span>'
+                    f'<span class="ddev">{dev_label}</span>'
+                    f'{f"<span class=\"dbrand\">{brand}</span>" if brand else ""}'
+                    f'<span class="dmodel">{model}</span>'
+                    f'</div>'
+                )
+            disks_html = "".join(disk_rows)
+            if vdev["type"] == "disk":
+                vdev_rows.append(f'<div class="vdev-single">{disks_html}</div>')
+            else:
+                vdev_rows.append(
+                    f'<div class="vdev">'
+                    f'<span class="vtype">{html_mod.escape(vtype)}</span>'
+                    f'<div class="vdev-disks">{disks_html}</div>'
+                    f'</div>'
+                )
+
+        vdevs_html = "".join(vdev_rows)
+
+        pool_cards.append(f'''<div class="pool-card">
+  <div class="pool-head">
+    <span class="pname">{html_mod.escape(p["name"])}</span>
+    {pool_badge(p["health"])}
+    <span class="psize">{p["size"]}</span>
+    {bar}
+    <span class="pfrag">frag {html_mod.escape(str(p["frag"]))}%</span>
+  </div>
+  <div class="pool-vdevs">{vdevs_html}</div>
+  <div class="pool-scrub {"pool-err" if has_err else ""}">{html_mod.escape(p["scan"] or "no scrub recorded")} · {html_mod.escape(p["errors"])}</div>
+</div>''')
+
+    pool_html = '<div class="pool-list">' + "".join(pool_cards) + '</div>' if pool_cards else "<p>No ZFS pools found.</p>"
 
     banner = (
         f'<div class="fbanner">⚠ {fail_count} drive(s) reporting SMART failure</div>'
@@ -359,6 +504,7 @@ def render_page(drives: list, pools: list) -> str:
     .card.err-card{{border-color:#9e6a03;opacity:.7}}
     .card-head{{display:flex;justify-content:space-between;align-items:center;margin-bottom:3px}}
     .dev{{font-size:.95rem;font-weight:700;color:#e6edf3}}
+    .brand{{font-size:.68rem;font-weight:600;color:#58a6ff;margin-bottom:1px;text-transform:uppercase;letter-spacing:.04em}}
     .model{{font-size:.73rem;color:#8b949e;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
     .drsize{{font-size:.7rem;color:#6e7681;margin-bottom:8px}}
     .hrow{{margin-bottom:8px}}
@@ -377,15 +523,26 @@ def render_page(drives: list, pools: list) -> str:
     .vok{{color:#3fb950!important}}
     .vwarn{{color:#d29922!important}}
     .vbad{{color:#f85149!important;font-weight:700}}
-    .ptable{{width:100%;border-collapse:collapse;font-size:.84rem}}
-    .ptable th{{text-align:left;padding:8px 12px;color:#8b949e;font-weight:500;border-bottom:1px solid #30363d}}
-    .ptable td{{padding:9px 12px;border-bottom:1px solid #21262d;vertical-align:middle}}
-    .ptable tr:hover td{{background:#1c2128}}
-    .pname{{font-weight:700;color:#e6edf3}}
-    .frag{{color:#8b949e}}
-    .scrub{{font-size:.75rem;color:#8b949e;max-width:280px}}
-    .errok{{color:#3fb950;font-size:.75rem}}
-    .errbad{{color:#f85149;font-size:.75rem}}
+    .pool-list{{display:flex;flex-direction:column;gap:10px}}
+    .pool-card{{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px}}
+    .pool-head{{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}}
+    .pname{{font-size:1rem;font-weight:700;color:#e6edf3}}
+    .psize{{font-size:.8rem;color:#8b949e}}
+    .pfrag{{font-size:.75rem;color:#6e7681;margin-left:auto}}
+    .pool-vdevs{{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}}
+    .vdev{{background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:8px 10px;min-width:180px}}
+    .vdev-single{{display:contents}}
+    .vtype{{display:block;font-size:.65rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#8b949e;margin-bottom:5px}}
+    .vdev-disks{{display:flex;flex-direction:column;gap:3px}}
+    .disk-row{{display:flex;align-items:center;gap:6px;font-size:.75rem}}
+    .ddot{{font-size:.6rem}}
+    .dok{{color:#3fb950}}
+    .dfail{{color:#f85149}}
+    .ddev{{font-weight:700;color:#e6edf3;min-width:60px}}
+    .dbrand{{color:#58a6ff;font-size:.68rem;font-weight:600;min-width:50px}}
+    .dmodel{{color:#8b949e;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px}}
+    .pool-scrub{{font-size:.73rem;color:#6e7681;border-top:1px solid #21262d;padding-top:8px;margin-top:2px}}
+    .pool-err{{color:#f85149}}
     .bar{{background:#21262d;border-radius:4px;height:16px;min-width:100px;position:relative}}
     .bfill{{height:100%;border-radius:4px}}
     .blbl{{position:absolute;right:5px;top:0;font-size:.68rem;line-height:16px;color:#e6edf3;font-weight:700}}
