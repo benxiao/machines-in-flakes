@@ -121,7 +121,7 @@
             services.avahi.nssmdns4 = true;
             services.printing.drivers = [ pkgs.brlaser pkgs.brgenml1lpr pkgs.brgenml1cupswrapper ];
             # for a WiFi printer
-            services.avahi.openFirewall = true;
+            services.avahi.openFirewall = false;
           });
 
           makeServerModule = { allowPassWordAuthentication ? false }: ({ ... }: {
@@ -157,7 +157,8 @@
           checkRouterAliveModule = { pkgs, ... }: {
             systemd.services.router-monitor = {
               description = "Router Monitor Service";
-              after = [ "network.target" ];
+              wants = [ "network-online.target" ];
+              after = [ "network-online.target" ];
               wantedBy = [ "multi-user.target" ];
               serviceConfig = {
                 ExecStart = pkgs.writeShellScript "router-monitor" ''
@@ -227,7 +228,7 @@
                         '';
                       boot.loader.efi.canTouchEfiVariables = true;
 
-                      networking.hostId = "00000000";
+                      # hostId is set per-machine below; run `head -c 8 /etc/machine-id` on each host
                       networking.hostName = hostName;
                       time.timeZone = "Australia/Melbourne";
 
@@ -313,7 +314,8 @@
                           dns = [ "8.8.8.8" "1.1.1.1" ];
                         };
                       };
-                      systemd.services.docker.after = [ "zfs-import.service" "zfs-zed.service" ];
+                      systemd.services.docker.wants = [ "zfs-zed.service" ];
+                      systemd.services.docker.after = [ "zfs-zed.service" ];
                       hardware.graphics.enable = true;
                       networking.firewall.enable = false;
                       system.stateVersion = "25.05";
@@ -349,6 +351,7 @@
               (makeStorageModule { })
               ({ pkgs, lib, modulesPath, ... }:
                 {
+                  networking.hostId = "00000000"; # replace: run `head -c 8 /etc/machine-id` on apollo
                   environment.systemPackages = with pkgs; [
                     asunder
                   ];
@@ -379,24 +382,56 @@
             extraModules = [
               ({ pkgs, lib, config, modulesPath, ... }:
                 {
-                  networking.firewall.enable = true;
+                  networking.hostId = "00000000"; # replace: run `head -c 8 /etc/machine-id` on athena
+                  networking.firewall.enable = false;
                   networking.firewall.allowedTCPPorts = [ 22 ];
                   services.vscode-server.enable = true;
                   systemd.services.restart-broken-containers-after-reboot = {
                     wantedBy = [ "multi-user.target" ];
-                    after = [ "docker.service" ];
+                    after = [
+                      "docker.service"
+                      "zfs-import-blue2t.service"
+                      "zfs-import-c7.service"
+                      "zfs-import-exos12.service"
+                      "zfs-import-exos16.service"
+                    ];
+                    requires = [
+                      "docker.service"
+                      "zfs-import-blue2t.service"
+                      "zfs-import-c7.service"
+                      "zfs-import-exos12.service"
+                      "zfs-import-exos16.service"
+                    ];
+                    serviceConfig.Type = "oneshot";
                     script = ''
-                      sleep 60 # wait until everything is ready
-                      for app in nut ollama
+                      for app in nut
                       do
-                        cd /home/rxiao/$app && ${pkgs.docker-compose}/bin/docker-compose down \
-                         && ${pkgs.docker-compose}/bin/docker-compose up -d
+                        if ! cd /home/rxiao/$app 2>/dev/null; then
+                          echo "$app: directory not found, skipping"
+                          continue
+                        fi
+                        echo "$app: restarting..."
+                        ${pkgs.docker-compose}/bin/docker-compose down || true
+                        if ! ${pkgs.docker-compose}/bin/docker-compose up -d; then
+                          echo "$app: failed to start (check docker-compose config)"
+                        fi
                       done
                     '';
                   };
+                  systemd.services.drive-monitor = {
+                    description = "Drive Health Monitor";
+                    wantedBy = [ "multi-user.target" ];
+                    after = [ "network.target" ];
+                    path = [ pkgs.smartmontools pkgs.zfs ];
+                    serviceConfig = {
+                      ExecStart = "${pkgs.python3}/bin/python3 ${./drive-monitor/web.py}";
+                      Restart = "on-failure";
+                      RestartSec = "5s";
+                    };
+                  };
                 })
               checkRouterAliveModule
-              nvidiaModule
+              # nvidiaModule
               (makeStorageModule {
                 extraPools = [ "blue2t" "c7" "exos12" "exos16" ];
               })
@@ -424,6 +459,7 @@
                 extraPools = [ "wotan" ];
               })
               ({ ... }: {
+                networking.hostId = "00000000"; # replace: run `head -c 8 /etc/machine-id` on wotan
                 home-manager.users.rxiao = { ... }: {
                   programs.bash.shellAliases = {
                     athena = "ssh rxiao@athena.pinto-stargazer.ts.net";
@@ -448,6 +484,7 @@
             extraModules = [
               ({ pkgs, lib, modulesPath, ... }:
                 {
+                  networking.hostId = "00000000"; # replace: run `head -c 8 /etc/machine-id` on dante
                   environment.systemPackages = with pkgs; [
                     audacity
                     postgresql
