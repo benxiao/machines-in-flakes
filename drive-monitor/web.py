@@ -440,16 +440,21 @@ def render_pool_detail(pool_name: str) -> str:
     .htitle{{font-size:1.1rem;font-weight:700;color:#e6edf3}}
     .subtitle{{font-size:.8rem;color:#6e7681}}
     section{{padding:24px}}
-    .speeds{{display:flex;gap:32px;margin-bottom:24px}}
+    .speeds{{display:flex;gap:32px;margin-bottom:20px}}
     .speed-box{{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px 24px;min-width:160px}}
     .speed-lbl{{font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;color:#8b949e;margin-bottom:6px}}
     .speed-val{{font-size:1.8rem;font-weight:700;font-variant-numeric:tabular-nums}}
     .speed-read{{color:#3fb950}}
     .speed-write{{color:#f0883e}}
-    .graph-wrap{{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px;position:relative}}
-    canvas{{width:100%;height:280px;display:block}}
-    .legend{{display:flex;gap:20px;margin-top:10px;font-size:.75rem}}
+    .graph-wrap{{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px}}
+    .graph-toolbar{{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}}
+    .legend{{display:flex;gap:20px;font-size:.75rem}}
     .leg-dot{{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px}}
+    .win-btns{{display:flex;gap:6px}}
+    .win-btn{{font-size:.72rem;font-weight:700;padding:3px 10px;border-radius:6px;border:1px solid #30363d;background:#21262d;color:#8b949e;cursor:pointer}}
+    .win-btn:hover{{border-color:#58a6ff;color:#58a6ff}}
+    .win-btn.active{{border-color:#58a6ff;background:#1a2d4a;color:#58a6ff}}
+    canvas{{width:100%;height:300px;display:block}}
   </style>
 </head>
 <body>
@@ -470,83 +475,135 @@ def render_pool_detail(pool_name: str) -> str:
       </div>
     </div>
     <div class="graph-wrap">
-      <canvas id="graph"></canvas>
-      <div class="legend">
-        <span><span class="leg-dot" style="background:#3fb950"></span>Read MB/s</span>
-        <span><span class="leg-dot" style="background:#f0883e"></span>Write MB/s</span>
+      <div class="graph-toolbar">
+        <div class="legend">
+          <span><span class="leg-dot" style="background:#3fb950"></span>Read</span>
+          <span><span class="leg-dot" style="background:#f0883e"></span>Write</span>
+        </div>
+        <div class="win-btns">
+          <button class="win-btn active" id="btn-60"   onclick="setWin(60)">1m</button>
+          <button class="win-btn"        id="btn-300"  onclick="setWin(300)">5m</button>
+          <button class="win-btn"        id="btn-900"  onclick="setWin(900)">15m</button>
+          <button class="win-btn"        id="btn-1800" onclick="setWin(1800)">30m</button>
+        </div>
       </div>
+      <canvas id="graph"></canvas>
     </div>
   </section>
   <script>
     const pool = {json.dumps(pool_name)};
-    const MAX = 60;
-    let rData = new Array(MAX).fill(null);
-    let wData = new Array(MAX).fill(null);
+    const BUFFER = 1800; // 30 min max
+    let rBuf = [], wBuf = [], tBuf = []; // ring buffers with timestamps
+    let winSecs = 60;
+    const dpr = devicePixelRatio || 1;
 
     const canvas = document.getElementById('graph');
-    canvas.width = canvas.offsetWidth * devicePixelRatio;
-    canvas.height = 280 * devicePixelRatio;
     const ctx = canvas.getContext('2d');
+
+    function resize() {{
+      canvas.width  = canvas.offsetWidth  * dpr;
+      canvas.height = canvas.offsetHeight * dpr;
+      draw();
+    }}
+
+    function setWin(s) {{
+      winSecs = s;
+      document.querySelectorAll('.win-btn').forEach(b => b.classList.remove('active'));
+      document.getElementById('btn-' + s).classList.add('active');
+      draw();
+    }}
 
     function fmt(b) {{
       const mb = b / 1048576;
       return mb >= 100 ? mb.toFixed(0) + ' MB/s' : mb.toFixed(2) + ' MB/s';
     }}
 
+    function timeFmt(ts, secs) {{
+      const d = new Date(ts);
+      const hh = String(d.getHours()).padStart(2,'0');
+      const mm = String(d.getMinutes()).padStart(2,'0');
+      const ss = String(d.getSeconds()).padStart(2,'0');
+      return secs <= 300 ? `${{hh}}:${{mm}}:${{ss}}` : `${{hh}}:${{mm}}`;
+    }}
+
     function draw() {{
+      const n = Math.min(rBuf.length, winSecs);
+      const r = rBuf.slice(-n), w = wBuf.slice(-n), t = tBuf.slice(-n);
+      if (!r.length) return;
+
       const W = canvas.width, H = canvas.height;
+      const PAD_L = 52 * dpr;  // left for y-axis labels
+      const PAD_B = 26 * dpr;  // bottom for x-axis labels
+      const GW = W - PAD_L, GH = H - PAD_B;
+
       ctx.clearRect(0, 0, W, H);
       ctx.fillStyle = '#0d1117';
       ctx.fillRect(0, 0, W, H);
 
-      const valid = [...rData, ...wData].filter(v => v !== null);
-      const peak = Math.max(1048576, ...valid);  // at least 1 MB/s scale
+      const peak = Math.max(1048576, ...r, ...w);
+      const fs = Math.round(10 * dpr);
+      ctx.font = `${{fs}}px monospace`;
 
-      // grid
-      ctx.strokeStyle = '#21262d'; ctx.lineWidth = 1;
-      [0.25, 0.5, 0.75, 1].forEach(f => {{
-        const y = H - H * f * 0.88;
-        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+      // ── Y axis grid + labels ──────────────────────────────────────
+      [0.25, 0.5, 0.75, 1.0].forEach(f => {{
+        const y = PAD_B + GH - GH * f * 0.92;
+        ctx.strokeStyle = '#21262d'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(W, y); ctx.stroke();
+        const lbl = (peak * f / 1048576).toFixed(f < 0.3 ? 2 : 1);
         ctx.fillStyle = '#6e7681';
-        ctx.font = `${{Math.round(10 * devicePixelRatio)}}px monospace`;
-        ctx.fillText((peak * f / 1048576).toFixed(1), 4, y - 3);
+        ctx.textAlign = 'right';
+        ctx.fillText(lbl, PAD_L - 4, y + fs * 0.35);
       }});
 
+      // ── X axis time ticks ─────────────────────────────────────────
+      if (t.length >= 2) {{
+        const t0 = t[0], t1 = t[t.length - 1], span = t1 - t0 || 1;
+        const tickSecs = winSecs <= 60 ? 10 : winSecs <= 300 ? 30 : winSecs <= 900 ? 120 : 300;
+        const tickMs = tickSecs * 1000;
+        const firstTick = Math.ceil(t0 / tickMs) * tickMs;
+        ctx.textAlign = 'center';
+        for (let ts = firstTick; ts <= t1; ts += tickMs) {{
+          const x = PAD_L + GW * (ts - t0) / span;
+          ctx.strokeStyle = '#30363d'; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(x, PAD_B); ctx.lineTo(x, PAD_B + GH); ctx.stroke();
+          ctx.fillStyle = '#6e7681';
+          const lbl = timeFmt(ts, winSecs);
+          const lw = ctx.measureText(lbl).width;
+          const lx = Math.max(PAD_L + lw/2, Math.min(x, W - lw/2));
+          ctx.fillText(lbl, lx, H - 5);
+        }}
+      }}
+
+      // ── Data lines ────────────────────────────────────────────────
       function line(data, color) {{
-        ctx.strokeStyle = color; ctx.lineWidth = 2 * devicePixelRatio;
+        if (data.length < 2) return;
+        ctx.strokeStyle = color; ctx.lineWidth = 2 * dpr;
         ctx.beginPath();
-        let first = true;
         data.forEach((v, i) => {{
-          if (v === null) {{ first = true; return; }}
-          const x = W * i / (MAX - 1);
-          const y = H - (v / peak) * H * 0.88;
-          first ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-          first = false;
+          const x = PAD_L + GW * i / (data.length - 1);
+          const y = PAD_B + GH - (v / peak) * GH * 0.92;
+          i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
         }});
         ctx.stroke();
       }}
 
-      line(rData, '#3fb950');
-      line(wData, '#f0883e');
+      line(r, '#3fb950');
+      line(w, '#f0883e');
     }}
 
     async function poll() {{
       try {{
         const d = await fetch('/api/iostat/' + pool).then(r => r.json());
-        rData.push(d.read); rData.shift();
-        wData.push(d.write); wData.shift();
-        document.getElementById('read-val').textContent = fmt(d.read);
+        rBuf.push(d.read);  wBuf.push(d.write);  tBuf.push(Date.now());
+        if (rBuf.length > BUFFER) {{ rBuf.shift(); wBuf.shift(); tBuf.shift(); }}
+        document.getElementById('read-val').textContent  = fmt(d.read);
         document.getElementById('write-val').textContent = fmt(d.write);
         draw();
       }} catch(e) {{}}
     }}
 
-    window.addEventListener('resize', () => {{
-      canvas.width = canvas.offsetWidth * devicePixelRatio;
-      canvas.height = 280 * devicePixelRatio;
-      draw();
-    }});
-
+    window.addEventListener('resize', resize);
+    resize();
     poll();
     setInterval(poll, 1000);
   </script>
