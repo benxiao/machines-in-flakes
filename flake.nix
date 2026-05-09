@@ -313,9 +313,8 @@
                           dns = [ "8.8.8.8" "1.1.1.1" ];
                         };
                       };
-                      systemd.services.docker.after = [ "zfs-import.service" "zfs-zed.service" ];
-                      systemd.services.docker.requires = [ "zfs-import.service" ];
                       systemd.services.docker.wants = [ "zfs-zed.service" ];
+                      systemd.services.docker.after = [ "zfs-zed.service" ];
                       hardware.graphics.enable = true;
                       networking.firewall.enable = false;
                       system.stateVersion = "25.05";
