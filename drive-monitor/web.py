@@ -432,9 +432,10 @@ def render_page(drives: list, pools: list) -> str:
                 brand = html_mod.escape(dr.get("brand", ""))
                 model = html_mod.escape(dr.get("model", "")[:30])
                 dev_label = html_mod.escape(dev or disk["id"][:20])
-                d_read, d_write, d_cksum = disk.get("read", 0), disk.get("write", 0), disk.get("cksum", 0)
-                any_err = d_read or d_write or d_cksum
-                derr = f'<span class="derr{"bad" if any_err else "ok"}">R:{d_read} W:{d_write} CK:{d_cksum}</span>'
+                d_r, d_w, d_ck = disk.get("read", 0), disk.get("write", 0), disk.get("cksum", 0)
+                any_derr = d_r or d_w or d_ck
+                derr_cls = "disk-errs bad" if any_derr else "disk-errs"
+                derr = f'<span class="{derr_cls}">R:{d_r} W:{d_w} CK:{d_ck}</span>'
                 disk_rows.append(
                     f'<div class="disk-row">'
                     f'<span class="ddot {dot_cls}">●</span>'
@@ -446,7 +447,12 @@ def render_page(drives: list, pools: list) -> str:
                 )
             disks_html = "".join(disk_rows)
             if vdev["type"] == "disk":
-                vdev_rows.append(f'<div class="vdev-single">{disks_html}</div>')
+                vdev_rows.append(
+                    f'<div class="vdev-single">'
+                    f'<span class="vtype">SINGLE</span>'
+                    f'<div class="vdev-disks">{disks_html}</div>'
+                    f'</div>'
+                )
             else:
                 vdev_rows.append(
                     f'<div class="vdev">'
@@ -457,27 +463,34 @@ def render_page(drives: list, pools: list) -> str:
 
         vdevs_html = "".join(vdev_rows)
 
-        def err_span(label: str, val: int) -> str:
-            cls = " verr" if val > 0 else ""
-            return f'<span class="perr{cls}">{label} {val}</span>'
+        def ec(val: int, label: str) -> str:
+            cls = "ec-bad" if val > 0 else "ec-ok"
+            return f'<span class="ec {cls}"><span class="ec-lbl">{label}</span>{val}</span>'
 
-        errs_html = (
-            err_span("R", p.get("read", 0)) +
-            err_span("W", p.get("write", 0)) +
-            err_span("CK", p.get("cksum", 0))
-        )
+        errs_html = ec(p.get("read", 0), "R") + ec(p.get("write", 0), "W") + ec(p.get("cksum", 0), "CK")
+        border_col = "#da3633" if p["health"] != "ONLINE" else ("#f39c12" if (p.get("read",0) or p.get("write",0) or p.get("cksum",0)) else "#238636")
+        scrub_text = html_mod.escape(p["scan"] or "no scrub recorded")
 
-        pool_cards.append(f'''<div class="pool-card">
-  <div class="pool-head">
+        pool_cards.append(f'''<div class="pool-card" style="border-left-color:{border_col}">
+  <div class="pc-head">
     <span class="pname">{html_mod.escape(p["name"])}</span>
-    {pool_badge(p["health"])}
-    <span class="psize">{p["size"]}</span>
-    {bar}
-    <span class="pfrag">frag {html_mod.escape(str(p["frag"]))}%</span>
-    <span class="perrs">{errs_html}</span>
+    <span class="pc-right">
+      <span class="psize">{p["size"]}</span>
+      <span class="pdot">·</span>
+      <span class="pfrag">frag {html_mod.escape(str(p["frag"]))}%</span>
+      <span class="pdot">·</span>
+      <div class="pc-errs">{errs_html}</div>
+      {pool_badge(p["health"])}
+    </span>
   </div>
-  <div class="pool-vdevs">{vdevs_html}</div>
-  <div class="pool-scrub {"pool-err" if has_err else ""}">{html_mod.escape(p["scan"] or "no scrub recorded")} · {html_mod.escape(p["errors"])}</div>
+  <div class="pc-bar-wrap">
+    <div class="pc-bar"><div class="pc-bfill" style="width:{u}%;background:{bar_col}"></div></div>
+    <span class="pc-bpct">{u}%</span>
+  </div>
+  <div class="pc-vdevs">{vdevs_html}</div>
+  <div class="pc-footer">
+    <span class="pc-scrub {"pc-scrub-err" if has_err else ""}">{scrub_text}</span>
+  </div>
 </div>''')
 
     pool_html = '<div class="pool-list">' + "".join(pool_cards) + '</div>' if pool_cards else "<p>No ZFS pools found.</p>"
@@ -528,31 +541,40 @@ def render_page(drives: list, pools: list) -> str:
     .vok{{color:#3fb950!important}}
     .vwarn{{color:#d29922!important}}
     .vbad{{color:#f85149!important;font-weight:700}}
-    .pool-list{{display:flex;flex-direction:column;gap:10px}}
-    .pool-card{{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px}}
-    .pool-head{{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}}
-    .pname{{font-size:1rem;font-weight:700;color:#e6edf3}}
-    .psize{{font-size:.8rem;color:#8b949e}}
-    .pfrag{{font-size:.75rem;color:#6e7681;margin-left:auto}}
-    .pool-vdevs{{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}}
-    .vdev{{background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:8px 10px;min-width:180px}}
-    .vdev-single{{display:contents}}
-    .vtype{{display:block;font-size:.65rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#8b949e;margin-bottom:5px}}
-    .vdev-disks{{display:flex;flex-direction:column;gap:3px}}
-    .disk-row{{display:flex;align-items:center;gap:6px;font-size:.75rem}}
-    .ddot{{font-size:.6rem}}
+    .pool-list{{display:grid;grid-template-columns:repeat(auto-fill,minmax(460px,1fr));gap:14px}}
+    .pool-card{{background:#161b22;border:1px solid #30363d;border-left:3px solid #238636;border-radius:8px;padding:16px}}
+    .pc-head{{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}}
+    .pname{{font-size:1.05rem;font-weight:700;color:#e6edf3}}
+    .pc-right{{display:flex;align-items:center;gap:8px;flex-wrap:wrap}}
+    .psize{{font-size:.78rem;color:#8b949e}}
+    .pfrag{{font-size:.78rem;color:#6e7681}}
+    .pdot{{color:#30363d;font-size:.8rem}}
+    .pc-bar-wrap{{display:flex;align-items:center;gap:8px;margin-bottom:12px}}
+    .pc-bar{{flex:1;background:#21262d;border-radius:6px;height:10px;overflow:hidden}}
+    .pc-bfill{{height:100%;border-radius:6px;transition:width .3s}}
+    .pc-bpct{{font-size:.72rem;font-weight:700;color:#c9d1d9;min-width:30px;text-align:right;font-variant-numeric:tabular-nums}}
+    .pc-errs{{display:flex;gap:4px}}
+    .ec{{display:inline-flex;align-items:center;gap:3px;font-size:.68rem;font-variant-numeric:tabular-nums;padding:1px 6px;border-radius:10px}}
+    .ec-lbl{{font-weight:700;opacity:.7}}
+    .ec-ok{{background:#1a2a1a;color:#8b949e;border:1px solid #21262d}}
+    .ec-bad{{background:#3a1a1a;color:#f85149;border:1px solid #da3633;font-weight:700}}
+    .pc-vdevs{{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}}
+    .vdev{{background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:10px 12px;flex:1;min-width:200px}}
+    .vdev-single{{background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:10px 12px;flex:1}}
+    .vtype{{display:inline-block;font-size:.6rem;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:#58a6ff;background:#1a2d4a;padding:1px 6px;border-radius:4px;margin-bottom:8px}}
+    .vdev-disks{{display:flex;flex-direction:column;gap:5px}}
+    .disk-row{{display:flex;align-items:center;gap:7px;font-size:.75rem}}
+    .ddot{{font-size:.55rem;flex-shrink:0}}
     .dok{{color:#3fb950}}
     .dfail{{color:#f85149}}
-    .ddev{{font-weight:700;color:#e6edf3;min-width:60px}}
-    .dbrand{{color:#58a6ff;font-size:.68rem;font-weight:600;min-width:50px}}
-    .dmodel{{color:#8b949e;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px}}
-    .pool-scrub{{font-size:.73rem;color:#6e7681;border-top:1px solid #21262d;padding-top:8px;margin-top:2px}}
-    .pool-err{{color:#f85149}}
-    .perrs{{margin-left:auto;display:flex;gap:6px}}
-    .perr{{font-size:.7rem;font-variant-numeric:tabular-nums;color:#6e7681;background:#21262d;padding:1px 5px;border-radius:4px}}
-    .perr.verr{{color:#f85149;background:#3a1a1a;font-weight:700}}
-    .derrok{{font-size:.68rem;color:#6e7681;margin-left:auto}}
-    .derrbad{{font-size:.68rem;color:#f85149;font-weight:700;margin-left:auto}}
+    .ddev{{font-weight:700;color:#e6edf3;min-width:62px;flex-shrink:0}}
+    .dbrand{{color:#58a6ff;font-size:.67rem;font-weight:600;min-width:44px;flex-shrink:0}}
+    .dmodel{{color:#8b949e;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}}
+    .disk-errs{{font-size:.67rem;color:#6e7681;font-variant-numeric:tabular-nums;flex-shrink:0;white-space:nowrap}}
+    .disk-errs.bad{{color:#f85149;font-weight:700}}
+    .pc-footer{{border-top:1px solid #21262d;padding-top:10px}}
+    .pc-scrub{{font-size:.73rem;color:#6e7681}}
+    .pc-scrub-err{{color:#f85149}}
     .bar{{background:#21262d;border-radius:4px;height:16px;min-width:100px;position:relative}}
     .bfill{{height:100%;border-radius:4px}}
     .blbl{{position:absolute;right:5px;top:0;font-size:.68rem;line-height:16px;color:#e6edf3;font-weight:700}}
