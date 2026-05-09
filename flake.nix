@@ -120,7 +120,7 @@
             services.avahi.nssmdns4 = true;
             services.printing.drivers = [ pkgs.brlaser pkgs.brgenml1lpr pkgs.brgenml1cupswrapper ];
             # for a WiFi printer
-            services.avahi.openFirewall = true;
+            services.avahi.openFirewall = false;
           });
 
           makeServerModule = { allowPassWordAuthentication ? false }: ({ ... }: {
@@ -156,7 +156,8 @@
           checkRouterAliveModule = { pkgs, ... }: {
             systemd.services.router-monitor = {
               description = "Router Monitor Service";
-              after = [ "network.target" ];
+              wants = [ "network-online.target" ];
+              after = [ "network-online.target" ];
               wantedBy = [ "multi-user.target" ];
               serviceConfig = {
                 ExecStart = pkgs.writeShellScript "router-monitor" ''
@@ -226,7 +227,7 @@
                         '';
                       boot.loader.efi.canTouchEfiVariables = true;
 
-                      networking.hostId = "00000000";
+                      # hostId is set per-machine below; run `head -c 8 /etc/machine-id` on each host
                       networking.hostName = hostName;
                       time.timeZone = "Australia/Melbourne";
 
@@ -313,6 +314,8 @@
                         };
                       };
                       systemd.services.docker.after = [ "zfs-import.service" "zfs-zed.service" ];
+                      systemd.services.docker.requires = [ "zfs-import.service" ];
+                      systemd.services.docker.wants = [ "zfs-zed.service" ];
                       hardware.graphics.enable = true;
                       networking.firewall.enable = false;
                       system.stateVersion = "25.05";
@@ -348,6 +351,7 @@
               (makeStorageModule { })
               ({ pkgs, lib, modulesPath, ... }:
                 {
+                  networking.hostId = "00000000"; # replace: run `head -c 8 /etc/machine-id` on apollo
                   environment.systemPackages = with pkgs; [
                     asunder
                   ];
@@ -378,14 +382,28 @@
             extraModules = [
               ({ pkgs, lib, config, modulesPath, ... }:
                 {
-                  networking.firewall.enable = true;
+                  networking.hostId = "00000000"; # replace: run `head -c 8 /etc/machine-id` on athena
+                  networking.firewall.enable = false;
                   networking.firewall.allowedTCPPorts = [ 22 ];
                   services.vscode-server.enable = true;
                   systemd.services.restart-broken-containers-after-reboot = {
                     wantedBy = [ "multi-user.target" ];
-                    after = [ "docker.service" ];
+                    after = [
+                      "docker.service"
+                      "zfs-import-blue2t.service"
+                      "zfs-import-c7.service"
+                      "zfs-import-exos12.service"
+                      "zfs-import-exos16.service"
+                    ];
+                    requires = [
+                      "docker.service"
+                      "zfs-import-blue2t.service"
+                      "zfs-import-c7.service"
+                      "zfs-import-exos12.service"
+                      "zfs-import-exos16.service"
+                    ];
+                    serviceConfig.Type = "oneshot";
                     script = ''
-                      sleep 60 # wait until everything is ready
                       for app in nut ollama
                       do
                         cd /home/rxiao/$app && ${pkgs.docker-compose}/bin/docker-compose down \
@@ -395,7 +413,7 @@
                   };
                 })
               checkRouterAliveModule
-              nvidiaModule
+              # nvidiaModule
               (makeStorageModule {
                 extraPools = [ "blue2t" "c7" "exos12" "exos16" ];
               })
@@ -423,6 +441,7 @@
                 extraPools = [ "wotan" ];
               })
               ({ ... }: {
+                networking.hostId = "00000000"; # replace: run `head -c 8 /etc/machine-id` on wotan
                 home-manager.users.rxiao = { ... }: {
                   programs.bash.shellAliases = {
                     athena = "ssh rxiao@athena.pinto-stargazer.ts.net";
@@ -438,6 +457,7 @@
             extraModules = [
               ({ pkgs, lib, modulesPath, ... }:
                 {
+                  networking.hostId = "00000000"; # replace: run `head -c 8 /etc/machine-id` on dante
                   environment.systemPackages = with pkgs; [
                     audacity
                     postgresql
