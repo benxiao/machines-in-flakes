@@ -403,12 +403,30 @@
                     ];
                     serviceConfig.Type = "oneshot";
                     script = ''
-                      for app in nut ollama
+                      for app in nut
                       do
-                        cd /home/rxiao/$app && ${pkgs.docker-compose}/bin/docker-compose down \
-                         && ${pkgs.docker-compose}/bin/docker-compose up -d
+                        if ! cd /home/rxiao/$app 2>/dev/null; then
+                          echo "$app: directory not found, skipping"
+                          continue
+                        fi
+                        echo "$app: restarting..."
+                        ${pkgs.docker-compose}/bin/docker-compose down || true
+                        if ! ${pkgs.docker-compose}/bin/docker-compose up -d; then
+                          echo "$app: failed to start (check docker-compose config)"
+                        fi
                       done
                     '';
+                  };
+                  systemd.services.drive-monitor = {
+                    description = "Drive Health Monitor";
+                    wantedBy = [ "multi-user.target" ];
+                    after = [ "network.target" ];
+                    path = [ pkgs.smartmontools pkgs.zfs ];
+                    serviceConfig = {
+                      ExecStart = "${pkgs.python3}/bin/python3 ${./drive-monitor/web.py}";
+                      Restart = "on-failure";
+                      RestartSec = "5s";
+                    };
                   };
                 })
               checkRouterAliveModule
