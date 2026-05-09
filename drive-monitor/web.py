@@ -115,6 +115,7 @@ def parse_drive(dev: str) -> dict:
         "brand": extract_brand(model_name, model_family),
         "model": model_name or model_family or "Unknown",
         "size": size_str,
+        "cap_bytes": cap,
         "type": dtype,
         "temp": d.get("temperature", {}).get("current"),
         "health": d.get("smart_status", {}).get("passed"),
@@ -273,10 +274,12 @@ def get_zfs_pools() -> list[dict]:
         for vdev in vdevs:
             for disk in vdev["disks"]:
                 disk["dev"] = disk_id_map.get(disk["id"], "")
+        size_int = int(size_b) if size_b.isdigit() else 0
         pools.append({
             "name": name,
             "health": health,
-            "size": fmt_bytes(int(size_b)) if size_b.isdigit() else size_b,
+            "size": fmt_bytes(size_int),
+            "size_bytes": size_int,
             "used_pct": used_pct,
             "frag": frag.rstrip("%"),
             "scan": pinfo.get("scan", ""),
@@ -589,12 +592,12 @@ def render_page(drives: list, pools: list) -> str:
   </header>
   {banner}
   <section>
-    <h2>Drives ({len(drives)})</h2>
+    <h2>Drives ({len(drives)}) — {fmt_bytes(sum(d.get("cap_bytes", 0) for d in drives))} total raw capacity</h2>
     <div class="cards">{cards_html}</div>
   </section>
   <hr>
   <section>
-    <h2>ZFS Pools ({len(pools)})</h2>
+    <h2>ZFS Pools ({len(pools)}) — {fmt_bytes(sum(p.get("size_bytes", 0) for p in pools))} total usable capacity</h2>
     {pool_html}
   </section>
   <script>setTimeout(()=>location.reload(),86400000)</script>
