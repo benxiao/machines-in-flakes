@@ -512,6 +512,7 @@ def render_page(drives: list, pools: list) -> str:
   <div class="pc-vdevs">{vdevs_html}</div>
   <div class="pc-footer">
     <span class="pc-scrub {"pc-scrub-err" if has_err else ""}">{scrub_text}</span>
+    <button class="scrub-btn" onclick="startScrub(this,'{html_mod.escape(p['name'])}')">▶ Scrub</button>
   </div>
 </div>''')
 
@@ -596,9 +597,12 @@ def render_page(drives: list, pools: list) -> str:
     .dmodel{{color:#8b949e;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}}
     .disk-errs{{font-size:.67rem;color:#6e7681;font-variant-numeric:tabular-nums;flex-shrink:0;white-space:nowrap}}
     .disk-errs.bad{{color:#f85149;font-weight:700}}
-    .pc-footer{{border-top:1px solid #21262d;padding-top:10px}}
-    .pc-scrub{{font-size:.73rem;color:#6e7681}}
+    .pc-footer{{border-top:1px solid #21262d;padding-top:10px;display:flex;align-items:center;justify-content:space-between;gap:10px}}
+    .pc-scrub{{font-size:.73rem;color:#6e7681;flex:1}}
     .pc-scrub-err{{color:#f85149}}
+    .scrub-btn{{font-size:.72rem;font-weight:700;padding:3px 10px;border-radius:6px;border:1px solid #238636;background:#1a3a1a;color:#3fb950;cursor:pointer;white-space:nowrap;flex-shrink:0}}
+    .scrub-btn:hover{{background:#238636;color:#fff}}
+    .scrub-btn:disabled{{opacity:.5;cursor:default}}
     .bar{{background:#21262d;border-radius:4px;height:16px;min-width:100px;position:relative}}
     .bfill{{height:100%;border-radius:4px}}
     .blbl{{position:absolute;right:5px;top:0;font-size:.68rem;line-height:16px;color:#e6edf3;font-weight:700}}
@@ -621,7 +625,16 @@ def render_page(drives: list, pools: list) -> str:
     <h2>ZFS Pools ({len(pools)}) — {fmt_bytes(sum(p.get("size_bytes", 0) for p in pools))} total usable capacity</h2>
     {pool_html}
   </section>
-  <script>setTimeout(()=>location.reload(),86400000)</script>
+  <script>
+    setTimeout(()=>location.reload(),86400000);
+    function startScrub(btn, pool) {{
+      btn.disabled = true;
+      btn.textContent = '⏳ Starting…';
+      fetch('/scrub/' + pool, {{method: 'POST'}})
+        .then(r => r.ok ? (btn.textContent = '✓ Started', setTimeout(()=>location.reload(), 1500)) : (btn.textContent = '✗ Error', btn.disabled = false))
+        .catch(() => (btn.textContent = '✗ Error', btn.disabled = false));
+    }}
+  </script>
 </body>
 </html>"""
 
@@ -641,6 +654,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
         self.wfile.write(encoded)
+
+    def do_POST(self) -> None:
+        m = re.match(r'^/scrub/([a-zA-Z0-9_\-]+)$', self.path)
+        if not m:
+            self.send_response(400)
+            self.end_headers()
+            return
+        pool = m.group(1)
+        run("zpool", "scrub", pool)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"ok")
 
     def log_message(self, fmt: str, *args: object) -> None:
         pass
