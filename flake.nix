@@ -433,7 +433,7 @@
               checkRouterAliveModule
               # nvidiaModule
               (makeStorageModule {
-                extraPools = [ "blue2t" "c7" "exos12" "exos16" ];
+                extraPools = [ "blue2t" "c7" "exos12" "exos16" "tm1t" ];
               })
               (makeServerModule { allowPassWordAuthentication = false; })
               amdCpuModule
