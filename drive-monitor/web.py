@@ -724,6 +724,7 @@ def render_page(drives: list, pools: list) -> str:
         if fail_count > 0 else ""
     )
 
+    pool_names_js = json.dumps([p["name"] for p in pools])
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -738,6 +739,12 @@ def render_page(drives: list, pools: list) -> str:
     .htitle{{color:#8b949e}}
     .hts{{font-size:.82rem;color:#6e7681;margin-left:auto}}
     .fbanner{{background:#3d1515;border-bottom:1px solid #da3633;color:#ff7b7b;padding:8px 24px;font-size:.88rem}}
+    .tabbar{{background:#161b22;border-bottom:1px solid #30363d;display:flex;padding:0 24px;gap:4px}}
+    .tab{{padding:10px 16px;font-size:.82rem;font-weight:600;border:none;background:none;color:#8b949e;cursor:pointer;border-bottom:2px solid transparent;transition:color .15s}}
+    .tab.active{{color:#e6edf3;border-bottom-color:#58a6ff}}
+    .tab:hover:not(.active){{color:#c9d1d9}}
+    .tabpanel{{padding:20px 24px}}
+    .tabpanel.hidden{{display:none}}
     section{{padding:20px 24px}}
     h2{{font-size:.72rem;text-transform:uppercase;letter-spacing:.1em;color:#6e7681;margin-bottom:14px}}
     .cards{{display:flex;flex-wrap:wrap;gap:12px}}
@@ -808,34 +815,222 @@ def render_page(drives: list, pools: list) -> str:
     .bar{{background:#21262d;border-radius:4px;height:16px;min-width:100px;position:relative}}
     .bfill{{height:100%;border-radius:4px}}
     .blbl{{position:absolute;right:5px;top:0;font-size:.68rem;line-height:16px;color:#e6edf3;font-weight:700}}
-    hr{{border:none;border-top:1px solid #21262d;margin:0 24px}}
+    .io-toolbar{{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}}
+    .io-toolbar-legend{{display:flex;gap:16px;font-size:.75rem}}
+    .io-leg-dot{{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px}}
+    .win-btns{{display:flex;gap:6px}}
+    .win-btn{{font-size:.72rem;font-weight:700;padding:3px 10px;border-radius:6px;border:1px solid #30363d;background:#21262d;color:#8b949e;cursor:pointer}}
+    .win-btn:hover{{border-color:#58a6ff;color:#58a6ff}}
+    .win-btn.active{{border-color:#58a6ff;background:#1a2d4a;color:#58a6ff}}
+    .io-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:14px}}
+    .io-card{{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px}}
+    .io-card-head{{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}}
+    .io-pname{{font-size:.95rem;font-weight:700;color:#e6edf3;text-decoration:none}}
+    .io-pname:hover{{color:#58a6ff}}
+    .io-speeds{{display:flex;gap:20px;margin-bottom:8px;font-size:.82rem;font-variant-numeric:tabular-nums}}
+    .io-read{{color:#3fb950;font-weight:600}}
+    .io-write{{color:#f0883e;font-weight:600}}
+    .io-lbl{{color:#6e7681;font-size:.7rem;margin-right:4px}}
+    canvas.io-canvas{{width:100%;height:140px;display:block;border-radius:4px;background:#0d1117}}
   </style>
 </head>
 <body>
   <header>
     <span class="hname">{html_mod.escape(hostname)}</span>
     <span class="htitle">drive health</span>
-    <span class="hts">refreshed {now} · auto-refresh 24h</span>
+    <span class="hts">refreshed {now}</span>
   </header>
   {banner}
-  <section>
-    <h2>Drives ({len(drives)}) — {fmt_bytes(sum(d.get("cap_bytes", 0) for d in drives))} total raw capacity</h2>
+  <div class="tabbar">
+    <button class="tab active" onclick="showTab('drives',this)">Drives ({len(drives)})</button>
+    <button class="tab"        onclick="showTab('pools',this)">Pools ({len(pools)})</button>
+    <button class="tab"        onclick="showTab('io',this)">Active I/O</button>
+  </div>
+
+  <div id="tab-drives" class="tabpanel">
+    <h2>{fmt_bytes(sum(d.get("cap_bytes", 0) for d in drives))} total raw capacity across {len(drives)} drives</h2>
+    <br>
     <div class="cards">{cards_html}</div>
-  </section>
-  <hr>
-  <section>
-    <h2>ZFS Pools ({len(pools)}) — {fmt_bytes(sum(p.get("size_bytes", 0) for p in pools))} total usable capacity</h2>
+  </div>
+
+  <div id="tab-pools" class="tabpanel hidden">
+    <h2>{fmt_bytes(sum(p.get("size_bytes", 0) for p in pools))} total usable capacity across {len(pools)} pools</h2>
+    <br>
     {pool_html}
-  </section>
+  </div>
+
+  <div id="tab-io" class="tabpanel hidden">
+    <div class="io-toolbar">
+      <div class="io-toolbar-legend">
+        <span><span class="io-leg-dot" style="background:#3fb950"></span>Read</span>
+        <span><span class="io-leg-dot" style="background:#f0883e"></span>Write</span>
+      </div>
+      <div class="win-btns">
+        <button class="win-btn active" id="io-btn-60"   onclick="setIOWin(60)">1m</button>
+        <button class="win-btn"        id="io-btn-300"  onclick="setIOWin(300)">5m</button>
+        <button class="win-btn"        id="io-btn-900"  onclick="setIOWin(900)">15m</button>
+        <button class="win-btn"        id="io-btn-1800" onclick="setIOWin(1800)">30m</button>
+      </div>
+    </div>
+    <div class="io-grid" id="io-grid"></div>
+  </div>
+
   <script>
-    setTimeout(()=>location.reload(),86400000);
+    // ── Tab switching ────────────────────────────────────────────────
+    function showTab(name, btn) {{
+      document.querySelectorAll('.tabpanel').forEach(p => p.classList.add('hidden'));
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.getElementById('tab-' + name).classList.remove('hidden');
+      btn.classList.add('active');
+      if (name === 'io') startIO(); else stopIO();
+    }}
+
+    // ── Scrub ────────────────────────────────────────────────────────
     function startScrub(btn, pool) {{
-      btn.disabled = true;
-      btn.textContent = '⏳ Starting…';
-      fetch('/scrub/' + pool, {{method: 'POST'}})
-        .then(r => r.ok ? (btn.textContent = '✓ Started', setTimeout(()=>location.reload(), 1500)) : (btn.textContent = '✗ Error', btn.disabled = false))
+      btn.disabled = true; btn.textContent = '⏳ Starting…';
+      fetch('/scrub/' + pool, {{method:'POST'}})
+        .then(r => r.ok
+          ? (btn.textContent = '✓ Started', setTimeout(()=>location.reload(), 1500))
+          : (btn.textContent = '✗ Error',   btn.disabled = false))
         .catch(() => (btn.textContent = '✗ Error', btn.disabled = false));
     }}
+
+    // ── Active I/O ───────────────────────────────────────────────────
+    const IO_POOLS = {pool_names_js};
+    const IO_BUF = 1800;
+    const dpr = devicePixelRatio || 1;
+    let ioState = {{}};   // pool → {{r,w,t,canvas,ctx,rEl,wEl}}
+    let ioWin = 60, ioTick = null;
+
+    function fmtMB(b) {{
+      const mb = b / 1048576;
+      return mb >= 100 ? mb.toFixed(0) + ' MB/s' : mb.toFixed(2) + ' MB/s';
+    }}
+
+    function timeFmt(ts) {{
+      const d = new Date(ts);
+      const hh = String(d.getHours()).padStart(2,'0');
+      const mm = String(d.getMinutes()).padStart(2,'0');
+      const ss = String(d.getSeconds()).padStart(2,'0');
+      return ioWin <= 300 ? `${{hh}}:${{mm}}:${{ss}}` : `${{hh}}:${{mm}}`;
+    }}
+
+    function initIO() {{
+      const grid = document.getElementById('io-grid');
+      if (grid.children.length) return;
+      IO_POOLS.forEach(pool => {{
+        const card = document.createElement('div');
+        card.className = 'io-card';
+        card.innerHTML = `
+          <div class="io-card-head">
+            <a class="io-pname" href="/pool/${{pool}}">${{pool}}</a>
+            <div class="io-speeds">
+              <span><span class="io-lbl">R</span><span class="io-read" id="io-r-${{pool}}">—</span></span>
+              <span><span class="io-lbl">W</span><span class="io-write" id="io-w-${{pool}}">—</span></span>
+            </div>
+          </div>
+          <canvas class="io-canvas" id="io-c-${{pool}}"></canvas>`;
+        grid.appendChild(card);
+        const canvas = document.getElementById('io-c-' + pool);
+        canvas.width  = canvas.offsetWidth  * dpr;
+        canvas.height = canvas.offsetHeight * dpr;
+        ioState[pool] = {{
+          r: [], w: [], t: [],
+          canvas, ctx: canvas.getContext('2d'),
+          rEl: document.getElementById('io-r-' + pool),
+          wEl: document.getElementById('io-w-' + pool),
+        }};
+      }});
+    }}
+
+    function startIO() {{
+      initIO();
+      if (!ioTick) {{ pollIO(); ioTick = setInterval(pollIO, 1000); }}
+    }}
+    function stopIO() {{
+      if (ioTick) {{ clearInterval(ioTick); ioTick = null; }}
+    }}
+
+    function setIOWin(s) {{
+      ioWin = s;
+      document.querySelectorAll('.win-btn').forEach(b => b.classList.remove('active'));
+      document.getElementById('io-btn-' + s).classList.add('active');
+      IO_POOLS.forEach(drawIO);
+    }}
+
+    async function pollIO() {{
+      await Promise.all(IO_POOLS.map(async pool => {{
+        try {{
+          const d = await fetch('/api/iostat/' + pool).then(r => r.json());
+          const s = ioState[pool];
+          if (!s) return;
+          s.r.push(d.read); s.w.push(d.write); s.t.push(Date.now());
+          if (s.r.length > IO_BUF) {{ s.r.shift(); s.w.shift(); s.t.shift(); }}
+          s.rEl.textContent = fmtMB(d.read);
+          s.wEl.textContent = fmtMB(d.write);
+          drawIO(pool);
+        }} catch(e) {{}}
+      }}));
+    }}
+
+    function drawIO(pool) {{
+      const s = ioState[pool];
+      if (!s) return;
+      const n   = Math.min(s.r.length, ioWin);
+      const r   = s.r.slice(-n), w = s.w.slice(-n), t = s.t.slice(-n);
+      const {{canvas, ctx}} = s;
+      const W = canvas.width, H = canvas.height;
+      const PAD_L = 44 * dpr, PAD_B = 20 * dpr;
+      const GW = W - PAD_L, GH = H - PAD_B;
+
+      ctx.clearRect(0, 0, W, H);
+      ctx.fillStyle = '#0d1117'; ctx.fillRect(0, 0, W, H);
+
+      const peak = Math.max(1048576, ...r, ...w);
+      const fs = Math.round(9 * dpr);
+      ctx.font = `${{fs}}px monospace`;
+
+      // Y grid + labels
+      [0.5, 1.0].forEach(f => {{
+        const y = PAD_B + GH - GH * f * 0.9;
+        ctx.strokeStyle = '#21262d'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(W, y); ctx.stroke();
+        ctx.fillStyle = '#6e7681'; ctx.textAlign = 'right';
+        ctx.fillText((peak * f / 1048576).toFixed(1), PAD_L - 3, y + fs * 0.35);
+      }});
+
+      // X time ticks
+      if (t.length >= 2) {{
+        const t0 = t[0], t1 = t[t.length-1], span = t1 - t0 || 1;
+        const tickSecs = ioWin <= 60 ? 10 : ioWin <= 300 ? 30 : ioWin <= 900 ? 120 : 300;
+        const firstTick = Math.ceil(t0 / (tickSecs*1000)) * tickSecs * 1000;
+        ctx.textAlign = 'center';
+        for (let ts = firstTick; ts <= t1; ts += tickSecs*1000) {{
+          const x = PAD_L + GW * (ts - t0) / span;
+          ctx.strokeStyle = '#30363d'; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(x, PAD_B); ctx.lineTo(x, PAD_B + GH); ctx.stroke();
+          ctx.fillStyle = '#6e7681';
+          const lbl = timeFmt(ts), lw = ctx.measureText(lbl).width;
+          ctx.fillText(lbl, Math.max(PAD_L + lw/2, Math.min(x, W - lw/2)), H - 3);
+        }}
+      }}
+
+      // Lines
+      function line(data, color) {{
+        if (data.length < 2) return;
+        ctx.strokeStyle = color; ctx.lineWidth = 1.5 * dpr; ctx.beginPath();
+        data.forEach((v, i) => {{
+          const x = PAD_L + GW * i / (data.length - 1);
+          const y = PAD_B + GH - (v / peak) * GH * 0.9;
+          i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        }});
+        ctx.stroke();
+      }}
+      line(r, '#3fb950');
+      line(w, '#f0883e');
+    }}
+
+    setTimeout(()=>location.reload(), 86400000);
   </script>
 </body>
 </html>"""
