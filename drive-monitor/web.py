@@ -7,6 +7,7 @@ import re
 import socket
 import socketserver
 import subprocess
+import threading
 import http.server
 from datetime import datetime
 
@@ -198,6 +199,18 @@ def build_disk_id_map() -> dict[str, str]:
     except OSError:
         pass
     return result
+
+
+def get_iostat(pool: str) -> dict:
+    """Return current read/write bandwidth in bytes/sec for a pool (1s sample)."""
+    out = run("zpool", "iostat", "-Hp", pool, "1", "2")
+    lines = [l for l in out.splitlines() if l.strip() and l.split('\t')[0].strip() == pool]
+    # first line = cumulative since boot, second = 1s interval
+    parts = (lines[-1] if lines else "").split('\t')
+    try:
+        return {"read": int(parts[5]), "write": int(parts[6])}
+    except (IndexError, ValueError):
+        return {"read": 0, "write": 0}
 
 
 def parse_zpool_status() -> dict[str, dict]:
@@ -410,6 +423,137 @@ def render_drive_card(d: dict, pool_devs: set | None = None) -> str:
 </div>"""
 
 
+def render_pool_detail(pool_name: str) -> str:
+    name_esc = html_mod.escape(pool_name)
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{name_esc} I/O</title>
+  <style>
+    *{{box-sizing:border-box;margin:0;padding:0}}
+    body{{font-family:'Segoe UI',system-ui,sans-serif;background:#0d1117;color:#c9d1d9;min-height:100vh}}
+    header{{background:#161b22;border-bottom:1px solid #30363d;padding:14px 24px;display:flex;align-items:center;gap:14px}}
+    .back{{color:#58a6ff;text-decoration:none;font-size:.85rem}}
+    .back:hover{{text-decoration:underline}}
+    .htitle{{font-size:1.1rem;font-weight:700;color:#e6edf3}}
+    .subtitle{{font-size:.8rem;color:#6e7681}}
+    section{{padding:24px}}
+    .speeds{{display:flex;gap:32px;margin-bottom:24px}}
+    .speed-box{{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px 24px;min-width:160px}}
+    .speed-lbl{{font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;color:#8b949e;margin-bottom:6px}}
+    .speed-val{{font-size:1.8rem;font-weight:700;font-variant-numeric:tabular-nums}}
+    .speed-read{{color:#3fb950}}
+    .speed-write{{color:#f0883e}}
+    .graph-wrap{{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px;position:relative}}
+    canvas{{width:100%;height:280px;display:block}}
+    .legend{{display:flex;gap:20px;margin-top:10px;font-size:.75rem}}
+    .leg-dot{{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px}}
+  </style>
+</head>
+<body>
+  <header>
+    <a class="back" href="/">← back</a>
+    <span class="htitle">{name_esc}</span>
+    <span class="subtitle">real-time I/O</span>
+  </header>
+  <section>
+    <div class="speeds">
+      <div class="speed-box">
+        <div class="speed-lbl">Read</div>
+        <div class="speed-val speed-read" id="read-val">—</div>
+      </div>
+      <div class="speed-box">
+        <div class="speed-lbl">Write</div>
+        <div class="speed-val speed-write" id="write-val">—</div>
+      </div>
+    </div>
+    <div class="graph-wrap">
+      <canvas id="graph"></canvas>
+      <div class="legend">
+        <span><span class="leg-dot" style="background:#3fb950"></span>Read MB/s</span>
+        <span><span class="leg-dot" style="background:#f0883e"></span>Write MB/s</span>
+      </div>
+    </div>
+  </section>
+  <script>
+    const pool = {json.dumps(pool_name)};
+    const MAX = 60;
+    let rData = new Array(MAX).fill(null);
+    let wData = new Array(MAX).fill(null);
+
+    const canvas = document.getElementById('graph');
+    canvas.width = canvas.offsetWidth * devicePixelRatio;
+    canvas.height = 280 * devicePixelRatio;
+    const ctx = canvas.getContext('2d');
+
+    function fmt(b) {{
+      const mb = b / 1048576;
+      return mb >= 100 ? mb.toFixed(0) + ' MB/s' : mb.toFixed(2) + ' MB/s';
+    }}
+
+    function draw() {{
+      const W = canvas.width, H = canvas.height;
+      ctx.clearRect(0, 0, W, H);
+      ctx.fillStyle = '#0d1117';
+      ctx.fillRect(0, 0, W, H);
+
+      const valid = [...rData, ...wData].filter(v => v !== null);
+      const peak = Math.max(1048576, ...valid);  // at least 1 MB/s scale
+
+      // grid
+      ctx.strokeStyle = '#21262d'; ctx.lineWidth = 1;
+      [0.25, 0.5, 0.75, 1].forEach(f => {{
+        const y = H - H * f * 0.88;
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+        ctx.fillStyle = '#6e7681';
+        ctx.font = `${{Math.round(10 * devicePixelRatio)}}px monospace`;
+        ctx.fillText((peak * f / 1048576).toFixed(1), 4, y - 3);
+      }});
+
+      function line(data, color) {{
+        ctx.strokeStyle = color; ctx.lineWidth = 2 * devicePixelRatio;
+        ctx.beginPath();
+        let first = true;
+        data.forEach((v, i) => {{
+          if (v === null) {{ first = true; return; }}
+          const x = W * i / (MAX - 1);
+          const y = H - (v / peak) * H * 0.88;
+          first ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+          first = false;
+        }});
+        ctx.stroke();
+      }}
+
+      line(rData, '#3fb950');
+      line(wData, '#f0883e');
+    }}
+
+    async function poll() {{
+      try {{
+        const d = await fetch('/api/iostat/' + pool).then(r => r.json());
+        rData.push(d.read); rData.shift();
+        wData.push(d.write); wData.shift();
+        document.getElementById('read-val').textContent = fmt(d.read);
+        document.getElementById('write-val').textContent = fmt(d.write);
+        draw();
+      }} catch(e) {{}}
+    }}
+
+    window.addEventListener('resize', () => {{
+      canvas.width = canvas.offsetWidth * devicePixelRatio;
+      canvas.height = 280 * devicePixelRatio;
+      draw();
+    }});
+
+    poll();
+    setInterval(poll, 1000);
+  </script>
+</body>
+</html>"""
+
+
 def render_page(drives: list, pools: list) -> str:
     hostname = socket.gethostname()
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -493,7 +637,7 @@ def render_page(drives: list, pools: list) -> str:
 
         pool_cards.append(f'''<div class="pool-card" style="border-left-color:{border_col}">
   <div class="pc-head">
-    <span class="pname">{html_mod.escape(p["name"])}</span>
+    <a class="pname" href="/pool/{html_mod.escape(p['name'])}">{html_mod.escape(p["name"])}</a>
     <span class="pc-right">
       <span class="psize">{p["size"]}</span>
       <span class="pdot">·</span>
@@ -568,7 +712,8 @@ def render_page(drives: list, pools: list) -> str:
     .pool-list{{display:grid;grid-template-columns:repeat(auto-fill,minmax(460px,1fr));gap:14px}}
     .pool-card{{background:#161b22;border:1px solid #30363d;border-left:3px solid #238636;border-radius:8px;padding:16px}}
     .pc-head{{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}}
-    .pname{{font-size:1.05rem;font-weight:700;color:#e6edf3}}
+    .pname{{font-size:1.05rem;font-weight:700;color:#e6edf3;text-decoration:none}}
+    .pname:hover{{color:#58a6ff;text-decoration:underline}}
     .pc-right{{display:flex;align-items:center;gap:8px;flex-wrap:wrap}}
     .psize{{font-size:.78rem;color:#8b949e}}
     .pfree{{font-size:.78rem;color:#3fb950}}
@@ -640,40 +785,51 @@ def render_page(drives: list, pools: list) -> str:
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
-    def do_GET(self) -> None:
-        if self.path not in ("/", "/index.html"):
-            self.send_response(404)
-            self.end_headers()
-            return
-        drives, pools = get_data()
-        page = render_page(drives, pools)
-        encoded = page.encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(encoded)))
+    def _send(self, code: int, body: bytes, ct: str = "text/html; charset=utf-8") -> None:
+        self.send_response(code)
+        self.send_header("Content-Type", ct)
+        self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
-        self.wfile.write(encoded)
+        self.wfile.write(body)
+
+    def do_GET(self) -> None:
+        if self.path in ("/", "/index.html"):
+            drives, pools = get_data()
+            self._send(200, render_page(drives, pools).encode())
+            return
+
+        m = re.match(r'^/pool/([a-zA-Z0-9_\-]+)$', self.path)
+        if m:
+            self._send(200, render_pool_detail(m.group(1)).encode())
+            return
+
+        m = re.match(r'^/api/iostat/([a-zA-Z0-9_\-]+)$', self.path)
+        if m:
+            data = get_iostat(m.group(1))
+            self._send(200, json.dumps(data).encode(), "application/json")
+            return
+
+        self._send(404, b"not found")
 
     def do_POST(self) -> None:
         m = re.match(r'^/scrub/([a-zA-Z0-9_\-]+)$', self.path)
         if not m:
-            self.send_response(400)
-            self.end_headers()
+            self._send(400, b"bad request")
             return
-        pool = m.group(1)
-        run("zpool", "scrub", pool)
-        self.send_response(200)
-        self.send_header("Content-Type", "text/plain")
-        self.end_headers()
-        self.wfile.write(b"ok")
+        run("zpool", "scrub", m.group(1))
+        self._send(200, b"ok", "text/plain")
 
     def log_message(self, fmt: str, *args: object) -> None:
         pass
 
 
+class ThreadingServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+
 if __name__ == "__main__":
-    socketserver.TCPServer.allow_reuse_address = True
-    with socketserver.TCPServer(("", PORT), Handler) as srv:
+    with ThreadingServer(("", PORT), Handler) as srv:
         print(f"Drive monitor on http://0.0.0.0:{PORT}", flush=True)
         srv.serve_forever()
