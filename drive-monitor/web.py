@@ -331,7 +331,7 @@ def hours_row(hours: int) -> str:
     return stat_row("On time", f"{hours:,}h ({label})")
 
 
-def render_drive_card(d: dict) -> str:
+def render_drive_card(d: dict, pool_devs: set | None = None) -> str:
     if d.get("error"):
         return (
             f'<div class="card err-card">'
@@ -391,10 +391,12 @@ def render_drive_card(d: dict) -> str:
 
     dtype = d["type"].lower()
     card_cls = "card" + (" fail-card" if d.get("health") is False else "")
+    in_pool = (pool_devs is None) or (d["dev"] in pool_devs)
+    unpool_badge = '' if in_pool else '<span class="tbadge t-unpool">NO POOL</span>'
     return f"""<div class="{card_cls}">
   <div class="card-head">
     <span class="dev">{html_mod.escape(d["dev"])}</span>
-    <span class="tbadge t-{dtype}">{d["type"]}</span>
+    <span class="tbadge t-{dtype}">{d["type"]}</span>{unpool_badge}
   </div>
   {f'<div class="brand">{html_mod.escape(d["brand"])}</div>' if d.get("brand") else ""}
   <div class="model" title="{html_mod.escape(d["model"])}">{html_mod.escape(d["model"][:28])}</div>
@@ -412,7 +414,18 @@ def render_page(drives: list, pools: list) -> str:
     # Build a lookup from dev name → drive info for cross-referencing
     drive_by_dev = {d["dev"]: d for d in drives if not d.get("error")}
 
-    cards_html = "\n".join(render_drive_card(d) for d in drives)
+    # Collect every dev name used by any pool vdev.
+    # ZFS resolves NVMe as nvme0n1; smartctl reports nvme0 — normalise both.
+    pool_devs: set[str] = set()
+    for p in pools:
+        for vdev in p.get("vdevs", []):
+            for disk in vdev["disks"]:
+                dev = disk.get("dev", "")
+                if dev:
+                    pool_devs.add(dev)
+                    pool_devs.add(re.sub(r'n\d+$', '', dev))   # nvme0n1 → nvme0
+
+    cards_html = "\n".join(render_drive_card(d, pool_devs) for d in drives)
 
     pool_cards = []
     for p in pools:
@@ -537,6 +550,7 @@ def render_page(drives: list, pools: list) -> str:
     .t-nvme{{background:#1a2d4a;color:#58a6ff}}
     .t-ssd{{background:#1a3a2a;color:#3fb950}}
     .t-hdd{{background:#2e2a1a;color:#d29922}}
+    .t-unpool{{background:#2e1f3a;color:#bc8cff;border:1px solid #6e40c9}}
     .stats{{width:100%;border-collapse:collapse;font-size:.73rem}}
     .stats td{{padding:2px 0}}
     .stats td:first-child{{color:#8b949e;width:76px}}
