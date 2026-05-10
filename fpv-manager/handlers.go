@@ -187,7 +187,8 @@ func (a *App) handleDrones(w http.ResponseWriter, r *http.Request) {
                d.motor_count,
                COALESCE(CASE WHEN b.brand!='' THEN b.brand||' '||b.name ELSE b.name END,''),
                COALESCE(CASE WHEN g.brand!='' THEN g.brand||' '||g.name ELSE g.name END,''),
-               COALESCE(CASE WHEN rx.brand!='' THEN rx.brand||' '||rx.name ELSE rx.name END,'')
+               COALESCE(CASE WHEN rx.brand!='' THEN rx.brand||' '||rx.name ELSE rx.name END,''),
+               dp.id
         FROM drones d
         LEFT JOIN frames f ON f.id=d.frame_id
         LEFT JOIN flight_controllers fc ON fc.id=d.fc_id
@@ -197,6 +198,9 @@ func (a *App) handleDrones(w http.ResponseWriter, r *http.Request) {
         LEFT JOIN batteries b ON b.id=d.battery_id
         LEFT JOIN gps_modules g ON g.id=d.gps_id
         LEFT JOIN radio_receivers rx ON rx.id=d.rx_id
+        LEFT JOIN LATERAL (
+            SELECT id FROM drone_photos WHERE drone_id=d.id ORDER BY created_at LIMIT 1
+        ) dp ON true
         ORDER BY d.name`)
 	if err != nil {
 		httpErr(w, err)
@@ -207,15 +211,19 @@ func (a *App) handleDrones(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var d DroneRow
 		var bd *string
+		var firstPhotoID *int
 		if err := rows.Scan(&d.ID, &d.Name, &d.Status, &bd,
 			&d.FrameName, &d.FCName, &d.ESCName, &d.VTXName,
 			&d.MotorName, &d.MotorCount, &d.BatteryName,
-			&d.GPSName, &d.RXName); err != nil {
+			&d.GPSName, &d.RXName, &firstPhotoID); err != nil {
 			httpErr(w, err)
 			return
 		}
 		if bd != nil {
 			d.BuildDate = *bd
+		}
+		if firstPhotoID != nil {
+			d.FirstPhotoID = *firstPhotoID
 		}
 		drones = append(drones, d)
 	}
@@ -456,6 +464,26 @@ func (a *App) handleDroneEdit(w http.ResponseWriter, r *http.Request) {
 	if bd != nil {
 		page.BuildDate = *bd
 	}
+	photoRows, err := a.db.Query(ctx,
+		`SELECT id, original_name, notes FROM drone_photos WHERE drone_id=$1 ORDER BY created_at`, id)
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	for photoRows.Next() {
+		var p DronePhotoRow
+		if err := photoRows.Scan(&p.ID, &p.OriginalName, &p.Notes); err != nil {
+			photoRows.Close()
+			httpErr(w, err)
+			return
+		}
+		page.Photos = append(page.Photos, p)
+	}
+	photoRows.Close()
+	if err := photoRows.Err(); err != nil {
+		httpErr(w, err)
+		return
+	}
 	page.ActiveTab = "drones"
 	a.fillDroneFormOptions(r, &page)
 	render(w, "drone-form", page)
@@ -469,6 +497,107 @@ func (a *App) handleDroneDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	a.db.Exec(r.Context(), `DELETE FROM drones WHERE id=$1`, id)
 	http.Redirect(w, r, "/drones", http.StatusSeeOther)
+}
+
+func (a *App) handleDronePhotoUpload(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	ctx := r.Context()
+	if err := r.ParseMultipartForm(256 << 20); err != nil {
+		httpErr(w, err)
+		return
+	}
+	file, header, err := r.FormFile("photo")
+	if err != nil {
+		http.Redirect(w, r, fmt.Sprintf("/drones/%d/edit", id), http.StatusSeeOther)
+		return
+	}
+	defer file.Close()
+
+	ext := filepath.Ext(header.Filename)
+	filename := fmt.Sprintf("%d%s", time.Now().UnixNano(), ext)
+	dst := filepath.Join(a.videoDir, filename)
+	out, err := os.Create(dst)
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	if _, err := io.Copy(out, file); err != nil {
+		out.Close()
+		os.Remove(dst)
+		httpErr(w, err)
+		return
+	}
+	out.Close()
+
+	_, err = a.db.Exec(ctx,
+		`INSERT INTO drone_photos (drone_id,filename,original_name) VALUES ($1,$2,$3)`,
+		id, filename, header.Filename)
+	if err != nil {
+		os.Remove(dst)
+		httpErr(w, err)
+		return
+	}
+	http.Redirect(w, r, fmt.Sprintf("/drones/%d/edit", id), http.StatusSeeOther)
+}
+
+func (a *App) handleDronePhotoServe(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	var filename string
+	err := a.db.QueryRow(r.Context(), `SELECT filename FROM drone_photos WHERE id=$1`, id).Scan(&filename)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	http.ServeFile(w, r, filepath.Join(a.videoDir, filename))
+}
+
+func (a *App) handleDronePhotoDelete(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	ctx := r.Context()
+	var filename string
+	var droneID int
+	err := a.db.QueryRow(ctx,
+		`SELECT drone_id,filename FROM drone_photos WHERE id=$1`, id).Scan(&droneID, &filename)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	a.db.Exec(ctx, `DELETE FROM drone_photos WHERE id=$1`, id)
+	os.Remove(filepath.Join(a.videoDir, filename))
+	http.Redirect(w, r, fmt.Sprintf("/drones/%d/edit", droneID), http.StatusSeeOther)
+}
+
+func (a *App) handleDronePhotoNote(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	ctx := r.Context()
+	if err := r.ParseForm(); err != nil {
+		httpErr(w, err)
+		return
+	}
+	var droneID int
+	err := a.db.QueryRow(ctx, `SELECT drone_id FROM drone_photos WHERE id=$1`, id).Scan(&droneID)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	a.db.Exec(ctx, `UPDATE drone_photos SET notes=$1 WHERE id=$2`, r.FormValue("notes"), id)
+	http.Redirect(w, r, fmt.Sprintf("/drones/%d/edit", droneID), http.StatusSeeOther)
 }
 
 // ---- Inventory ----

@@ -212,6 +212,15 @@ CREATE TABLE IF NOT EXISTS session_batteries (
     PRIMARY KEY (session_id, battery_id)
 );
 
+CREATE TABLE IF NOT EXISTS drone_photos (
+    id            SERIAL PRIMARY KEY,
+    drone_id      INTEGER NOT NULL REFERENCES drones(id) ON DELETE CASCADE,
+    filename      TEXT NOT NULL,
+    original_name TEXT NOT NULL DEFAULT '',
+    notes         TEXT NOT NULL DEFAULT '',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS session_videos (
     id            SERIAL PRIMARY KEY,
     session_id    INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -276,6 +285,7 @@ CREATE INDEX IF NOT EXISTS idx_drones_gps      ON drones(gps_id);
 CREATE INDEX IF NOT EXISTS idx_drones_rx       ON drones(rx_id);
 CREATE INDEX IF NOT EXISTS idx_props_drone     ON propellers(drone_id);
 CREATE INDEX IF NOT EXISTS idx_sd_drone        ON session_drones(drone_id);
+CREATE INDEX IF NOT EXISTS idx_dp_drone        ON drone_photos(drone_id);
 CREATE INDEX IF NOT EXISTS idx_sv_session      ON session_videos(session_id);
 CREATE INDEX IF NOT EXISTS idx_sp_session      ON session_photos(session_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_date   ON sessions(session_date DESC);
@@ -300,6 +310,10 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/drones/new", a.handleDroneNew)
 	mux.HandleFunc("/drones/{id}/edit", a.handleDroneEdit)
 	mux.HandleFunc("POST /drones/{id}/delete", a.handleDroneDelete)
+	mux.HandleFunc("POST /drones/{id}/photos", a.handleDronePhotoUpload)
+	mux.HandleFunc("GET /drone-photos/{id}", a.handleDronePhotoServe)
+	mux.HandleFunc("POST /drone-photos/{id}/delete", a.handleDronePhotoDelete)
+	mux.HandleFunc("POST /drone-photos/{id}/note", a.handleDronePhotoNote)
 
 	mux.HandleFunc("/inventory", a.handleInventory)
 	mux.HandleFunc("/frames/new", a.handleFrameNew)

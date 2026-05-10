@@ -21,19 +21,26 @@ type DroneListPage struct {
 }
 
 type DroneRow struct {
+	ID            int
+	Name          string
+	FrameName     string
+	FCName        string
+	ESCName       string
+	VTXName       string
+	MotorName     string
+	MotorCount    int
+	BatteryName   string
+	GPSName       string
+	RXName        string
+	Status        string
+	BuildDate     string
+	FirstPhotoID  int
+}
+
+type DronePhotoRow struct {
 	ID           int
-	Name         string
-	FrameName    string
-	FCName       string
-	ESCName      string
-	VTXName      string
-	MotorName    string
-	MotorCount   int
-	BatteryName  string
-	GPSName      string
-	RXName       string
-	Status       string
-	BuildDate    string
+	OriginalName string
+	Notes        string
 }
 
 type DroneFormPage struct {
@@ -61,6 +68,7 @@ type DroneFormPage struct {
 	Batteries    []OptionItem
 	GPSs         []OptionItem
 	RXs          []OptionItem
+	Photos       []DronePhotoRow
 }
 
 type InventoryPage struct {
@@ -664,12 +672,19 @@ const droneListTmpl = `{{define "content"}}
 <div class="table-wrap">
 <table>
 <thead><tr>
-  <th>Name</th><th>Frame</th><th>FC</th><th>ESC</th><th>VTX</th>
+  <th></th><th>Name</th><th>Frame</th><th>FC</th><th>ESC</th><th>VTX</th>
   <th>Motors</th><th>Batteries</th><th>GPS</th><th>RX</th><th>Status</th><th>Build Date</th><th></th>
 </tr></thead>
 <tbody>
 {{range .Drones}}
 <tr class="{{if eq .Status "retired"}}retired{{end}}">
+  <td style="width:56px;padding:6px 8px">
+    {{if .FirstPhotoID}}
+    <img src="/drone-photos/{{.FirstPhotoID}}" style="width:48px;height:48px;object-fit:cover;border-radius:4px;display:block">
+    {{else}}
+    <div style="width:48px;height:48px;background:#21262d;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#8b949e;font-size:20px">✈</div>
+    {{end}}
+  </td>
   <td><strong>{{.Name}}</strong></td>
   <td class="muted">{{dash .FrameName}}</td>
   <td class="muted">{{dash .FCName}}</td>
@@ -816,6 +831,32 @@ const droneFormTmpl = `{{define "content"}}
     <a href="/drones" class="btn btn-cancel">Cancel</a>
   </div>
 </form>
+
+{{if .ID}}
+<h3 style="margin-top:32px">Photos</h3>
+{{if .Photos}}
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;max-width:700px;margin-bottom:16px">
+{{range .Photos}}
+<div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px">
+  <img src="/drone-photos/{{.ID}}" style="width:100%;border-radius:4px;display:block;max-height:200px;object-fit:cover">
+  <form method="POST" action="/drone-photos/{{.ID}}/note" style="margin-top:8px;display:flex;gap:6px;align-items:flex-start">
+    <textarea name="notes" rows="2" style="flex:1;resize:vertical;font-size:13px" placeholder="Add a note…">{{.Notes}}</textarea>
+    <button class="btn btn-sm btn-edit" type="submit">Save</button>
+  </form>
+  <form method="POST" action="/drone-photos/{{.ID}}/delete" style="margin-top:6px">
+    <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+  </form>
+</div>
+{{end}}
+</div>
+{{else}}
+<p class="muted" style="margin-bottom:8px">No photos yet.</p>
+{{end}}
+<form method="POST" action="/drones/{{.ID}}/photos" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center">
+  <input type="file" name="photo" accept="image/*" style="color:#c9d1d9;font-size:13px">
+  <button class="btn btn-primary" type="submit">Upload Photo</button>
+</form>
+{{end}}
 </div>
 {{end}}`
 
