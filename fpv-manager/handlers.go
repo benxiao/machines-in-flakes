@@ -1658,3 +1658,85 @@ func (a *App) handleSessionDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	http.Redirect(w, r, "/log", http.StatusSeeOther)
 }
+
+// ---- Duplicate handlers (copy item as new spare) ----
+
+func (a *App) handleFrameDuplicate(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	_, err := a.db.Exec(r.Context(), `
+        INSERT INTO frames (brand,name,size_mm,weight_g,notes,status)
+        SELECT brand,name,size_mm,weight_g,notes,'spare' FROM frames WHERE id=$1`, id)
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	http.Redirect(w, r, "/inventory", http.StatusSeeOther)
+}
+
+func (a *App) handleFCDuplicate(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	_, err := a.db.Exec(r.Context(), `
+        INSERT INTO flight_controllers (brand,name,mcu,firmware,notes,status)
+        SELECT brand,name,mcu,firmware,notes,'spare' FROM flight_controllers WHERE id=$1`, id)
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	http.Redirect(w, r, "/inventory", http.StatusSeeOther)
+}
+
+func (a *App) handleESCDuplicate(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	_, err := a.db.Exec(r.Context(), `
+        INSERT INTO escs (brand,name,current_rating,cell_max,notes,status)
+        SELECT brand,name,current_rating,cell_max,notes,'spare' FROM escs WHERE id=$1`, id)
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	http.Redirect(w, r, "/inventory", http.StatusSeeOther)
+}
+
+func (a *App) handleMotorDuplicate(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	_, err := a.db.Exec(r.Context(), `
+        INSERT INTO motors (brand,name,stator_size,kv,notes,status)
+        SELECT brand,name,stator_size,kv,notes,'spare' FROM motors WHERE id=$1`, id)
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	http.Redirect(w, r, "/inventory", http.StatusSeeOther)
+}
+
+func (a *App) handleVTXDuplicate(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	_, err := a.db.Exec(r.Context(), `
+        INSERT INTO vtx_units (brand,name,system,max_power_mw,resolution,weight_g,notes,status)
+        SELECT brand,name,system,max_power_mw,resolution,weight_g,notes,'spare' FROM vtx_units WHERE id=$1`, id)
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	http.Redirect(w, r, "/inventory", http.StatusSeeOther)
+}

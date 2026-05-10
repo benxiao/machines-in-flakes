@@ -750,6 +750,9 @@ const inventoryTmpl = `{{define "content"}}
     <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
     <td class="actions-cell">
       <a href="/frames/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
+      <form class="inline" method="POST" action="/frames/{{.ID}}/duplicate">
+        <button class="btn btn-sm btn-edit" type="submit" title="Add a spare copy">+1</button>
+      </form>
       <form class="inline" method="POST" action="/frames/{{.ID}}/delete">
         <button class="btn btn-sm btn-danger" type="submit">Delete</button>
       </form>
@@ -780,6 +783,9 @@ const inventoryTmpl = `{{define "content"}}
     <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
     <td class="actions-cell">
       <a href="/fcs/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
+      <form class="inline" method="POST" action="/fcs/{{.ID}}/duplicate">
+        <button class="btn btn-sm btn-edit" type="submit" title="Add a spare copy">+1</button>
+      </form>
       <form class="inline" method="POST" action="/fcs/{{.ID}}/delete">
         <button class="btn btn-sm btn-danger" type="submit">Delete</button>
       </form>
@@ -810,6 +816,9 @@ const inventoryTmpl = `{{define "content"}}
     <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
     <td class="actions-cell">
       <a href="/escs/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
+      <form class="inline" method="POST" action="/escs/{{.ID}}/duplicate">
+        <button class="btn btn-sm btn-edit" type="submit" title="Add a spare copy">+1</button>
+      </form>
       <form class="inline" method="POST" action="/escs/{{.ID}}/delete">
         <button class="btn btn-sm btn-danger" type="submit">Delete</button>
       </form>
@@ -840,6 +849,9 @@ const inventoryTmpl = `{{define "content"}}
     <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
     <td class="actions-cell">
       <a href="/motors/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
+      <form class="inline" method="POST" action="/motors/{{.ID}}/duplicate">
+        <button class="btn btn-sm btn-edit" type="submit" title="Add a spare copy">+1</button>
+      </form>
       <form class="inline" method="POST" action="/motors/{{.ID}}/delete">
         <button class="btn btn-sm btn-danger" type="submit">Delete</button>
       </form>
@@ -871,6 +883,9 @@ const inventoryTmpl = `{{define "content"}}
     <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
     <td class="actions-cell">
       <a href="/vtx/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
+      <form class="inline" method="POST" action="/vtx/{{.ID}}/duplicate">
+        <button class="btn btn-sm btn-edit" type="submit" title="Add a spare copy">+1</button>
+      </form>
       <form class="inline" method="POST" action="/vtx/{{.ID}}/delete">
         <button class="btn btn-sm btn-danger" type="submit">Delete</button>
       </form>
