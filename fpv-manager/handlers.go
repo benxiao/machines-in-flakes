@@ -145,7 +145,7 @@ func (a *App) batteryChecks(r *http.Request, sessionID int) ([]BatteryCheck, err
                       WHERE sb.session_id=$1 AND sb.battery_id=b.id),
                COALESCE((SELECT sb.count FROM session_batteries sb
                          WHERE sb.session_id=$1 AND sb.battery_id=b.id), 1)
-        FROM batteries b WHERE b.status != 'dead'
+        FROM batteries b
         ORDER BY b.brand, b.name`, sessionID)
 	if err != nil {
 		return nil, err
@@ -1460,14 +1460,12 @@ func (a *App) handlePropDelete(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleBatteries(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	rows, err := a.db.Query(ctx, `
-        SELECT b.id, b.brand, b.name, b.cell_count, b.capacity_mah, b.status,
+        SELECT b.id, b.brand, b.name, b.cell_count, b.capacity_mah,
                b.count,
-               COALESCE((SELECT SUM(d.battery_count) FROM drones d WHERE d.battery_id=b.id),0),
-               b.count - COALESCE((SELECT SUM(d.battery_count) FROM drones d WHERE d.battery_id=b.id),0),
-               COALESCE(string_agg(d.name||' (×'||d.battery_count||')',', ' ORDER BY d.name),'')
+               COALESCE(string_agg(d.name, ', ' ORDER BY d.name), '')
         FROM batteries b
         LEFT JOIN drones d ON d.battery_id=b.id
-        GROUP BY b.id, b.brand, b.name, b.cell_count, b.capacity_mah, b.status, b.count
+        GROUP BY b.id, b.brand, b.name, b.cell_count, b.capacity_mah, b.count
         ORDER BY b.brand, b.name, b.cell_count, b.capacity_mah`)
 	if err != nil {
 		httpErr(w, err)
@@ -1478,7 +1476,7 @@ func (a *App) handleBatteries(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var b BatteryRow
 		if err := rows.Scan(&b.ID, &b.Brand, &b.Name, &b.CellCount, &b.CapacityMAh,
-			&b.Status, &b.Total, &b.Installed, &b.Available, &b.InstalledOn); err != nil {
+			&b.Total, &b.AssignedTo); err != nil {
 			httpErr(w, err)
 			return
 		}
@@ -1503,7 +1501,7 @@ func (a *App) handleBatteryNew(w http.ResponseWriter, r *http.Request) {
 		cap, _ := strconv.Atoi(r.FormValue("capacity_mah"))
 		if name == "" || cc == 0 || cap == 0 {
 			render(w, "battery-form", BatteryFormPage{ActiveTab: "batteries",
-				Error: "Name, cell count, and capacity are required", Status: "good"})
+				Error: "Name, cell count, and capacity are required"})
 			return
 		}
 		qty, _ := strconv.Atoi(r.FormValue("quantity"))
@@ -1511,10 +1509,9 @@ func (a *App) handleBatteryNew(w http.ResponseWriter, r *http.Request) {
 			qty = 1
 		}
 		_, err := a.db.Exec(ctx,
-			`INSERT INTO batteries (brand,name,cell_count,capacity_mah,count,status,notes)
-             VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-			r.FormValue("brand"), name, cc, cap, qty,
-			r.FormValue("status"), r.FormValue("notes"))
+			`INSERT INTO batteries (brand,name,cell_count,capacity_mah,count,notes)
+             VALUES ($1,$2,$3,$4,$5,$6)`,
+			r.FormValue("brand"), name, cc, cap, qty, r.FormValue("notes"))
 		if err != nil {
 			httpErr(w, err)
 			return
@@ -1522,7 +1519,7 @@ func (a *App) handleBatteryNew(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/batteries", http.StatusSeeOther)
 		return
 	}
-	render(w, "battery-form", BatteryFormPage{ActiveTab: "batteries", Status: "good"})
+	render(w, "battery-form", BatteryFormPage{ActiveTab: "batteries"})
 }
 
 func (a *App) handleBatteryEdit(w http.ResponseWriter, r *http.Request) {
@@ -1542,7 +1539,7 @@ func (a *App) handleBatteryEdit(w http.ResponseWriter, r *http.Request) {
 		cap, _ := strconv.Atoi(r.FormValue("capacity_mah"))
 		if name == "" || cc == 0 || cap == 0 {
 			render(w, "battery-form", BatteryFormPage{ActiveTab: "batteries",
-				Error: "Name, cell count, and capacity are required", ID: id, Status: "good"})
+				Error: "Name, cell count, and capacity are required", ID: id})
 			return
 		}
 		qty, _ := strconv.Atoi(r.FormValue("quantity"))
@@ -1550,8 +1547,8 @@ func (a *App) handleBatteryEdit(w http.ResponseWriter, r *http.Request) {
 			qty = 1
 		}
 		_, err := a.db.Exec(ctx,
-			`UPDATE batteries SET brand=$1,name=$2,cell_count=$3,capacity_mah=$4,count=$5,status=$6,notes=$7 WHERE id=$8`,
-			r.FormValue("brand"), name, cc, cap, qty, r.FormValue("status"), r.FormValue("notes"), id)
+			`UPDATE batteries SET brand=$1,name=$2,cell_count=$3,capacity_mah=$4,count=$5,notes=$6 WHERE id=$7`,
+			r.FormValue("brand"), name, cc, cap, qty, r.FormValue("notes"), id)
 		if err != nil {
 			httpErr(w, err)
 			return
@@ -1562,8 +1559,8 @@ func (a *App) handleBatteryEdit(w http.ResponseWriter, r *http.Request) {
 	var page BatteryFormPage
 	var cellCount, capMAh, qty int
 	err := a.db.QueryRow(ctx,
-		`SELECT id,brand,name,cell_count,capacity_mah,count,status,notes FROM batteries WHERE id=$1`, id).
-		Scan(&page.ID, &page.Brand, &page.Name, &cellCount, &capMAh, &qty, &page.Status, &page.Notes)
+		`SELECT id,brand,name,cell_count,capacity_mah,count,notes FROM batteries WHERE id=$1`, id).
+		Scan(&page.ID, &page.Brand, &page.Name, &cellCount, &capMAh, &qty, &page.Notes)
 	if err == pgx.ErrNoRows {
 		http.NotFound(w, r)
 		return
@@ -1730,7 +1727,7 @@ func (a *App) handleSessionDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := a.db.Query(ctx, `
-        SELECT b.id, b.brand, b.name, b.cell_count, b.capacity_mah, b.status, sb.count
+        SELECT b.id, b.brand, b.name, b.cell_count, b.capacity_mah, sb.count
         FROM batteries b JOIN session_batteries sb ON sb.battery_id=b.id
         WHERE sb.session_id=$1 ORDER BY b.brand, b.name`, id)
 	if err != nil {
@@ -1739,7 +1736,7 @@ func (a *App) handleSessionDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	for rows.Next() {
 		var b BatteryRow
-		if err := rows.Scan(&b.ID, &b.Brand, &b.Name, &b.CellCount, &b.CapacityMAh, &b.Status, &b.Count); err != nil {
+		if err := rows.Scan(&b.ID, &b.Brand, &b.Name, &b.CellCount, &b.CapacityMAh, &b.Count); err != nil {
 			rows.Close()
 			httpErr(w, err)
 			return

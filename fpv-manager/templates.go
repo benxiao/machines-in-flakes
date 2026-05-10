@@ -253,10 +253,7 @@ type BatteryRow struct {
 	CellCount   int
 	CapacityMAh int
 	Total       int
-	Installed   int
-	Available   int
-	InstalledOn string
-	Status      string
+	AssignedTo  string
 	Count       int
 }
 
@@ -269,7 +266,6 @@ type BatteryFormPage struct {
 	CellCount   string
 	CapacityMAh string
 	Quantity    string
-	Status      string
 	Notes       string
 }
 
@@ -1401,20 +1397,17 @@ const batteryListTmpl = `{{define "content"}}
 <div class="table-wrap">
 <table>
 <thead><tr>
-  <th>Brand</th><th>Name</th><th>Cell</th><th>mAh</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Status</th><th>Installed On</th><th></th>
+  <th>Brand</th><th>Name</th><th>Cell</th><th>mAh</th><th>Owned</th><th>Assigned To</th><th></th>
 </tr></thead>
 <tbody>
 {{range .Batteries}}
-<tr class="{{if eq .Status "dead"}}retired{{end}}">
+<tr>
   <td class="muted">{{dash .Brand}}</td>
   <td><strong>{{.Name}}</strong></td>
   <td class="muted">{{.CellCount}}S</td>
   <td class="muted">{{.CapacityMAh}}</td>
   <td class="muted">{{.Total}}</td>
-  <td class="muted">{{.Installed}}</td>
-  <td>{{if gt .Available 0}}<span style="color:#3fb950;font-weight:500">{{.Available}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
-  <td><span class="badge {{badgeClass .Status}}">{{.Status}}</span></td>
-  <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
+  <td>{{if .AssignedTo}}<span class="installed-badge">{{.AssignedTo}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
   <td class="actions-cell">
     <a href="/batteries/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
     <form class="inline" method="POST" action="/batteries/{{.ID}}/adjust">
@@ -1466,20 +1459,9 @@ const batteryFormTmpl = `{{define "content"}}
       <input type="number" name="quantity" value="{{if .Quantity}}{{.Quantity}}{{else}}1{{end}}" min="0">
     </div>
   </div>
-  <div class="form-row">
-    <div class="form-group">
-      <label>Status</label>
-      <select name="status">
-        <option value="good"     {{if eq .Status "good"}}selected{{end}}>good</option>
-        <option value="degraded" {{if eq .Status "degraded"}}selected{{end}}>degraded</option>
-        <option value="storage"  {{if eq .Status "storage"}}selected{{end}}>storage</option>
-        <option value="dead"     {{if eq .Status "dead"}}selected{{end}}>dead</option>
-      </select>
-    </div>
-    <div class="form-group">
-      <label>Notes</label>
-      <input type="text" name="notes" value="{{.Notes}}" placeholder="optional">
-    </div>
+  <div class="form-group">
+    <label>Notes</label>
+    <input type="text" name="notes" value="{{.Notes}}" placeholder="optional">
   </div>
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add Battery{{end}}</button>
@@ -1726,7 +1708,7 @@ const sessionDetailTmpl = `{{define "content"}}
 <h3>Batteries Used</h3>
 <div class="table-wrap" style="max-width:600px;margin-bottom:24px">
 <table>
-<thead><tr><th>Brand</th><th>Name</th><th>Cell</th><th>mAh</th><th>Qty</th><th>Status</th></tr></thead>
+<thead><tr><th>Brand</th><th>Name</th><th>Cell</th><th>mAh</th><th>Qty</th></tr></thead>
 <tbody>
 {{range .Batteries}}
 <tr>
@@ -1735,7 +1717,6 @@ const sessionDetailTmpl = `{{define "content"}}
   <td class="muted">{{.CellCount}}S</td>
   <td class="muted">{{.CapacityMAh}}</td>
   <td><strong>{{.Count}}</strong></td>
-  <td><span class="badge {{badgeClass .Status}}">{{.Status}}</span></td>
 </tr>
 {{end}}
 </tbody>
