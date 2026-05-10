@@ -52,8 +52,6 @@ CREATE TABLE IF NOT EXISTS frames (
     size_mm    INTEGER,
     weight_g   INTEGER,
     notes      TEXT NOT NULL DEFAULT '',
-    status     TEXT NOT NULL DEFAULT 'spare'
-                   CHECK (status IN ('spare','retired','crashed')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -64,8 +62,6 @@ CREATE TABLE IF NOT EXISTS flight_controllers (
     mcu        TEXT NOT NULL DEFAULT '',
     firmware   TEXT NOT NULL DEFAULT '',
     notes      TEXT NOT NULL DEFAULT '',
-    status     TEXT NOT NULL DEFAULT 'spare'
-                   CHECK (status IN ('spare','retired')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -76,8 +72,6 @@ CREATE TABLE IF NOT EXISTS escs (
     current_rating INTEGER,
     cell_max       INTEGER,
     notes          TEXT NOT NULL DEFAULT '',
-    status         TEXT NOT NULL DEFAULT 'spare'
-                       CHECK (status IN ('spare','retired')),
     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -90,23 +84,7 @@ CREATE TABLE IF NOT EXISTS vtx_units (
     resolution   TEXT NOT NULL DEFAULT '',
     weight_g     INTEGER,
     notes        TEXT NOT NULL DEFAULT '',
-    status       TEXT NOT NULL DEFAULT 'spare'
-                     CHECK (status IN ('spare','retired')),
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS drones (
-    id         SERIAL PRIMARY KEY,
-    name       TEXT NOT NULL,
-    frame_id   INTEGER REFERENCES frames(id) ON DELETE SET NULL,
-    fc_id      INTEGER REFERENCES flight_controllers(id) ON DELETE SET NULL,
-    esc_id     INTEGER REFERENCES escs(id) ON DELETE SET NULL,
-    vtx_id     INTEGER REFERENCES vtx_units(id) ON DELETE SET NULL,
-    status     TEXT NOT NULL DEFAULT 'build'
-                   CHECK (status IN ('flying','build','retired','crashed')),
-    build_date DATE,
-    notes      TEXT NOT NULL DEFAULT '',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS motors (
@@ -115,12 +93,44 @@ CREATE TABLE IF NOT EXISTS motors (
     name        TEXT NOT NULL,
     stator_size TEXT NOT NULL DEFAULT '',
     kv          INTEGER,
-    drone_id    INTEGER REFERENCES drones(id) ON DELETE SET NULL,
     notes       TEXT NOT NULL DEFAULT '',
-    status      TEXT NOT NULL DEFAULT 'spare'
-                    CHECK (status IN ('spare','retired')),
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS drones (
+    id          SERIAL PRIMARY KEY,
+    name        TEXT NOT NULL,
+    frame_id    INTEGER REFERENCES frames(id) ON DELETE SET NULL,
+    fc_id       INTEGER REFERENCES flight_controllers(id) ON DELETE SET NULL,
+    esc_id      INTEGER REFERENCES escs(id) ON DELETE SET NULL,
+    vtx_id      INTEGER REFERENCES vtx_units(id) ON DELETE SET NULL,
+    motor_id    INTEGER REFERENCES motors(id) ON DELETE SET NULL,
+    motor_count INTEGER NOT NULL DEFAULT 4,
+    status      TEXT NOT NULL DEFAULT 'build'
+                    CHECK (status IN ('flying','build','retired','crashed')),
+    build_date  DATE,
+    notes       TEXT NOT NULL DEFAULT '',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- item_counts tracks total units owned per component model.
+-- available = count - installed (derived from drones table).
+CREATE TABLE IF NOT EXISTS item_counts (
+    item_type TEXT NOT NULL CHECK (item_type IN ('frame','fc','esc','motor','vtx')),
+    item_id   INTEGER NOT NULL,
+    count     INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (item_type, item_id)
+);
+
+-- Migrate old schema if upgrading:
+ALTER TABLE motors DROP COLUMN IF EXISTS drone_id;
+ALTER TABLE motors DROP COLUMN IF EXISTS status;
+ALTER TABLE frames DROP COLUMN IF EXISTS status;
+ALTER TABLE flight_controllers DROP COLUMN IF EXISTS status;
+ALTER TABLE escs DROP COLUMN IF EXISTS status;
+ALTER TABLE vtx_units DROP COLUMN IF EXISTS status;
+ALTER TABLE drones ADD COLUMN IF NOT EXISTS motor_id INTEGER REFERENCES motors(id) ON DELETE SET NULL;
+ALTER TABLE drones ADD COLUMN IF NOT EXISTS motor_count INTEGER NOT NULL DEFAULT 4;
 
 CREATE TABLE IF NOT EXISTS batteries (
     id                  SERIAL PRIMARY KEY,

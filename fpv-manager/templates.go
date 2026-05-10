@@ -21,33 +21,37 @@ type DroneListPage struct {
 }
 
 type DroneRow struct {
-	ID        int
-	Name      string
-	FrameName string
-	FCName    string
-	ESCName   string
-	VTXName   string
-	Status    string
-	BuildDate string
-	Motors    int
+	ID         int
+	Name       string
+	FrameName  string
+	FCName     string
+	ESCName    string
+	VTXName    string
+	MotorName  string
+	MotorCount int
+	Status     string
+	BuildDate  string
 }
 
 type DroneFormPage struct {
-	ActiveTab string
-	Error     string
-	ID        int
-	Name      string
-	FrameID   int
-	FCID      int
-	ESCID     int
-	VTXID     int
-	Status    string
-	BuildDate string
-	Notes     string
-	Frames    []OptionItem
-	FCs       []OptionItem
-	ESCs      []OptionItem
-	VTXs      []OptionItem
+	ActiveTab  string
+	Error      string
+	ID         int
+	Name       string
+	FrameID    int
+	FCID       int
+	ESCID      int
+	VTXID      int
+	MotorID    int
+	MotorCount string
+	Status     string
+	BuildDate  string
+	Notes      string
+	Frames     []OptionItem
+	FCs        []OptionItem
+	ESCs       []OptionItem
+	VTXs       []OptionItem
+	Motors     []OptionItem
 }
 
 type InventoryPage struct {
@@ -65,9 +69,10 @@ type FrameRow struct {
 	Name        string
 	SizeMM      string
 	WeightG     string
-	Status      string // kept for retired row dimming
-	InstalledOn string
+	Total       int
+	Installed   int
 	Available   int
+	InstalledOn string
 }
 
 type FCRow struct {
@@ -76,9 +81,10 @@ type FCRow struct {
 	Name        string
 	MCU         string
 	Firmware    string
-	Status      string
-	InstalledOn string
+	Total       int
+	Installed   int
 	Available   int
+	InstalledOn string
 }
 
 type ESCRow struct {
@@ -87,9 +93,10 @@ type ESCRow struct {
 	Name          string
 	CurrentRating string
 	CellMax       string
-	Status        string
-	InstalledOn   string
+	Total         int
+	Installed     int
 	Available     int
+	InstalledOn   string
 }
 
 type MotorRow struct {
@@ -98,9 +105,10 @@ type MotorRow struct {
 	Name        string
 	StatorSize  string
 	KV          string
-	Status      string
-	InstalledOn string
+	Total       int
+	Installed   int
 	Available   int
+	InstalledOn string
 }
 
 type VTXRow struct {
@@ -110,9 +118,10 @@ type VTXRow struct {
 	System      string
 	MaxPowerMW  string
 	Resolution  string
-	Status      string
-	InstalledOn string
+	Total       int
+	Installed   int
 	Available   int
+	InstalledOn string
 }
 
 type FrameFormPage struct {
@@ -124,7 +133,7 @@ type FrameFormPage struct {
 	SizeMM    string
 	WeightG   string
 	Notes     string
-	Status    string
+	Quantity  string
 }
 
 type FCFormPage struct {
@@ -136,7 +145,7 @@ type FCFormPage struct {
 	MCU       string
 	Firmware  string
 	Notes     string
-	Status    string
+	Quantity  string
 }
 
 type ESCFormPage struct {
@@ -148,7 +157,7 @@ type ESCFormPage struct {
 	CurrentRating string
 	CellMax       string
 	Notes         string
-	Status        string
+	Quantity      string
 }
 
 type MotorFormPage struct {
@@ -159,10 +168,8 @@ type MotorFormPage struct {
 	Name       string
 	StatorSize string
 	KV         string
-	DroneID    int
 	Notes      string
-	Status     string
-	Drones     []OptionItem
+	Quantity   string
 }
 
 type VTXFormPage struct {
@@ -176,7 +183,7 @@ type VTXFormPage struct {
 	Resolution string
 	WeightG    string
 	Notes      string
-	Status     string
+	Quantity   string
 }
 
 type BatteryListPage struct {
@@ -619,6 +626,7 @@ const droneListTmpl = `{{define "content"}}
 <thead><tr>
   <th>Name</th><th>Frame</th><th>FC</th><th>ESC</th><th>VTX</th>
   <th>Motors</th><th>Status</th><th>Build Date</th><th></th>
+
 </tr></thead>
 <tbody>
 {{range .Drones}}
@@ -628,7 +636,7 @@ const droneListTmpl = `{{define "content"}}
   <td class="muted">{{dash .FCName}}</td>
   <td class="muted">{{dash .ESCName}}</td>
   <td class="muted">{{dash .VTXName}}</td>
-  <td class="muted">{{if gt .Motors 0}}{{.Motors}}{{else}}—{{end}}</td>
+  <td class="muted">{{if .MotorName}}{{.MotorName}} ×{{.MotorCount}}{{else}}—{{end}}</td>
   <td><span class="badge {{badgeClass .Status}}">{{.Status}}</span></td>
   <td class="muted">{{dash .BuildDate}}</td>
   <td class="actions-cell">
@@ -713,6 +721,21 @@ const droneFormTmpl = `{{define "content"}}
       </select>
     </div>
   </div>
+  <div class="form-row">
+    <div class="form-group">
+      <label>Motors</label>
+      <select name="motor_id">
+        <option value="">— none —</option>
+        {{range .Motors}}
+        <option value="{{.ID}}" {{if eq $.MotorID .ID}}selected{{end}}>{{.Label}}</option>
+        {{end}}
+      </select>
+    </div>
+    <div class="form-group" style="max-width:100px">
+      <label>Motor count</label>
+      <input type="number" name="motor_count" value="{{if .MotorCount}}{{.MotorCount}}{{else}}4{{end}}" min="1">
+    </div>
+  </div>
   <div class="form-group">
     <label>Notes</label>
     <textarea name="notes">{{.Notes}}</textarea>
@@ -738,14 +761,16 @@ const inventoryTmpl = `{{define "content"}}
   {{if .Frames}}
   <div class="table-wrap">
   <table>
-  <thead><tr><th>Brand</th><th>Name</th><th>Size</th><th>Weight</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
+  <thead><tr><th>Brand</th><th>Name</th><th>Size</th><th>Weight</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .Frames}}
-  <tr class="{{if eq .Status "retired"}}retired{{end}}">
+  <tr>
     <td class="muted">{{dash .Brand}}</td>
     <td>{{.Name}}</td>
     <td class="muted">{{if .SizeMM}}{{.SizeMM}}mm{{else}}—{{end}}</td>
     <td class="muted">{{if .WeightG}}{{.WeightG}}g{{else}}—{{end}}</td>
+    <td class="muted">{{.Total}}</td>
+    <td class="muted">{{.Installed}}</td>
     <td>{{if gt .Available 0}}<span style="color:#3fb950;font-weight:500">{{.Available}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
     <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
     <td class="actions-cell">
@@ -772,14 +797,16 @@ const inventoryTmpl = `{{define "content"}}
   {{if .FCs}}
   <div class="table-wrap">
   <table>
-  <thead><tr><th>Brand</th><th>Name</th><th>MCU</th><th>Firmware</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
+  <thead><tr><th>Brand</th><th>Name</th><th>MCU</th><th>Firmware</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .FCs}}
-  <tr class="{{if eq .Status "retired"}}retired{{end}}">
+  <tr>
     <td class="muted">{{dash .Brand}}</td>
     <td>{{.Name}}</td>
     <td class="muted">{{dash .MCU}}</td>
     <td class="muted">{{dash .Firmware}}</td>
+    <td class="muted">{{.Total}}</td>
+    <td class="muted">{{.Installed}}</td>
     <td>{{if gt .Available 0}}<span style="color:#3fb950;font-weight:500">{{.Available}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
     <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
     <td class="actions-cell">
@@ -806,14 +833,16 @@ const inventoryTmpl = `{{define "content"}}
   {{if .ESCs}}
   <div class="table-wrap">
   <table>
-  <thead><tr><th>Brand</th><th>Name</th><th>Current</th><th>Max Cell</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
+  <thead><tr><th>Brand</th><th>Name</th><th>Current</th><th>Max Cell</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .ESCs}}
-  <tr class="{{if eq .Status "retired"}}retired{{end}}">
+  <tr>
     <td class="muted">{{dash .Brand}}</td>
     <td>{{.Name}}</td>
     <td class="muted">{{if .CurrentRating}}{{.CurrentRating}}A{{else}}—{{end}}</td>
     <td class="muted">{{if .CellMax}}{{.CellMax}}S{{else}}—{{end}}</td>
+    <td class="muted">{{.Total}}</td>
+    <td class="muted">{{.Installed}}</td>
     <td>{{if gt .Available 0}}<span style="color:#3fb950;font-weight:500">{{.Available}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
     <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
     <td class="actions-cell">
@@ -840,14 +869,16 @@ const inventoryTmpl = `{{define "content"}}
   {{if .Motors}}
   <div class="table-wrap">
   <table>
-  <thead><tr><th>Brand</th><th>Name</th><th>Stator</th><th>KV</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
+  <thead><tr><th>Brand</th><th>Name</th><th>Stator</th><th>KV</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .Motors}}
-  <tr class="{{if eq .Status "retired"}}retired{{end}}">
+  <tr>
     <td class="muted">{{dash .Brand}}</td>
     <td>{{.Name}}</td>
     <td class="muted">{{dash .StatorSize}}</td>
     <td class="muted">{{if .KV}}{{.KV}}kv{{else}}—{{end}}</td>
+    <td class="muted">{{.Total}}</td>
+    <td class="muted">{{.Installed}}</td>
     <td>{{if gt .Available 0}}<span style="color:#3fb950;font-weight:500">{{.Available}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
     <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
     <td class="actions-cell">
@@ -874,15 +905,17 @@ const inventoryTmpl = `{{define "content"}}
   {{if .VTXs}}
   <div class="table-wrap">
   <table>
-  <thead><tr><th>Brand</th><th>Name</th><th>System</th><th>Max Power</th><th>Resolution</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
+  <thead><tr><th>Brand</th><th>Name</th><th>System</th><th>Max Power</th><th>Resolution</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .VTXs}}
-  <tr class="{{if eq .Status "retired"}}retired{{end}}">
+  <tr>
     <td class="muted">{{dash .Brand}}</td>
     <td>{{.Name}}</td>
     <td class="muted">{{dash .System}}</td>
     <td class="muted">{{if .MaxPowerMW}}{{.MaxPowerMW}}mW{{else}}—{{end}}</td>
     <td class="muted">{{dash .Resolution}}</td>
+    <td class="muted">{{.Total}}</td>
+    <td class="muted">{{.Installed}}</td>
     <td>{{if gt .Available 0}}<span style="color:#3fb950;font-weight:500">{{.Available}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
     <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
     <td class="actions-cell">
@@ -937,9 +970,15 @@ const frameFormTmpl = `{{define "content"}}
       </select>
     </div>
   </div>
-  <div class="form-group">
-    <label>Notes</label>
-    <textarea name="notes">{{.Notes}}</textarea>
+  <div class="form-row">
+    <div class="form-group">
+      <label>Notes</label>
+      <textarea name="notes">{{.Notes}}</textarea>
+    </div>
+    <div class="form-group" style="max-width:100px">
+      <label>Quantity owned</label>
+      <input type="number" name="quantity" value="{{if .Quantity}}{{.Quantity}}{{else}}1{{end}}" min="0">
+    </div>
   </div>
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add Frame{{end}}</button>
@@ -983,9 +1022,15 @@ const fcFormTmpl = `{{define "content"}}
       </select>
     </div>
   </div>
-  <div class="form-group">
-    <label>Notes</label>
-    <textarea name="notes">{{.Notes}}</textarea>
+  <div class="form-row">
+    <div class="form-group">
+      <label>Notes</label>
+      <textarea name="notes">{{.Notes}}</textarea>
+    </div>
+    <div class="form-group" style="max-width:100px">
+      <label>Quantity owned</label>
+      <input type="number" name="quantity" value="{{if .Quantity}}{{.Quantity}}{{else}}1{{end}}" min="0">
+    </div>
   </div>
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add FC{{end}}</button>
@@ -1029,9 +1074,15 @@ const escFormTmpl = `{{define "content"}}
       </select>
     </div>
   </div>
-  <div class="form-group">
-    <label>Notes</label>
-    <textarea name="notes">{{.Notes}}</textarea>
+  <div class="form-row">
+    <div class="form-group">
+      <label>Notes</label>
+      <textarea name="notes">{{.Notes}}</textarea>
+    </div>
+    <div class="form-group" style="max-width:100px">
+      <label>Quantity owned</label>
+      <input type="number" name="quantity" value="{{if .Quantity}}{{.Quantity}}{{else}}1{{end}}" min="0">
+    </div>
   </div>
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add ESC{{end}}</button>
@@ -1067,22 +1118,10 @@ const motorFormTmpl = `{{define "content"}}
       <label>KV</label>
       <input type="number" name="kv" value="{{.KV}}" placeholder="e.g. 3800">
     </div>
-    <div class="form-group">
-      <label>Status</label>
-      <select name="status">
-        <option value="spare"   {{if eq .Status "spare"}}selected{{end}}>spare</option>
-        <option value="retired" {{if eq .Status "retired"}}selected{{end}}>retired</option>
-      </select>
+    <div class="form-group" style="max-width:100px">
+      <label>Quantity owned</label>
+      <input type="number" name="quantity" value="{{if .Quantity}}{{.Quantity}}{{else}}1{{end}}" min="0">
     </div>
-  </div>
-  <div class="form-group">
-    <label>Installed on Drone</label>
-    <select name="drone_id">
-      <option value="">— spare (unassigned) —</option>
-      {{range .Drones}}
-      <option value="{{.ID}}" {{if eq $.DroneID .ID}}selected{{end}}>{{.Label}}</option>
-      {{end}}
-    </select>
   </div>
   <div class="form-group">
     <label>Notes</label>
@@ -1140,9 +1179,15 @@ const vtxFormTmpl = `{{define "content"}}
       </select>
     </div>
   </div>
-  <div class="form-group">
-    <label>Notes</label>
-    <textarea name="notes">{{.Notes}}</textarea>
+  <div class="form-row">
+    <div class="form-group">
+      <label>Notes</label>
+      <textarea name="notes">{{.Notes}}</textarea>
+    </div>
+    <div class="form-group" style="max-width:100px">
+      <label>Quantity owned</label>
+      <input type="number" name="quantity" value="{{if .Quantity}}{{.Quantity}}{{else}}1{{end}}" min="0">
+    </div>
   </div>
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add VTX{{end}}</button>
