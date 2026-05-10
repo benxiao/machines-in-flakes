@@ -3,9 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -30,11 +34,32 @@ func (a *App) droneOptions(r *http.Request) ([]OptionItem, error) {
 	return opts, rows.Err()
 }
 
-func (a *App) frameOptions(r *http.Request, currentID int) ([]OptionItem, error) {
+func (a *App) droneChecks(r *http.Request, sessionID int) ([]DroneCheck, error) {
+	ctx := r.Context()
+	rows, err := a.db.Query(ctx, `
+        SELECT d.id, d.name,
+               EXISTS(SELECT 1 FROM session_drones sd WHERE sd.session_id=$1 AND sd.drone_id=d.id)
+        FROM drones d ORDER BY d.name`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var checks []DroneCheck
+	for rows.Next() {
+		var c DroneCheck
+		if err := rows.Scan(&c.ID, &c.Label, &c.Checked); err != nil {
+			return nil, err
+		}
+		checks = append(checks, c)
+	}
+	return checks, rows.Err()
+}
+
+func (a *App) frameOptions(r *http.Request) ([]OptionItem, error) {
 	ctx := r.Context()
 	rows, err := a.db.Query(ctx,
 		`SELECT id, CASE WHEN brand!='' THEN brand||' '||name ELSE name END
-         FROM frames WHERE status='spare' OR id=$1 ORDER BY brand,name`, currentID)
+         FROM frames ORDER BY brand, name`)
 	if err != nil {
 		return nil, err
 	}
@@ -50,11 +75,11 @@ func (a *App) frameOptions(r *http.Request, currentID int) ([]OptionItem, error)
 	return opts, rows.Err()
 }
 
-func (a *App) fcOptions(r *http.Request, currentID int) ([]OptionItem, error) {
+func (a *App) fcOptions(r *http.Request) ([]OptionItem, error) {
 	ctx := r.Context()
 	rows, err := a.db.Query(ctx,
 		`SELECT id, CASE WHEN brand!='' THEN brand||' '||name ELSE name END
-         FROM flight_controllers WHERE status='spare' OR id=$1 ORDER BY brand,name`, currentID)
+         FROM flight_controllers ORDER BY brand, name`)
 	if err != nil {
 		return nil, err
 	}
@@ -70,11 +95,11 @@ func (a *App) fcOptions(r *http.Request, currentID int) ([]OptionItem, error) {
 	return opts, rows.Err()
 }
 
-func (a *App) escOptions(r *http.Request, currentID int) ([]OptionItem, error) {
+func (a *App) escOptions(r *http.Request) ([]OptionItem, error) {
 	ctx := r.Context()
 	rows, err := a.db.Query(ctx,
 		`SELECT id, CASE WHEN brand!='' THEN brand||' '||name ELSE name END
-         FROM escs WHERE status='spare' OR id=$1 ORDER BY brand,name`, currentID)
+         FROM escs ORDER BY brand, name`)
 	if err != nil {
 		return nil, err
 	}
@@ -90,11 +115,11 @@ func (a *App) escOptions(r *http.Request, currentID int) ([]OptionItem, error) {
 	return opts, rows.Err()
 }
 
-func (a *App) vtxOptions(r *http.Request, currentID int) ([]OptionItem, error) {
+func (a *App) vtxOptions(r *http.Request) ([]OptionItem, error) {
 	ctx := r.Context()
 	rows, err := a.db.Query(ctx,
 		`SELECT id, CASE WHEN brand!='' THEN brand||' '||name ELSE name END
-         FROM vtx_units WHERE status='spare' OR id=$1 ORDER BY brand,name`, currentID)
+         FROM vtx_units ORDER BY brand, name`)
 	if err != nil {
 		return nil, err
 	}
@@ -114,11 +139,12 @@ func (a *App) batteryChecks(r *http.Request, sessionID int) ([]BatteryCheck, err
 	ctx := r.Context()
 	rows, err := a.db.Query(ctx, `
         SELECT b.id,
-               b.name||' ('||b.cell_count||'S '||b.capacity_mah||'mAh, '||b.cycle_count||' cyc)',
+               CASE WHEN b.brand!='' THEN b.brand||' '||b.name ELSE b.name END
+               ||' ('||b.cell_count||'S '||b.capacity_mah||'mAh)',
                EXISTS(SELECT 1 FROM session_batteries sb
                       WHERE sb.session_id=$1 AND sb.battery_id=b.id)
         FROM batteries b WHERE b.status != 'dead'
-        ORDER BY b.name`, sessionID)
+        ORDER BY b.brand, b.name`, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -136,6 +162,23 @@ func (a *App) batteryChecks(r *http.Request, sessionID int) ([]BatteryCheck, err
 
 func sessionBatteryIDs(ctx context.Context, tx pgx.Tx, sessionID int) ([]int, error) {
 	rows, err := tx.Query(ctx, `SELECT battery_id FROM session_batteries WHERE session_id=$1`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []int
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+func sessionDroneIDs(ctx context.Context, tx pgx.Tx, sessionID int) ([]int, error) {
+	rows, err := tx.Query(ctx, `SELECT drone_id FROM session_drones WHERE session_id=$1`, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -188,13 +231,20 @@ func (a *App) handleDrones(w http.ResponseWriter, r *http.Request) {
                COALESCE(CASE WHEN e.brand!='' THEN e.brand||' '||e.name ELSE e.name END,''),
                COALESCE(CASE WHEN v.brand!='' THEN v.brand||' '||v.name ELSE v.name END,''),
                COALESCE(CASE WHEN m.brand!='' THEN m.brand||' '||m.name ELSE m.name END,''),
-               d.motor_count
+               d.motor_count,
+               COALESCE(CASE WHEN b.brand!='' THEN b.brand||' '||b.name ELSE b.name END,''),
+               d.battery_count,
+               COALESCE(CASE WHEN g.brand!='' THEN g.brand||' '||g.name ELSE g.name END,''),
+               COALESCE(CASE WHEN rx.brand!='' THEN rx.brand||' '||rx.name ELSE rx.name END,'')
         FROM drones d
         LEFT JOIN frames f ON f.id=d.frame_id
         LEFT JOIN flight_controllers fc ON fc.id=d.fc_id
         LEFT JOIN escs e ON e.id=d.esc_id
         LEFT JOIN vtx_units v ON v.id=d.vtx_id
         LEFT JOIN motors m ON m.id=d.motor_id
+        LEFT JOIN batteries b ON b.id=d.battery_id
+        LEFT JOIN gps_modules g ON g.id=d.gps_id
+        LEFT JOIN radio_receivers rx ON rx.id=d.rx_id
         ORDER BY d.name`)
 	if err != nil {
 		httpErr(w, err)
@@ -206,7 +256,9 @@ func (a *App) handleDrones(w http.ResponseWriter, r *http.Request) {
 		var d DroneRow
 		var bd *string
 		if err := rows.Scan(&d.ID, &d.Name, &d.Status, &bd,
-			&d.FrameName, &d.FCName, &d.ESCName, &d.VTXName, &d.MotorName, &d.MotorCount); err != nil {
+			&d.FrameName, &d.FCName, &d.ESCName, &d.VTXName,
+			&d.MotorName, &d.MotorCount, &d.BatteryName, &d.BatteryCount,
+			&d.GPSName, &d.RXName); err != nil {
 			httpErr(w, err)
 			return
 		}
@@ -241,12 +293,74 @@ func (a *App) motorOptions(r *http.Request) ([]OptionItem, error) {
 	return opts, rows.Err()
 }
 
+func (a *App) batteryOptions(r *http.Request) ([]OptionItem, error) {
+	ctx := r.Context()
+	rows, err := a.db.Query(ctx,
+		`SELECT id, CASE WHEN brand!='' THEN brand||' '||name||' ('||cell_count||'S '||capacity_mah||'mAh)'
+                         ELSE name||' ('||cell_count||'S '||capacity_mah||'mAh)' END
+         FROM batteries ORDER BY brand, name, cell_count, capacity_mah`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var opts []OptionItem
+	for rows.Next() {
+		var o OptionItem
+		if err := rows.Scan(&o.ID, &o.Label); err != nil {
+			return nil, err
+		}
+		opts = append(opts, o)
+	}
+	return opts, rows.Err()
+}
+
+func (a *App) gpsOptions(r *http.Request) ([]OptionItem, error) {
+	ctx := r.Context()
+	rows, err := a.db.Query(ctx,
+		`SELECT id, CASE WHEN brand!='' THEN brand||' '||name ELSE name END FROM gps_modules ORDER BY brand, name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var opts []OptionItem
+	for rows.Next() {
+		var o OptionItem
+		if err := rows.Scan(&o.ID, &o.Label); err != nil {
+			return nil, err
+		}
+		opts = append(opts, o)
+	}
+	return opts, rows.Err()
+}
+
+func (a *App) rxOptions(r *http.Request) ([]OptionItem, error) {
+	ctx := r.Context()
+	rows, err := a.db.Query(ctx,
+		`SELECT id, CASE WHEN brand!='' THEN brand||' '||name ELSE name END FROM radio_receivers ORDER BY brand, name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var opts []OptionItem
+	for rows.Next() {
+		var o OptionItem
+		if err := rows.Scan(&o.ID, &o.Label); err != nil {
+			return nil, err
+		}
+		opts = append(opts, o)
+	}
+	return opts, rows.Err()
+}
+
 func (a *App) fillDroneFormOptions(r *http.Request, page *DroneFormPage) {
-	page.Frames, _ = a.frameOptions(r, page.FrameID)
-	page.FCs, _ = a.fcOptions(r, page.FCID)
-	page.ESCs, _ = a.escOptions(r, page.ESCID)
-	page.VTXs, _ = a.vtxOptions(r, page.VTXID)
+	page.Frames, _ = a.frameOptions(r)
+	page.FCs, _ = a.fcOptions(r)
+	page.ESCs, _ = a.escOptions(r)
+	page.VTXs, _ = a.vtxOptions(r)
 	page.Motors, _ = a.motorOptions(r)
+	page.Batteries, _ = a.batteryOptions(r)
+	page.GPSs, _ = a.gpsOptions(r)
+	page.RXs, _ = a.rxOptions(r)
 }
 
 func (a *App) handleDroneNew(w http.ResponseWriter, r *http.Request) {
@@ -267,9 +381,13 @@ func (a *App) handleDroneNew(w http.ResponseWriter, r *http.Request) {
 		if mc == 0 {
 			mc = 4
 		}
+		bc, _ := strconv.Atoi(r.FormValue("battery_count"))
+		if bc == 0 {
+			bc = 1
+		}
 		_, err := a.db.Exec(ctx, `
-            INSERT INTO drones (name,frame_id,fc_id,esc_id,vtx_id,motor_id,motor_count,status,build_date,notes)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+            INSERT INTO drones (name,frame_id,fc_id,esc_id,vtx_id,motor_id,motor_count,battery_id,battery_count,gps_id,rx_id,status,build_date,notes)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
 			name,
 			nullIntPtr(r.FormValue("frame_id")),
 			nullIntPtr(r.FormValue("fc_id")),
@@ -277,6 +395,10 @@ func (a *App) handleDroneNew(w http.ResponseWriter, r *http.Request) {
 			nullIntPtr(r.FormValue("vtx_id")),
 			nullIntPtr(r.FormValue("motor_id")),
 			mc,
+			nullIntPtr(r.FormValue("battery_id")),
+			bc,
+			nullIntPtr(r.FormValue("gps_id")),
+			nullIntPtr(r.FormValue("rx_id")),
 			r.FormValue("status"),
 			nullDate(r.FormValue("build_date")),
 			r.FormValue("notes"))
@@ -315,9 +437,14 @@ func (a *App) handleDroneEdit(w http.ResponseWriter, r *http.Request) {
 		if mc == 0 {
 			mc = 4
 		}
+		bc, _ := strconv.Atoi(r.FormValue("battery_count"))
+		if bc == 0 {
+			bc = 1
+		}
 		_, err := a.db.Exec(ctx, `
             UPDATE drones SET name=$1,frame_id=$2,fc_id=$3,esc_id=$4,vtx_id=$5,
-            motor_id=$6,motor_count=$7,status=$8,build_date=$9,notes=$10 WHERE id=$11`,
+            motor_id=$6,motor_count=$7,battery_id=$8,battery_count=$9,
+            gps_id=$10,rx_id=$11,status=$12,build_date=$13,notes=$14 WHERE id=$15`,
 			name,
 			nullIntPtr(r.FormValue("frame_id")),
 			nullIntPtr(r.FormValue("fc_id")),
@@ -325,6 +452,10 @@ func (a *App) handleDroneEdit(w http.ResponseWriter, r *http.Request) {
 			nullIntPtr(r.FormValue("vtx_id")),
 			nullIntPtr(r.FormValue("motor_id")),
 			mc,
+			nullIntPtr(r.FormValue("battery_id")),
+			bc,
+			nullIntPtr(r.FormValue("gps_id")),
+			nullIntPtr(r.FormValue("rx_id")),
 			r.FormValue("status"),
 			nullDate(r.FormValue("build_date")),
 			r.FormValue("notes"), id)
@@ -336,15 +467,17 @@ func (a *App) handleDroneEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var page DroneFormPage
-	var frameID, fcID, escID, vtxID, motorID *int
-	var motorCount int
+	var frameID, fcID, escID, vtxID, motorID, batteryID, gpsID, rxID *int
+	var motorCount, batteryCount int
 	var bd *string
 	err := a.db.QueryRow(ctx, `
-        SELECT id,name,frame_id,fc_id,esc_id,vtx_id,motor_id,motor_count,status,
-               TO_CHAR(build_date,'YYYY-MM-DD'),notes
+        SELECT id,name,frame_id,fc_id,esc_id,vtx_id,motor_id,motor_count,
+               battery_id,battery_count,gps_id,rx_id,
+               status,TO_CHAR(build_date,'YYYY-MM-DD'),notes
         FROM drones WHERE id=$1`, id).Scan(
-		&page.ID, &page.Name, &frameID, &fcID, &escID, &vtxID, &motorID, &motorCount,
-		&page.Status, &bd, &page.Notes)
+		&page.ID, &page.Name, &frameID, &fcID, &escID, &vtxID,
+		&motorID, &motorCount, &batteryID, &batteryCount,
+		&gpsID, &rxID, &page.Status, &bd, &page.Notes)
 	if err == pgx.ErrNoRows {
 		http.NotFound(w, r)
 		return
@@ -368,7 +501,17 @@ func (a *App) handleDroneEdit(w http.ResponseWriter, r *http.Request) {
 	if motorID != nil {
 		page.MotorID = *motorID
 	}
+	if batteryID != nil {
+		page.BatteryID = *batteryID
+	}
+	if gpsID != nil {
+		page.GPSID = *gpsID
+	}
+	if rxID != nil {
+		page.RXID = *rxID
+	}
 	page.MotorCount = strconv.Itoa(motorCount)
+	page.BatteryCount = strconv.Itoa(batteryCount)
 	if bd != nil {
 		page.BuildDate = *bd
 	}
@@ -568,6 +711,68 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 			v.MaxPowerMW = strconv.Itoa(*mw)
 		}
 		page.VTXs = append(page.VTXs, v)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		httpErr(w, err)
+		return
+	}
+
+	rows, err = a.db.Query(ctx, `
+        SELECT g.id, g.brand, g.name,
+               COALESCE(ic.count,0),
+               (SELECT COUNT(*) FROM drones d WHERE d.gps_id=g.id),
+               COALESCE(ic.count,0) - (SELECT COUNT(*) FROM drones d WHERE d.gps_id=g.id),
+               COALESCE(string_agg(d.name,', ' ORDER BY d.name),'')
+        FROM gps_modules g
+        LEFT JOIN item_counts ic ON ic.item_type='gps' AND ic.item_id=g.id
+        LEFT JOIN drones d ON d.gps_id=g.id
+        GROUP BY g.id, g.brand, g.name, ic.count
+        ORDER BY g.brand, g.name`)
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	for rows.Next() {
+		var g GPSRow
+		if err := rows.Scan(&g.ID, &g.Brand, &g.Name,
+			&g.Total, &g.Installed, &g.Available, &g.InstalledOn); err != nil {
+			rows.Close()
+			httpErr(w, err)
+			return
+		}
+		page.GPSs = append(page.GPSs, g)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		httpErr(w, err)
+		return
+	}
+
+	rows, err = a.db.Query(ctx, `
+        SELECT rx.id, rx.brand, rx.name, rx.protocol,
+               COALESCE(ic.count,0),
+               (SELECT COUNT(*) FROM drones d WHERE d.rx_id=rx.id),
+               COALESCE(ic.count,0) - (SELECT COUNT(*) FROM drones d WHERE d.rx_id=rx.id),
+               COALESCE(string_agg(d.name,', ' ORDER BY d.name),'')
+        FROM radio_receivers rx
+        LEFT JOIN item_counts ic ON ic.item_type='rx' AND ic.item_id=rx.id
+        LEFT JOIN drones d ON d.rx_id=rx.id
+        GROUP BY rx.id, rx.brand, rx.name, rx.protocol, ic.count
+        ORDER BY rx.brand, rx.name`)
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	for rows.Next() {
+		var rx RXRow
+		if err := rows.Scan(&rx.ID, &rx.Brand, &rx.Name, &rx.Protocol,
+			&rx.Total, &rx.Installed, &rx.Available, &rx.InstalledOn); err != nil {
+			rows.Close()
+			httpErr(w, err)
+			return
+		}
+		page.RXs = append(page.RXs, rx)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
@@ -1253,11 +1458,15 @@ func (a *App) handlePropDelete(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleBatteries(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	rows, err := a.db.Query(ctx, `
-        SELECT b.id, b.name, b.brand, b.cell_count, b.capacity_mah,
-               b.cycle_count, b.internal_resistance,
-               TO_CHAR(b.purchase_date,'YYYY-MM-DD'), COALESCE(d.name,''), b.status
-        FROM batteries b LEFT JOIN drones d ON d.id=b.drone_id
-        ORDER BY b.name`)
+        SELECT b.id, b.brand, b.name, b.cell_count, b.capacity_mah, b.status,
+               b.count,
+               COALESCE((SELECT SUM(d.battery_count) FROM drones d WHERE d.battery_id=b.id),0),
+               b.count - COALESCE((SELECT SUM(d.battery_count) FROM drones d WHERE d.battery_id=b.id),0),
+               COALESCE(string_agg(d.name||' (×'||d.battery_count||')',', ' ORDER BY d.name),'')
+        FROM batteries b
+        LEFT JOIN drones d ON d.battery_id=b.id
+        GROUP BY b.id, b.brand, b.name, b.cell_count, b.capacity_mah, b.status, b.count
+        ORDER BY b.brand, b.name, b.cell_count, b.capacity_mah`)
 	if err != nil {
 		httpErr(w, err)
 		return
@@ -1266,18 +1475,10 @@ func (a *App) handleBatteries(w http.ResponseWriter, r *http.Request) {
 	var bats []BatteryRow
 	for rows.Next() {
 		var b BatteryRow
-		var ir *int
-		var pd *string
-		if err := rows.Scan(&b.ID, &b.Name, &b.Brand, &b.CellCount, &b.CapacityMAh,
-			&b.CycleCount, &ir, &pd, &b.DroneName, &b.Status); err != nil {
+		if err := rows.Scan(&b.ID, &b.Brand, &b.Name, &b.CellCount, &b.CapacityMAh,
+			&b.Status, &b.Total, &b.Installed, &b.Available, &b.InstalledOn); err != nil {
 			httpErr(w, err)
 			return
-		}
-		if ir != nil {
-			b.InternalResistance = strconv.Itoa(*ir)
-		}
-		if pd != nil {
-			b.PurchaseDate = *pd
 		}
 		bats = append(bats, b)
 	}
@@ -1299,20 +1500,19 @@ func (a *App) handleBatteryNew(w http.ResponseWriter, r *http.Request) {
 		cc, _ := strconv.Atoi(r.FormValue("cell_count"))
 		cap, _ := strconv.Atoi(r.FormValue("capacity_mah"))
 		if name == "" || cc == 0 || cap == 0 {
-			page := BatteryFormPage{ActiveTab: "batteries",
-				Error: "Name, cell count, and capacity are required", Status: "good"}
-			page.Drones, _ = a.droneOptions(r)
-			render(w, "battery-form", page)
+			render(w, "battery-form", BatteryFormPage{ActiveTab: "batteries",
+				Error: "Name, cell count, and capacity are required", Status: "good"})
 			return
 		}
-		cycles, _ := strconv.Atoi(r.FormValue("cycle_count"))
+		qty, _ := strconv.Atoi(r.FormValue("quantity"))
+		if qty == 0 {
+			qty = 1
+		}
 		_, err := a.db.Exec(ctx,
-			`INSERT INTO batteries (name,brand,cell_count,capacity_mah,cycle_count,
-             internal_resistance,purchase_date,drone_id,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-			name, r.FormValue("brand"), cc, cap, cycles,
-			nullIntPtr(r.FormValue("internal_resistance")),
-			nullDate(r.FormValue("purchase_date")),
-			nullIntPtr(r.FormValue("drone_id")), r.FormValue("status"))
+			`INSERT INTO batteries (brand,name,cell_count,capacity_mah,count,status,notes)
+             VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+			r.FormValue("brand"), name, cc, cap, qty,
+			r.FormValue("status"), r.FormValue("notes"))
 		if err != nil {
 			httpErr(w, err)
 			return
@@ -1320,9 +1520,7 @@ func (a *App) handleBatteryNew(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/batteries", http.StatusSeeOther)
 		return
 	}
-	page := BatteryFormPage{ActiveTab: "batteries", Status: "good"}
-	page.Drones, _ = a.droneOptions(r)
-	render(w, "battery-form", page)
+	render(w, "battery-form", BatteryFormPage{ActiveTab: "batteries", Status: "good"})
 }
 
 func (a *App) handleBatteryEdit(w http.ResponseWriter, r *http.Request) {
@@ -1341,20 +1539,17 @@ func (a *App) handleBatteryEdit(w http.ResponseWriter, r *http.Request) {
 		cc, _ := strconv.Atoi(r.FormValue("cell_count"))
 		cap, _ := strconv.Atoi(r.FormValue("capacity_mah"))
 		if name == "" || cc == 0 || cap == 0 {
-			page := BatteryFormPage{ActiveTab: "batteries",
-				Error: "Name, cell count, and capacity are required", ID: id, Status: "good"}
-			page.Drones, _ = a.droneOptions(r)
-			render(w, "battery-form", page)
+			render(w, "battery-form", BatteryFormPage{ActiveTab: "batteries",
+				Error: "Name, cell count, and capacity are required", ID: id, Status: "good"})
 			return
 		}
-		cycles, _ := strconv.Atoi(r.FormValue("cycle_count"))
+		qty, _ := strconv.Atoi(r.FormValue("quantity"))
+		if qty == 0 {
+			qty = 1
+		}
 		_, err := a.db.Exec(ctx,
-			`UPDATE batteries SET name=$1,brand=$2,cell_count=$3,capacity_mah=$4,cycle_count=$5,
-             internal_resistance=$6,purchase_date=$7,drone_id=$8,status=$9 WHERE id=$10`,
-			name, r.FormValue("brand"), cc, cap, cycles,
-			nullIntPtr(r.FormValue("internal_resistance")),
-			nullDate(r.FormValue("purchase_date")),
-			nullIntPtr(r.FormValue("drone_id")), r.FormValue("status"), id)
+			`UPDATE batteries SET brand=$1,name=$2,cell_count=$3,capacity_mah=$4,count=$5,status=$6,notes=$7 WHERE id=$8`,
+			r.FormValue("brand"), name, cc, cap, qty, r.FormValue("status"), r.FormValue("notes"), id)
 		if err != nil {
 			httpErr(w, err)
 			return
@@ -1363,18 +1558,10 @@ func (a *App) handleBatteryEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var page BatteryFormPage
-	var ir *int
-	var pd *string
-	var droneID *int
-	var cellCount, capMAh, cycleCount int
+	var cellCount, capMAh, qty int
 	err := a.db.QueryRow(ctx,
-		`SELECT id,name,brand,cell_count,capacity_mah,cycle_count,internal_resistance,
-         TO_CHAR(purchase_date,'YYYY-MM-DD'),drone_id,status FROM batteries WHERE id=$1`, id).
-		Scan(&page.ID, &page.Name, &page.Brand, &cellCount, &capMAh,
-			&cycleCount, &ir, &pd, &droneID, &page.Status)
-	page.CellCount = strconv.Itoa(cellCount)
-	page.CapacityMAh = strconv.Itoa(capMAh)
-	page.CycleCount = strconv.Itoa(cycleCount)
+		`SELECT id,brand,name,cell_count,capacity_mah,count,status,notes FROM batteries WHERE id=$1`, id).
+		Scan(&page.ID, &page.Brand, &page.Name, &cellCount, &capMAh, &qty, &page.Status, &page.Notes)
 	if err == pgx.ErrNoRows {
 		http.NotFound(w, r)
 		return
@@ -1383,17 +1570,10 @@ func (a *App) handleBatteryEdit(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, err)
 		return
 	}
-	if ir != nil {
-		page.InternalResistance = strconv.Itoa(*ir)
-	}
-	if pd != nil {
-		page.PurchaseDate = *pd
-	}
-	if droneID != nil {
-		page.DroneID = *droneID
-	}
+	page.CellCount = strconv.Itoa(cellCount)
+	page.CapacityMAh = strconv.Itoa(capMAh)
+	page.Quantity = strconv.Itoa(qty)
 	page.ActiveTab = "batteries"
-	page.Drones, _ = a.droneOptions(r)
 	render(w, "battery-form", page)
 }
 
@@ -1407,122 +1587,20 @@ func (a *App) handleBatteryDelete(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/batteries", http.StatusSeeOther)
 }
 
-// ---- Spare Parts ----
-
-func (a *App) handleParts(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	rows, err := a.db.Query(ctx,
-		`SELECT id,category,name,quantity,reorder_threshold,unit_price_cents FROM spare_parts ORDER BY category,name`)
-	if err != nil {
-		httpErr(w, err)
-		return
-	}
-	defer rows.Close()
-	var parts []PartRow
-	for rows.Next() {
-		var p PartRow
-		var cents int
-		if err := rows.Scan(&p.ID, &p.Category, &p.Name, &p.Quantity, &p.ReorderThreshold, &cents); err != nil {
-			httpErr(w, err)
-			return
-		}
-		p.UnitPrice = fmt.Sprintf("$%.2f", float64(cents)/100)
-		p.LowStock = p.ReorderThreshold > 0 && p.Quantity <= p.ReorderThreshold
-		parts = append(parts, p)
-	}
-	if err := rows.Err(); err != nil {
-		httpErr(w, err)
-		return
-	}
-	render(w, "parts-list", PartsListPage{ActiveTab: "parts", Parts: parts})
-}
-
-func (a *App) handlePartNew(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	if r.Method == http.MethodPost {
-		if err := r.ParseForm(); err != nil {
-			httpErr(w, err)
-			return
-		}
-		name := strings.TrimSpace(r.FormValue("name"))
-		cat := r.FormValue("category")
-		if name == "" {
-			render(w, "part-form", PartFormPage{ActiveTab: "parts", Error: "Name is required", Category: cat})
-			return
-		}
-		qty, _ := strconv.Atoi(r.FormValue("quantity"))
-		rt, _ := strconv.Atoi(r.FormValue("reorder_threshold"))
-		_, err := a.db.Exec(ctx,
-			`INSERT INTO spare_parts (category,name,quantity,reorder_threshold,unit_price_cents) VALUES ($1,$2,$3,$4,$5)`,
-			cat, name, qty, rt, parsePrice(r.FormValue("unit_price")))
-		if err != nil {
-			httpErr(w, err)
-			return
-		}
-		http.Redirect(w, r, "/parts", http.StatusSeeOther)
-		return
-	}
-	render(w, "part-form", PartFormPage{ActiveTab: "parts", Category: "antennas"})
-}
-
-func (a *App) handlePartEdit(w http.ResponseWriter, r *http.Request) {
+func (a *App) handleBatteryAdjust(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id, ok := parseID(r)
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-	if r.Method == http.MethodPost {
-		if err := r.ParseForm(); err != nil {
-			httpErr(w, err)
-			return
-		}
-		name := strings.TrimSpace(r.FormValue("name"))
-		cat := r.FormValue("category")
-		if name == "" {
-			render(w, "part-form", PartFormPage{ActiveTab: "parts", Error: "Name is required", ID: id, Category: cat})
-			return
-		}
-		qty, _ := strconv.Atoi(r.FormValue("quantity"))
-		rt, _ := strconv.Atoi(r.FormValue("reorder_threshold"))
-		_, err := a.db.Exec(ctx,
-			`UPDATE spare_parts SET category=$1,name=$2,quantity=$3,reorder_threshold=$4,unit_price_cents=$5 WHERE id=$6`,
-			cat, name, qty, rt, parsePrice(r.FormValue("unit_price")), id)
-		if err != nil {
-			httpErr(w, err)
-			return
-		}
-		http.Redirect(w, r, "/parts", http.StatusSeeOther)
-		return
-	}
-	var page PartFormPage
-	var cents, qty, rt int
-	err := a.db.QueryRow(ctx,
-		`SELECT id,category,name,quantity,reorder_threshold,unit_price_cents FROM spare_parts WHERE id=$1`, id).
-		Scan(&page.ID, &page.Category, &page.Name, &qty, &rt, &cents)
-	page.Quantity = strconv.Itoa(qty)
-	page.ReorderThreshold = strconv.Itoa(rt)
-	if err == pgx.ErrNoRows {
-		http.NotFound(w, r)
-		return
-	}
-	if err != nil {
-		httpErr(w, err)
-		return
-	}
-	page.UnitPrice = fmt.Sprintf("%.2f", float64(cents)/100)
-	page.ActiveTab = "parts"
-	render(w, "part-form", page)
-}
-
-func (a *App) handlePartDelete(w http.ResponseWriter, r *http.Request) {
-	id, ok := parseID(r)
+	n, ok := adjustCount(r)
 	if !ok {
-		http.NotFound(w, r)
+		http.Redirect(w, r, "/batteries", http.StatusSeeOther)
 		return
 	}
-	a.db.Exec(r.Context(), `DELETE FROM spare_parts WHERE id=$1`, id)
-	http.Redirect(w, r, "/parts", http.StatusSeeOther)
+	a.db.Exec(ctx, `UPDATE batteries SET count=GREATEST(0,count+$1) WHERE id=$2`, n, id)
+	http.Redirect(w, r, "/batteries", http.StatusSeeOther)
 }
 
 // ---- Sessions / Log ----
@@ -1530,15 +1608,16 @@ func (a *App) handlePartDelete(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleLog(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	rows, err := a.db.Query(ctx, `
-        SELECT s.id, d.name, s.type,
+        SELECT s.id, s.type,
                TO_CHAR(s.session_date,'YYYY-MM-DD'),
                s.duration_min, s.location, s.notes,
-               COALESCE(string_agg(b.name||' ('||b.cell_count||'S)', ', ' ORDER BY b.name),'')
+               COALESCE((SELECT string_agg(d.name,', ' ORDER BY d.name)
+                         FROM session_drones sd JOIN drones d ON d.id=sd.drone_id
+                         WHERE sd.session_id=s.id),''),
+               COALESCE((SELECT string_agg(b.name||' ('||b.cell_count||'S)',', ' ORDER BY b.name)
+                         FROM session_batteries sb JOIN batteries b ON b.id=sb.battery_id
+                         WHERE sb.session_id=s.id),'')
         FROM sessions s
-        JOIN drones d ON d.id=s.drone_id
-        LEFT JOIN session_batteries sb ON sb.session_id=s.id
-        LEFT JOIN batteries b ON b.id=sb.battery_id
-        GROUP BY s.id, d.name, s.type, s.session_date, s.duration_min, s.location, s.notes, s.created_at
         ORDER BY s.session_date DESC, s.created_at DESC`)
 	if err != nil {
 		httpErr(w, err)
@@ -1548,8 +1627,8 @@ func (a *App) handleLog(w http.ResponseWriter, r *http.Request) {
 	var sessions []SessionRow
 	for rows.Next() {
 		var s SessionRow
-		if err := rows.Scan(&s.ID, &s.DroneName, &s.Type, &s.SessionDate,
-			&s.DurationMin, &s.Location, &s.Notes, &s.BatteryList); err != nil {
+		if err := rows.Scan(&s.ID, &s.Type, &s.SessionDate,
+			&s.DurationMin, &s.Location, &s.Notes, &s.DroneNames, &s.BatteryList); err != nil {
 			httpErr(w, err)
 			return
 		}
@@ -1569,16 +1648,15 @@ func (a *App) handleSessionNew(w http.ResponseWriter, r *http.Request) {
 			httpErr(w, err)
 			return
 		}
-		droneID, err := strconv.Atoi(r.FormValue("drone_id"))
-		if err != nil || droneID == 0 {
-			page := SessionFormPage{ActiveTab: "log", Error: "Select a drone", Type: "flight"}
-			page.Drones, _ = a.droneOptions(r)
+		droneIDs := parseIntList(r.Form["drone_ids"])
+		if len(droneIDs) == 0 {
+			page := SessionFormPage{ActiveTab: "log", Error: "Select at least one drone", Type: "flight"}
+			page.Drones, _ = a.droneChecks(r, 0)
 			page.Batteries, _ = a.batteryChecks(r, 0)
 			render(w, "session-form", page)
 			return
 		}
 		dur, _ := strconv.Atoi(r.FormValue("duration_min"))
-		sd := r.FormValue("session_date")
 
 		tx, err := a.db.Begin(ctx)
 		if err != nil {
@@ -1589,13 +1667,16 @@ func (a *App) handleSessionNew(w http.ResponseWriter, r *http.Request) {
 
 		var sessionID int
 		err = tx.QueryRow(ctx,
-			`INSERT INTO sessions (drone_id,type,session_date,duration_min,location,notes)
-             VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-			droneID, r.FormValue("type"), nullDate(sd), dur,
+			`INSERT INTO sessions (type,session_date,duration_min,location,notes)
+             VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+			r.FormValue("type"), nullDate(r.FormValue("session_date")), dur,
 			r.FormValue("location"), r.FormValue("notes")).Scan(&sessionID)
 		if err != nil {
 			httpErr(w, err)
 			return
+		}
+		for _, did := range droneIDs {
+			tx.Exec(ctx, `INSERT INTO session_drones (session_id,drone_id) VALUES ($1,$2)`, sessionID, did)
 		}
 		for _, batIDStr := range r.Form["battery_ids"] {
 			batID, err := strconv.Atoi(batIDStr)
@@ -1603,7 +1684,6 @@ func (a *App) handleSessionNew(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			tx.Exec(ctx, `INSERT INTO session_batteries (session_id,battery_id) VALUES ($1,$2)`, sessionID, batID)
-			tx.Exec(ctx, `UPDATE batteries SET cycle_count=cycle_count+1 WHERE id=$1`, batID)
 		}
 		if err := tx.Commit(ctx); err != nil {
 			httpErr(w, err)
@@ -1613,7 +1693,7 @@ func (a *App) handleSessionNew(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page := SessionFormPage{ActiveTab: "log", Type: "flight"}
-	page.Drones, _ = a.droneOptions(r)
+	page.Drones, _ = a.droneChecks(r, 0)
 	page.Batteries, _ = a.batteryChecks(r, 0)
 	render(w, "session-form", page)
 }
@@ -1627,11 +1707,14 @@ func (a *App) handleSessionDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	var page SessionDetailPage
 	err := a.db.QueryRow(ctx, `
-        SELECT s.id, d.name, s.type, TO_CHAR(s.session_date,'YYYY-MM-DD'),
-               s.duration_min, s.location, s.notes
-        FROM sessions s JOIN drones d ON d.id=s.drone_id WHERE s.id=$1`, id).
-		Scan(&page.ID, &page.DroneName, &page.Type, &page.Date,
-			&page.Duration, &page.Location, &page.Notes)
+        SELECT s.id, s.type, TO_CHAR(s.session_date,'YYYY-MM-DD'),
+               s.duration_min, s.location, s.notes,
+               COALESCE((SELECT string_agg(d.name,', ' ORDER BY d.name)
+                         FROM session_drones sd JOIN drones d ON d.id=sd.drone_id
+                         WHERE sd.session_id=s.id),'')
+        FROM sessions s WHERE s.id=$1`, id).
+		Scan(&page.ID, &page.Type, &page.Date,
+			&page.Duration, &page.Location, &page.Notes, &page.DroneNames)
 	if err == pgx.ErrNoRows {
 		http.NotFound(w, r)
 		return
@@ -1641,22 +1724,43 @@ func (a *App) handleSessionDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := a.db.Query(ctx, `
-        SELECT b.id, b.name, b.brand, b.cell_count, b.capacity_mah, b.cycle_count, b.status
+        SELECT b.id, b.brand, b.name, b.cell_count, b.capacity_mah, b.status
         FROM batteries b JOIN session_batteries sb ON sb.battery_id=b.id
-        WHERE sb.session_id=$1 ORDER BY b.name`, id)
+        WHERE sb.session_id=$1 ORDER BY b.brand, b.name`, id)
 	if err != nil {
 		httpErr(w, err)
 		return
 	}
-	defer rows.Close()
 	for rows.Next() {
 		var b BatteryRow
-		if err := rows.Scan(&b.ID, &b.Name, &b.Brand, &b.CellCount, &b.CapacityMAh, &b.CycleCount, &b.Status); err != nil {
+		if err := rows.Scan(&b.ID, &b.Brand, &b.Name, &b.CellCount, &b.CapacityMAh, &b.Status); err != nil {
+			rows.Close()
 			httpErr(w, err)
 			return
 		}
 		page.Batteries = append(page.Batteries, b)
 	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		httpErr(w, err)
+		return
+	}
+	rows, err = a.db.Query(ctx,
+		`SELECT id, original_name FROM session_videos WHERE session_id=$1 ORDER BY created_at`, id)
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	for rows.Next() {
+		var v VideoRow
+		if err := rows.Scan(&v.ID, &v.OriginalName); err != nil {
+			rows.Close()
+			httpErr(w, err)
+			return
+		}
+		page.Videos = append(page.Videos, v)
+	}
+	rows.Close()
 	if err := rows.Err(); err != nil {
 		httpErr(w, err)
 		return
@@ -1677,10 +1781,10 @@ func (a *App) handleSessionEdit(w http.ResponseWriter, r *http.Request) {
 			httpErr(w, err)
 			return
 		}
-		droneID, err := strconv.Atoi(r.FormValue("drone_id"))
-		if err != nil || droneID == 0 {
-			page := SessionFormPage{ActiveTab: "log", Error: "Select a drone", ID: id}
-			page.Drones, _ = a.droneOptions(r)
+		droneIDs := parseIntList(r.Form["drone_ids"])
+		if len(droneIDs) == 0 {
+			page := SessionFormPage{ActiveTab: "log", Error: "Select at least one drone", ID: id}
+			page.Drones, _ = a.droneChecks(r, id)
 			page.Batteries, _ = a.batteryChecks(r, id)
 			render(w, "session-form", page)
 			return
@@ -1695,27 +1799,17 @@ func (a *App) handleSessionEdit(w http.ResponseWriter, r *http.Request) {
 		}
 		defer tx.Rollback(ctx)
 
-		oldBatIDs, err := sessionBatteryIDs(ctx, tx, id)
-		if err != nil {
-			httpErr(w, err)
-			return
+		tx.Exec(ctx, `DELETE FROM session_drones WHERE session_id=$1`, id)
+		for _, did := range droneIDs {
+			tx.Exec(ctx, `INSERT INTO session_drones (session_id,drone_id) VALUES ($1,$2)`, id, did)
 		}
-
-		for _, bid := range setDiff(newBatIDs, oldBatIDs) {
-			tx.Exec(ctx, `UPDATE batteries SET cycle_count=cycle_count+1 WHERE id=$1`, bid)
-		}
-		for _, bid := range setDiff(oldBatIDs, newBatIDs) {
-			tx.Exec(ctx, `UPDATE batteries SET cycle_count=GREATEST(0,cycle_count-1) WHERE id=$1`, bid)
-		}
-
 		tx.Exec(ctx, `DELETE FROM session_batteries WHERE session_id=$1`, id)
 		for _, bid := range newBatIDs {
 			tx.Exec(ctx, `INSERT INTO session_batteries (session_id,battery_id) VALUES ($1,$2)`, id, bid)
 		}
-
 		_, err = tx.Exec(ctx,
-			`UPDATE sessions SET drone_id=$1,type=$2,session_date=$3,duration_min=$4,location=$5,notes=$6 WHERE id=$7`,
-			droneID, r.FormValue("type"), nullDate(r.FormValue("session_date")), dur,
+			`UPDATE sessions SET type=$1,session_date=$2,duration_min=$3,location=$4,notes=$5 WHERE id=$6`,
+			r.FormValue("type"), nullDate(r.FormValue("session_date")), dur,
 			r.FormValue("location"), r.FormValue("notes"), id)
 		if err != nil {
 			httpErr(w, err)
@@ -1729,11 +1823,10 @@ func (a *App) handleSessionEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var page SessionFormPage
-	var droneID, dur int
+	var dur int
 	err := a.db.QueryRow(ctx,
-		`SELECT id,drone_id,type,TO_CHAR(session_date,'YYYY-MM-DD'),duration_min,location,notes FROM sessions WHERE id=$1`, id).
-		Scan(&page.ID, &droneID, &page.Type, &page.SessionDate, &dur, &page.Location, &page.Notes)
-	page.DurationMin = strconv.Itoa(dur)
+		`SELECT id,type,TO_CHAR(session_date,'YYYY-MM-DD'),duration_min,location,notes FROM sessions WHERE id=$1`, id).
+		Scan(&page.ID, &page.Type, &page.SessionDate, &dur, &page.Location, &page.Notes)
 	if err == pgx.ErrNoRows {
 		http.NotFound(w, r)
 		return
@@ -1742,9 +1835,9 @@ func (a *App) handleSessionEdit(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, err)
 		return
 	}
-	page.DroneID = droneID
+	page.DurationMin = strconv.Itoa(dur)
 	page.ActiveTab = "log"
-	page.Drones, _ = a.droneOptions(r)
+	page.Drones, _ = a.droneChecks(r, id)
 	page.Batteries, _ = a.batteryChecks(r, id)
 	render(w, "session-form", page)
 }
@@ -1763,16 +1856,201 @@ func (a *App) handleSessionDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(ctx)
 
-	tx.Exec(ctx,
-		`UPDATE batteries SET cycle_count=GREATEST(0,cycle_count-1)
-         WHERE id IN (SELECT battery_id FROM session_batteries WHERE session_id=$1)`, id)
-	tx.Exec(ctx, `DELETE FROM sessions WHERE id=$1`, id)
-
+	if _, err := tx.Exec(ctx, `DELETE FROM sessions WHERE id=$1`, id); err != nil {
+		httpErr(w, err)
+		return
+	}
 	if err := tx.Commit(ctx); err != nil {
 		httpErr(w, err)
 		return
 	}
 	http.Redirect(w, r, "/log", http.StatusSeeOther)
+}
+
+// ---- GPS Modules ----
+
+func (a *App) handleGPSNew(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if r.Method == http.MethodPost {
+		if err := r.ParseForm(); err != nil {
+			httpErr(w, err)
+			return
+		}
+		name := strings.TrimSpace(r.FormValue("name"))
+		if name == "" {
+			render(w, "gps-form", GPSFormPage{ActiveTab: "inventory", Error: "Name is required"})
+			return
+		}
+		qty, _ := strconv.Atoi(r.FormValue("quantity"))
+		var id int
+		err := a.db.QueryRow(ctx,
+			`INSERT INTO gps_modules (brand,name,notes) VALUES ($1,$2,$3) RETURNING id`,
+			r.FormValue("brand"), name, r.FormValue("notes")).Scan(&id)
+		if err != nil {
+			httpErr(w, err)
+			return
+		}
+		a.db.Exec(ctx, `INSERT INTO item_counts (item_type,item_id,count) VALUES ('gps',$1,$2)`, id, qty)
+		http.Redirect(w, r, "/inventory", http.StatusSeeOther)
+		return
+	}
+	render(w, "gps-form", GPSFormPage{ActiveTab: "inventory"})
+}
+
+func (a *App) handleGPSEdit(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method == http.MethodPost {
+		if err := r.ParseForm(); err != nil {
+			httpErr(w, err)
+			return
+		}
+		name := strings.TrimSpace(r.FormValue("name"))
+		if name == "" {
+			render(w, "gps-form", GPSFormPage{ActiveTab: "inventory", Error: "Name is required", ID: id})
+			return
+		}
+		qty, _ := strconv.Atoi(r.FormValue("quantity"))
+		_, err := a.db.Exec(ctx,
+			`UPDATE gps_modules SET brand=$1,name=$2,notes=$3 WHERE id=$4`,
+			r.FormValue("brand"), name, r.FormValue("notes"), id)
+		if err != nil {
+			httpErr(w, err)
+			return
+		}
+		a.db.Exec(ctx,
+			`INSERT INTO item_counts (item_type,item_id,count) VALUES ('gps',$1,$2)
+             ON CONFLICT (item_type,item_id) DO UPDATE SET count=$2`, id, qty)
+		http.Redirect(w, r, "/inventory", http.StatusSeeOther)
+		return
+	}
+	var page GPSFormPage
+	var qty int
+	err := a.db.QueryRow(ctx,
+		`SELECT g.id,g.brand,g.name,g.notes,COALESCE(ic.count,0)
+         FROM gps_modules g LEFT JOIN item_counts ic ON ic.item_type='gps' AND ic.item_id=g.id
+         WHERE g.id=$1`, id).
+		Scan(&page.ID, &page.Brand, &page.Name, &page.Notes, &qty)
+	if err == pgx.ErrNoRows {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	page.Quantity = strconv.Itoa(qty)
+	page.ActiveTab = "inventory"
+	render(w, "gps-form", page)
+}
+
+func (a *App) handleGPSDelete(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	a.db.Exec(ctx, `DELETE FROM item_counts WHERE item_type='gps' AND item_id=$1`, id)
+	a.db.Exec(ctx, `DELETE FROM gps_modules WHERE id=$1`, id)
+	http.Redirect(w, r, "/inventory", http.StatusSeeOther)
+}
+
+// ---- Radio Receivers ----
+
+func (a *App) handleRXNew(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if r.Method == http.MethodPost {
+		if err := r.ParseForm(); err != nil {
+			httpErr(w, err)
+			return
+		}
+		name := strings.TrimSpace(r.FormValue("name"))
+		if name == "" {
+			render(w, "rx-form", RXFormPage{ActiveTab: "inventory", Error: "Name is required"})
+			return
+		}
+		qty, _ := strconv.Atoi(r.FormValue("quantity"))
+		var id int
+		err := a.db.QueryRow(ctx,
+			`INSERT INTO radio_receivers (brand,name,protocol,notes) VALUES ($1,$2,$3,$4) RETURNING id`,
+			r.FormValue("brand"), name, r.FormValue("protocol"), r.FormValue("notes")).Scan(&id)
+		if err != nil {
+			httpErr(w, err)
+			return
+		}
+		a.db.Exec(ctx, `INSERT INTO item_counts (item_type,item_id,count) VALUES ('rx',$1,$2)`, id, qty)
+		http.Redirect(w, r, "/inventory", http.StatusSeeOther)
+		return
+	}
+	render(w, "rx-form", RXFormPage{ActiveTab: "inventory"})
+}
+
+func (a *App) handleRXEdit(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method == http.MethodPost {
+		if err := r.ParseForm(); err != nil {
+			httpErr(w, err)
+			return
+		}
+		name := strings.TrimSpace(r.FormValue("name"))
+		if name == "" {
+			render(w, "rx-form", RXFormPage{ActiveTab: "inventory", Error: "Name is required", ID: id})
+			return
+		}
+		qty, _ := strconv.Atoi(r.FormValue("quantity"))
+		_, err := a.db.Exec(ctx,
+			`UPDATE radio_receivers SET brand=$1,name=$2,protocol=$3,notes=$4 WHERE id=$5`,
+			r.FormValue("brand"), name, r.FormValue("protocol"), r.FormValue("notes"), id)
+		if err != nil {
+			httpErr(w, err)
+			return
+		}
+		a.db.Exec(ctx,
+			`INSERT INTO item_counts (item_type,item_id,count) VALUES ('rx',$1,$2)
+             ON CONFLICT (item_type,item_id) DO UPDATE SET count=$2`, id, qty)
+		http.Redirect(w, r, "/inventory", http.StatusSeeOther)
+		return
+	}
+	var page RXFormPage
+	var qty int
+	err := a.db.QueryRow(ctx,
+		`SELECT rx.id,rx.brand,rx.name,rx.protocol,rx.notes,COALESCE(ic.count,0)
+         FROM radio_receivers rx LEFT JOIN item_counts ic ON ic.item_type='rx' AND ic.item_id=rx.id
+         WHERE rx.id=$1`, id).
+		Scan(&page.ID, &page.Brand, &page.Name, &page.Protocol, &page.Notes, &qty)
+	if err == pgx.ErrNoRows {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	page.Quantity = strconv.Itoa(qty)
+	page.ActiveTab = "inventory"
+	render(w, "rx-form", page)
+}
+
+func (a *App) handleRXDelete(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	a.db.Exec(ctx, `DELETE FROM item_counts WHERE item_type='rx' AND item_id=$1`, id)
+	a.db.Exec(ctx, `DELETE FROM radio_receivers WHERE id=$1`, id)
+	http.Redirect(w, r, "/inventory", http.StatusSeeOther)
 }
 
 // ---- Adjust handlers — update item_counts.count by delta ----
@@ -1822,4 +2100,92 @@ func (a *App) handleMotorAdjust(w http.ResponseWriter, r *http.Request) {
 }
 func (a *App) handleVTXAdjust(w http.ResponseWriter, r *http.Request) {
 	a.adjustItemCount(w, r, "vtx")
+}
+func (a *App) handleGPSAdjust(w http.ResponseWriter, r *http.Request) {
+	a.adjustItemCount(w, r, "gps")
+}
+func (a *App) handleRXAdjust(w http.ResponseWriter, r *http.Request) {
+	a.adjustItemCount(w, r, "rx")
+}
+
+// ---- Videos ----
+
+func (a *App) handleVideoUpload(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	ctx := r.Context()
+	if err := r.ParseMultipartForm(4 << 30); err != nil {
+		httpErr(w, err)
+		return
+	}
+	file, header, err := r.FormFile("video")
+	if err != nil {
+		http.Redirect(w, r, fmt.Sprintf("/log/%d", id), http.StatusSeeOther)
+		return
+	}
+	defer file.Close()
+
+	ext := filepath.Ext(header.Filename)
+	filename := fmt.Sprintf("%d%s", time.Now().UnixNano(), ext)
+	dst := filepath.Join(a.videoDir, filename)
+	out, err := os.Create(dst)
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	if _, err := io.Copy(out, file); err != nil {
+		out.Close()
+		os.Remove(dst)
+		httpErr(w, err)
+		return
+	}
+	out.Close()
+
+	_, err = a.db.Exec(ctx,
+		`INSERT INTO session_videos (session_id,filename,original_name) VALUES ($1,$2,$3)`,
+		id, filename, header.Filename)
+	if err != nil {
+		os.Remove(dst)
+		httpErr(w, err)
+		return
+	}
+	http.Redirect(w, r, fmt.Sprintf("/log/%d", id), http.StatusSeeOther)
+}
+
+func (a *App) handleVideoServe(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	var filename string
+	err := a.db.QueryRow(r.Context(), `SELECT filename FROM session_videos WHERE id=$1`, id).Scan(&filename)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	http.ServeFile(w, r, filepath.Join(a.videoDir, filename))
+}
+
+func (a *App) handleVideoDelete(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	ctx := r.Context()
+	var filename string
+	var sessionID int
+	err := a.db.QueryRow(ctx,
+		`SELECT session_id,filename FROM session_videos WHERE id=$1`, id).Scan(&sessionID, &filename)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	a.db.Exec(ctx, `DELETE FROM session_videos WHERE id=$1`, id)
+	os.Remove(filepath.Join(a.videoDir, filename))
+	http.Redirect(w, r, fmt.Sprintf("/log/%d", sessionID), http.StatusSeeOther)
 }

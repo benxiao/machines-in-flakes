@@ -21,37 +21,48 @@ type DroneListPage struct {
 }
 
 type DroneRow struct {
-	ID         int
-	Name       string
-	FrameName  string
-	FCName     string
-	ESCName    string
-	VTXName    string
-	MotorName  string
-	MotorCount int
-	Status     string
-	BuildDate  string
+	ID           int
+	Name         string
+	FrameName    string
+	FCName       string
+	ESCName      string
+	VTXName      string
+	MotorName    string
+	MotorCount   int
+	BatteryName  string
+	BatteryCount int
+	GPSName      string
+	RXName       string
+	Status       string
+	BuildDate    string
 }
 
 type DroneFormPage struct {
-	ActiveTab  string
-	Error      string
-	ID         int
-	Name       string
-	FrameID    int
-	FCID       int
-	ESCID      int
-	VTXID      int
-	MotorID    int
-	MotorCount string
-	Status     string
-	BuildDate  string
-	Notes      string
-	Frames     []OptionItem
-	FCs        []OptionItem
-	ESCs       []OptionItem
-	VTXs       []OptionItem
-	Motors     []OptionItem
+	ActiveTab    string
+	Error        string
+	ID           int
+	Name         string
+	FrameID      int
+	FCID         int
+	ESCID        int
+	VTXID        int
+	MotorID      int
+	MotorCount   string
+	BatteryID    int
+	BatteryCount string
+	GPSID        int
+	RXID         int
+	Status       string
+	BuildDate    string
+	Notes        string
+	Frames       []OptionItem
+	FCs          []OptionItem
+	ESCs         []OptionItem
+	VTXs         []OptionItem
+	Motors       []OptionItem
+	Batteries    []OptionItem
+	GPSs         []OptionItem
+	RXs          []OptionItem
 }
 
 type InventoryPage struct {
@@ -61,6 +72,50 @@ type InventoryPage struct {
 	ESCs      []ESCRow
 	Motors    []MotorRow
 	VTXs      []VTXRow
+	GPSs      []GPSRow
+	RXs       []RXRow
+}
+
+type GPSRow struct {
+	ID          int
+	Brand       string
+	Name        string
+	Total       int
+	Installed   int
+	Available   int
+	InstalledOn string
+}
+
+type RXRow struct {
+	ID          int
+	Brand       string
+	Name        string
+	Protocol    string
+	Total       int
+	Installed   int
+	Available   int
+	InstalledOn string
+}
+
+type GPSFormPage struct {
+	ActiveTab string
+	Error     string
+	ID        int
+	Brand     string
+	Name      string
+	Notes     string
+	Quantity  string
+}
+
+type RXFormPage struct {
+	ActiveTab string
+	Error     string
+	ID        int
+	Brand     string
+	Name      string
+	Protocol  string
+	Notes     string
+	Quantity  string
 }
 
 type FrameRow struct {
@@ -192,32 +247,29 @@ type BatteryListPage struct {
 }
 
 type BatteryRow struct {
-	ID                 int
-	Name               string
-	Brand              string
-	CellCount          int
-	CapacityMAh        int
-	CycleCount         int
-	InternalResistance string
-	PurchaseDate       string
-	DroneName          string
-	Status             string
+	ID          int
+	Brand       string
+	Name        string
+	CellCount   int
+	CapacityMAh int
+	Total       int
+	Installed   int
+	Available   int
+	InstalledOn string
+	Status      string
 }
 
 type BatteryFormPage struct {
-	ActiveTab          string
-	Error              string
-	ID                 int
-	Name               string
-	Brand              string
-	CellCount          string
-	CapacityMAh        string
-	CycleCount         string
-	InternalResistance string
-	PurchaseDate       string
-	DroneID            int
-	Status             string
-	Drones             []OptionItem
+	ActiveTab   string
+	Error       string
+	ID          int
+	Brand       string
+	Name        string
+	CellCount   string
+	CapacityMAh string
+	Quantity    string
+	Status      string
+	Notes       string
 }
 
 type PropListPage struct {
@@ -256,32 +308,6 @@ type PropFormPage struct {
 	Drones           []OptionItem
 }
 
-type PartsListPage struct {
-	ActiveTab string
-	Parts     []PartRow
-}
-
-type PartRow struct {
-	ID               int
-	Category         string
-	Name             string
-	Quantity         int
-	ReorderThreshold int
-	UnitPrice        string
-	LowStock         bool
-}
-
-type PartFormPage struct {
-	ActiveTab        string
-	Error            string
-	ID               int
-	Category         string
-	Name             string
-	Quantity         string
-	ReorderThreshold string
-	UnitPrice        string
-}
-
 type LogListPage struct {
 	ActiveTab string
 	Sessions  []SessionRow
@@ -289,7 +315,7 @@ type LogListPage struct {
 
 type SessionRow struct {
 	ID          int
-	DroneName   string
+	DroneNames  string
 	Type        string
 	SessionDate string
 	DurationMin int
@@ -304,30 +330,41 @@ type BatteryCheck struct {
 	Checked bool
 }
 
+type DroneCheck struct {
+	ID      int
+	Label   string
+	Checked bool
+}
+
+type VideoRow struct {
+	ID           int
+	OriginalName string
+}
+
 type SessionFormPage struct {
 	ActiveTab   string
 	Error       string
 	ID          int
-	DroneID     int
 	Type        string
 	SessionDate string
 	DurationMin string
 	Location    string
 	Notes       string
-	Drones      []OptionItem
+	Drones      []DroneCheck
 	Batteries   []BatteryCheck
 }
 
 type SessionDetailPage struct {
-	ActiveTab string
-	ID        int
-	DroneName string
-	Type      string
-	Date      string
-	Duration  int
-	Location  string
-	Notes     string
-	Batteries []BatteryRow
+	ActiveTab  string
+	ID         int
+	DroneNames string
+	Type       string
+	Date       string
+	Duration   int
+	Location   string
+	Notes      string
+	Batteries  []BatteryRow
+	Videos     []VideoRow
 }
 
 // ---- Template engine ----
@@ -402,12 +439,12 @@ func initTemplates() {
 	add("esc-form", escFormTmpl)
 	add("motor-form", motorFormTmpl)
 	add("vtx-form", vtxFormTmpl)
+	add("gps-form", gpsFormTmpl)
+	add("rx-form", rxFormTmpl)
 	add("battery-list", batteryListTmpl)
 	add("battery-form", batteryFormTmpl)
 	add("prop-list", propListTmpl)
 	add("prop-form", propFormTmpl)
-	add("parts-list", partsListTmpl)
-	add("part-form", partFormTmpl)
 	add("log-list", logListTmpl)
 	add("session-form", sessionFormTmpl)
 	add("session-detail", sessionDetailTmpl)
@@ -602,7 +639,6 @@ const baseTmpl = `<!DOCTYPE html>
   <a href="/inventory" {{if eq .ActiveTab "inventory"}}class="active"{{end}}>Inventory</a>
   <a href="/props"     {{if eq .ActiveTab "props"}}class="active"{{end}}>Props</a>
   <a href="/batteries" {{if eq .ActiveTab "batteries"}}class="active"{{end}}>Batteries</a>
-  <a href="/parts"     {{if eq .ActiveTab "parts"}}class="active"{{end}}>Parts</a>
   <a href="/log"       {{if eq .ActiveTab "log"}}class="active"{{end}}>Log</a>
 </nav>
 <main>
@@ -625,8 +661,7 @@ const droneListTmpl = `{{define "content"}}
 <table>
 <thead><tr>
   <th>Name</th><th>Frame</th><th>FC</th><th>ESC</th><th>VTX</th>
-  <th>Motors</th><th>Status</th><th>Build Date</th><th></th>
-
+  <th>Motors</th><th>Batteries</th><th>GPS</th><th>RX</th><th>Status</th><th>Build Date</th><th></th>
 </tr></thead>
 <tbody>
 {{range .Drones}}
@@ -637,6 +672,9 @@ const droneListTmpl = `{{define "content"}}
   <td class="muted">{{dash .ESCName}}</td>
   <td class="muted">{{dash .VTXName}}</td>
   <td class="muted">{{if .MotorName}}{{.MotorName}} ×{{.MotorCount}}{{else}}—{{end}}</td>
+  <td class="muted">{{if .BatteryName}}{{.BatteryName}} ×{{.BatteryCount}}{{else}}—{{end}}</td>
+  <td class="muted">{{dash .GPSName}}</td>
+  <td class="muted">{{dash .RXName}}</td>
   <td><span class="badge {{badgeClass .Status}}">{{.Status}}</span></td>
   <td class="muted">{{dash .BuildDate}}</td>
   <td class="actions-cell">
@@ -734,6 +772,41 @@ const droneFormTmpl = `{{define "content"}}
     <div class="form-group" style="max-width:100px">
       <label>Motor count</label>
       <input type="number" name="motor_count" value="{{if .MotorCount}}{{.MotorCount}}{{else}}4{{end}}" min="1">
+    </div>
+  </div>
+  <div class="form-row">
+    <div class="form-group">
+      <label>Batteries</label>
+      <select name="battery_id">
+        <option value="">— none —</option>
+        {{range .Batteries}}
+        <option value="{{.ID}}" {{if eq $.BatteryID .ID}}selected{{end}}>{{.Label}}</option>
+        {{end}}
+      </select>
+    </div>
+    <div class="form-group" style="max-width:100px">
+      <label>Battery count</label>
+      <input type="number" name="battery_count" value="{{if .BatteryCount}}{{.BatteryCount}}{{else}}1{{end}}" min="1">
+    </div>
+  </div>
+  <div class="form-row">
+    <div class="form-group">
+      <label>GPS Module</label>
+      <select name="gps_id">
+        <option value="">— none —</option>
+        {{range .GPSs}}
+        <option value="{{.ID}}" {{if eq $.GPSID .ID}}selected{{end}}>{{.Label}}</option>
+        {{end}}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Radio Receiver</label>
+      <select name="rx_id">
+        <option value="">— none —</option>
+        {{range .RXs}}
+        <option value="{{.ID}}" {{if eq $.RXID .ID}}selected{{end}}>{{.Label}}</option>
+        {{end}}
+      </select>
     </div>
   </div>
   <div class="form-group">
@@ -933,6 +1006,75 @@ const inventoryTmpl = `{{define "content"}}
   </tbody></table></div>
   {{else}}<p class="muted">No VTX units. <a href="/vtx/new">Add one.</a></p>{{end}}
 </div>
+
+<div class="section">
+  <div class="section-header">
+    <h3>GPS Modules</h3>
+    <a href="/gps/new" class="btn btn-sm btn-primary">+ Add GPS</a>
+  </div>
+  {{if .GPSs}}
+  <div class="table-wrap">
+  <table>
+  <thead><tr><th>Brand</th><th>Name</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
+  <tbody>
+  {{range .GPSs}}
+  <tr>
+    <td class="muted">{{dash .Brand}}</td>
+    <td>{{.Name}}</td>
+    <td class="muted">{{.Total}}</td>
+    <td class="muted">{{.Installed}}</td>
+    <td>{{if gt .Available 0}}<span style="color:#3fb950;font-weight:500">{{.Available}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
+    <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
+    <td class="actions-cell">
+      <a href="/gps/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
+      <form class="inline" method="POST" action="/gps/{{.ID}}/adjust">
+        <input type="number" name="count" placeholder="±" style="width:46px;padding:2px 4px;vertical-align:middle">
+        <button class="btn btn-sm btn-edit" type="submit">Apply</button>
+      </form>
+      <form class="inline" method="POST" action="/gps/{{.ID}}/delete">
+        <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+      </form>
+    </td>
+  </tr>
+  {{end}}
+  </tbody></table></div>
+  {{else}}<p class="muted">No GPS modules. <a href="/gps/new">Add one.</a></p>{{end}}
+</div>
+
+<div class="section">
+  <div class="section-header">
+    <h3>Radio Receivers</h3>
+    <a href="/rx/new" class="btn btn-sm btn-primary">+ Add RX</a>
+  </div>
+  {{if .RXs}}
+  <div class="table-wrap">
+  <table>
+  <thead><tr><th>Brand</th><th>Name</th><th>Protocol</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
+  <tbody>
+  {{range .RXs}}
+  <tr>
+    <td class="muted">{{dash .Brand}}</td>
+    <td>{{.Name}}</td>
+    <td class="muted">{{dash .Protocol}}</td>
+    <td class="muted">{{.Total}}</td>
+    <td class="muted">{{.Installed}}</td>
+    <td>{{if gt .Available 0}}<span style="color:#3fb950;font-weight:500">{{.Available}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
+    <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
+    <td class="actions-cell">
+      <a href="/rx/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
+      <form class="inline" method="POST" action="/rx/{{.ID}}/adjust">
+        <input type="number" name="count" placeholder="±" style="width:46px;padding:2px 4px;vertical-align:middle">
+        <button class="btn btn-sm btn-edit" type="submit">Apply</button>
+      </form>
+      <form class="inline" method="POST" action="/rx/{{.ID}}/delete">
+        <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+      </form>
+    </td>
+  </tr>
+  {{end}}
+  </tbody></table></div>
+  {{else}}<p class="muted">No radio receivers. <a href="/rx/new">Add one.</a></p>{{end}}
+</div>
 {{end}}`
 
 const frameFormTmpl = `{{define "content"}}
@@ -960,14 +1102,6 @@ const frameFormTmpl = `{{define "content"}}
     <div class="form-group">
       <label>Weight (g)</label>
       <input type="number" name="weight_g" value="{{.WeightG}}" placeholder="e.g. 78">
-    </div>
-    <div class="form-group">
-      <label>Status</label>
-      <select name="status">
-        <option value="spare"   {{if eq .Status "spare"}}selected{{end}}>spare</option>
-        <option value="crashed" {{if eq .Status "crashed"}}selected{{end}}>crashed</option>
-        <option value="retired" {{if eq .Status "retired"}}selected{{end}}>retired</option>
-      </select>
     </div>
   </div>
   <div class="form-row">
@@ -1014,13 +1148,6 @@ const fcFormTmpl = `{{define "content"}}
       <label>Firmware</label>
       <input type="text" name="firmware" value="{{.Firmware}}" placeholder="e.g. Betaflight 4.5.1">
     </div>
-    <div class="form-group">
-      <label>Status</label>
-      <select name="status">
-        <option value="spare"   {{if eq .Status "spare"}}selected{{end}}>spare</option>
-        <option value="retired" {{if eq .Status "retired"}}selected{{end}}>retired</option>
-      </select>
-    </div>
   </div>
   <div class="form-row">
     <div class="form-group">
@@ -1065,13 +1192,6 @@ const escFormTmpl = `{{define "content"}}
     <div class="form-group">
       <label>Max Cell (S)</label>
       <input type="number" name="cell_max" value="{{.CellMax}}" placeholder="e.g. 6">
-    </div>
-    <div class="form-group">
-      <label>Status</label>
-      <select name="status">
-        <option value="spare"   {{if eq .Status "spare"}}selected{{end}}>spare</option>
-        <option value="retired" {{if eq .Status "retired"}}selected{{end}}>retired</option>
-      </select>
     </div>
   </div>
   <div class="form-row">
@@ -1171,13 +1291,6 @@ const vtxFormTmpl = `{{define "content"}}
       <label>Weight (g)</label>
       <input type="number" name="weight_g" value="{{.WeightG}}" placeholder="e.g. 28">
     </div>
-    <div class="form-group">
-      <label>Status</label>
-      <select name="status">
-        <option value="spare"   {{if eq .Status "spare"}}selected{{end}}>spare</option>
-        <option value="retired" {{if eq .Status "retired"}}selected{{end}}>retired</option>
-      </select>
-    </div>
   </div>
   <div class="form-row">
     <div class="form-group">
@@ -1197,6 +1310,78 @@ const vtxFormTmpl = `{{define "content"}}
 </div>
 {{end}}`
 
+const gpsFormTmpl = `{{define "content"}}
+<div class="page-header">
+  <h2>{{if .ID}}Edit GPS Module{{else}}New GPS Module{{end}}</h2>
+</div>
+<div class="form-page">
+{{if .Error}}<div class="error-box">{{.Error}}</div>{{end}}
+<form method="POST">
+  <div class="form-row">
+    <div class="form-group">
+      <label>Brand</label>
+      <input type="text" name="brand" value="{{.Brand}}" placeholder="e.g. Beitian">
+    </div>
+    <div class="form-group">
+      <label>Name *</label>
+      <input type="text" name="name" value="{{.Name}}" required autofocus placeholder="e.g. BN-880">
+    </div>
+    <div class="form-group" style="max-width:100px">
+      <label>Quantity owned</label>
+      <input type="number" name="quantity" value="{{if .Quantity}}{{.Quantity}}{{else}}1{{end}}" min="0">
+    </div>
+  </div>
+  <div class="form-group">
+    <label>Notes</label>
+    <textarea name="notes">{{.Notes}}</textarea>
+  </div>
+  <div class="form-actions">
+    <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add GPS{{end}}</button>
+    <a href="/inventory" class="btn btn-cancel">Cancel</a>
+  </div>
+</form>
+</div>
+{{end}}`
+
+const rxFormTmpl = `{{define "content"}}
+<div class="page-header">
+  <h2>{{if .ID}}Edit Radio Receiver{{else}}New Radio Receiver{{end}}</h2>
+</div>
+<div class="form-page">
+{{if .Error}}<div class="error-box">{{.Error}}</div>{{end}}
+<form method="POST">
+  <div class="form-row">
+    <div class="form-group">
+      <label>Brand</label>
+      <input type="text" name="brand" value="{{.Brand}}" placeholder="e.g. ExpressLRS">
+    </div>
+    <div class="form-group">
+      <label>Name *</label>
+      <input type="text" name="name" value="{{.Name}}" required autofocus placeholder="e.g. EP1 Nano">
+    </div>
+  </div>
+  <div class="form-row">
+    <div class="form-group">
+      <label>Protocol</label>
+      <input type="text" name="protocol" value="{{.Protocol}}" placeholder="e.g. ELRS 2.4GHz">
+    </div>
+    <div class="form-group" style="max-width:100px">
+      <label>Quantity owned</label>
+      <input type="number" name="quantity" value="{{if .Quantity}}{{.Quantity}}{{else}}1{{end}}" min="0">
+    </div>
+  </div>
+  <div class="form-group">
+    <label>Notes</label>
+    <textarea name="notes">{{.Notes}}</textarea>
+  </div>
+  <div class="form-actions">
+    <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add RX{{end}}</button>
+    <a href="/inventory" class="btn btn-cancel">Cancel</a>
+  </div>
+</form>
+</div>
+{{end}}`
+
 const batteryListTmpl = `{{define "content"}}
 <div class="page-header">
   <div class="page-header-left"><h2>Batteries</h2></div>
@@ -1206,23 +1391,26 @@ const batteryListTmpl = `{{define "content"}}
 <div class="table-wrap">
 <table>
 <thead><tr>
-  <th>Name</th><th>Brand</th><th>Cell</th><th>mAh</th><th>Cycles</th>
-  <th>IR (mΩ)</th><th>Purchased</th><th>Drone</th><th>Status</th><th></th>
+  <th>Brand</th><th>Name</th><th>Cell</th><th>mAh</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Status</th><th>Installed On</th><th></th>
 </tr></thead>
 <tbody>
 {{range .Batteries}}
 <tr class="{{if eq .Status "dead"}}retired{{end}}">
-  <td><strong>{{.Name}}</strong></td>
   <td class="muted">{{dash .Brand}}</td>
+  <td><strong>{{.Name}}</strong></td>
   <td class="muted">{{.CellCount}}S</td>
   <td class="muted">{{.CapacityMAh}}</td>
-  <td>{{.CycleCount}}</td>
-  <td class="muted">{{dash .InternalResistance}}</td>
-  <td class="muted">{{dash .PurchaseDate}}</td>
-  <td class="muted">{{dash .DroneName}}</td>
+  <td class="muted">{{.Total}}</td>
+  <td class="muted">{{.Installed}}</td>
+  <td>{{if gt .Available 0}}<span style="color:#3fb950;font-weight:500">{{.Available}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
   <td><span class="badge {{badgeClass .Status}}">{{.Status}}</span></td>
+  <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
   <td class="actions-cell">
     <a href="/batteries/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
+    <form class="inline" method="POST" action="/batteries/{{.ID}}/adjust">
+      <input type="number" name="count" placeholder="±" style="width:46px;padding:2px 4px;vertical-align:middle">
+      <button class="btn btn-sm btn-edit" type="submit">Apply</button>
+    </form>
     <form class="inline" method="POST" action="/batteries/{{.ID}}/delete">
       <button class="btn btn-sm btn-danger" type="submit">Delete</button>
     </form>
@@ -1246,12 +1434,12 @@ const batteryFormTmpl = `{{define "content"}}
 <form method="POST">
   <div class="form-row">
     <div class="form-group">
-      <label>Name *</label>
-      <input type="text" name="name" value="{{.Name}}" required autofocus placeholder="e.g. CNHL 650 #1">
-    </div>
-    <div class="form-group">
       <label>Brand</label>
       <input type="text" name="brand" value="{{.Brand}}" placeholder="e.g. CNHL">
+    </div>
+    <div class="form-group">
+      <label>Name *</label>
+      <input type="text" name="name" value="{{.Name}}" required autofocus placeholder="e.g. 650mAh 4S">
     </div>
   </div>
   <div class="form-row">
@@ -1263,31 +1451,12 @@ const batteryFormTmpl = `{{define "content"}}
       <label>Capacity (mAh) *</label>
       <input type="number" name="capacity_mah" value="{{.CapacityMAh}}" required placeholder="e.g. 650">
     </div>
-  </div>
-  <div class="form-row">
-    <div class="form-group">
-      <label>Cycle Count</label>
-      <input type="number" name="cycle_count" value="{{.CycleCount}}" min="0">
-    </div>
-    <div class="form-group">
-      <label>Internal Resistance (mΩ)</label>
-      <input type="number" name="internal_resistance" value="{{.InternalResistance}}" placeholder="optional">
-    </div>
-    <div class="form-group">
-      <label>Purchase Date</label>
-      <input type="date" name="purchase_date" value="{{.PurchaseDate}}">
+    <div class="form-group" style="max-width:100px">
+      <label>Quantity owned</label>
+      <input type="number" name="quantity" value="{{if .Quantity}}{{.Quantity}}{{else}}1{{end}}" min="0">
     </div>
   </div>
   <div class="form-row">
-    <div class="form-group">
-      <label>Primary Drone</label>
-      <select name="drone_id">
-        <option value="">— unassigned —</option>
-        {{range .Drones}}
-        <option value="{{.ID}}" {{if eq $.DroneID .ID}}selected{{end}}>{{.Label}}</option>
-        {{end}}
-      </select>
-    </div>
     <div class="form-group">
       <label>Status</label>
       <select name="status">
@@ -1296,6 +1465,10 @@ const batteryFormTmpl = `{{define "content"}}
         <option value="storage"  {{if eq .Status "storage"}}selected{{end}}>storage</option>
         <option value="dead"     {{if eq .Status "dead"}}selected{{end}}>dead</option>
       </select>
+    </div>
+    <div class="form-group">
+      <label>Notes</label>
+      <input type="text" name="notes" value="{{.Notes}}" placeholder="optional">
     </div>
   </div>
   <div class="form-actions">
@@ -1412,83 +1585,6 @@ const propFormTmpl = `{{define "content"}}
 </div>
 {{end}}`
 
-const partsListTmpl = `{{define "content"}}
-<div class="page-header">
-  <div class="page-header-left"><h2>Spare Parts</h2></div>
-  <a href="/parts/new" class="btn btn-primary">+ Add Part</a>
-</div>
-{{if .Parts}}
-<div class="table-wrap">
-<table>
-<thead><tr>
-  <th>Category</th><th>Name</th><th>Qty</th><th>Reorder At</th><th>Unit Price</th><th></th>
-</tr></thead>
-<tbody>
-{{range .Parts}}
-<tr class="{{if .LowStock}}low-stock{{end}}">
-  <td><span class="badge badge-retired">{{.Category}}</span></td>
-  <td>{{.Name}}</td>
-  <td>{{.Quantity}}{{if .LowStock}} <span class="muted" title="low stock">&#9888;</span>{{end}}</td>
-  <td class="muted">{{.ReorderThreshold}}</td>
-  <td class="muted">{{.UnitPrice}}</td>
-  <td class="actions-cell">
-    <a href="/parts/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
-    <form class="inline" method="POST" action="/parts/{{.ID}}/delete">
-      <button class="btn btn-sm btn-danger" type="submit">Delete</button>
-    </form>
-  </td>
-</tr>
-{{end}}
-</tbody>
-</table>
-</div>
-{{else}}
-<p class="muted">No spare parts tracked. <a href="/parts/new">Add one.</a></p>
-{{end}}
-{{end}}`
-
-const partFormTmpl = `{{define "content"}}
-<div class="page-header">
-  <h2>{{if .ID}}Edit Part{{else}}New Part{{end}}</h2>
-</div>
-<div class="form-page">
-{{if .Error}}<div class="error-box">{{.Error}}</div>{{end}}
-<form method="POST">
-  <div class="form-row">
-    <div class="form-group">
-      <label>Category</label>
-      <select name="category">
-        <option value="antennas" {{if eq .Category "antennas"}}selected{{end}}>antennas</option>
-        <option value="misc"     {{if eq .Category "misc"}}selected{{end}}>misc</option>
-      </select>
-    </div>
-    <div class="form-group">
-      <label>Name *</label>
-      <input type="text" name="name" value="{{.Name}}" required autofocus>
-    </div>
-  </div>
-  <div class="form-row">
-    <div class="form-group">
-      <label>Quantity</label>
-      <input type="number" name="quantity" value="{{.Quantity}}" min="0">
-    </div>
-    <div class="form-group">
-      <label>Reorder At</label>
-      <input type="number" name="reorder_threshold" value="{{.ReorderThreshold}}" min="0">
-    </div>
-    <div class="form-group">
-      <label>Unit Price ($)</label>
-      <input type="text" name="unit_price" value="{{.UnitPrice}}" placeholder="0.00">
-    </div>
-  </div>
-  <div class="form-actions">
-    <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add Part{{end}}</button>
-    <a href="/parts" class="btn btn-cancel">Cancel</a>
-  </div>
-</form>
-</div>
-{{end}}`
-
 const logListTmpl = `{{define "content"}}
 <div class="page-header">
   <div class="page-header-left"><h2>Flight Log</h2></div>
@@ -1504,7 +1600,7 @@ const logListTmpl = `{{define "content"}}
 {{range .Sessions}}
 <tr>
   <td class="muted" style="white-space:nowrap">{{.SessionDate}}</td>
-  <td><strong>{{.DroneName}}</strong></td>
+  <td><strong>{{.DroneNames}}</strong></td>
   <td><span class="badge {{badgeClass .Type}}">{{.Type}}</span></td>
   <td class="muted">{{if gt .DurationMin 0}}{{.DurationMin}}m{{else}}—{{end}}</td>
   <td class="muted">{{dash .Location}}</td>
@@ -1534,16 +1630,18 @@ const sessionFormTmpl = `{{define "content"}}
 <div class="form-page">
 {{if .Error}}<div class="error-box">{{.Error}}</div>{{end}}
 <form method="POST">
-  <div class="form-row">
-    <div class="form-group">
-      <label>Drone *</label>
-      <select name="drone_id" required>
-        <option value="">— select drone —</option>
-        {{range .Drones}}
-        <option value="{{.ID}}" {{if eq $.DroneID .ID}}selected{{end}}>{{.Label}}</option>
-        {{end}}
-      </select>
+  <div class="form-group">
+    <label>Drones *</label>
+    <div class="battery-checks">
+      {{range .Drones}}
+      <label class="battery-check">
+        <input type="checkbox" name="drone_ids" value="{{.ID}}" {{if .Checked}}checked{{end}}>
+        {{.Label}}
+      </label>
+      {{end}}
     </div>
+  </div>
+  <div class="form-row">
     <div class="form-group">
       <label>Type</label>
       <select name="type">
@@ -1596,7 +1694,7 @@ const sessionDetailTmpl = `{{define "content"}}
 <div class="page-header">
   <div class="page-header-left">
     <h2>Session #{{.ID}}</h2>
-    <div class="summary">{{.DroneName}} &mdash; {{.Date}}</div>
+    <div class="summary">{{.DroneNames}} &mdash; {{.Date}}</div>
   </div>
   <div>
     <a href="/log/{{.ID}}/edit" class="btn btn-edit">Edit</a>
@@ -1606,7 +1704,7 @@ const sessionDetailTmpl = `{{define "content"}}
   </div>
 </div>
 <table style="max-width:500px;margin-bottom:24px">
-<tr><td class="muted" style="padding:6px 12px 6px 0;width:120px">Drone</td><td>{{.DroneName}}</td></tr>
+<tr><td class="muted" style="padding:6px 12px 6px 0;width:120px">Drones</td><td>{{.DroneNames}}</td></tr>
 <tr><td class="muted" style="padding:6px 12px 6px 0">Type</td><td><span class="badge {{badgeClass .Type}}">{{.Type}}</span></td></tr>
 <tr><td class="muted" style="padding:6px 12px 6px 0">Date</td><td>{{.Date}}</td></tr>
 <tr><td class="muted" style="padding:6px 12px 6px 0">Duration</td><td>{{if gt .Duration 0}}{{.Duration}} min{{else}}—{{end}}</td></tr>
@@ -1616,25 +1714,48 @@ const sessionDetailTmpl = `{{define "content"}}
 
 {{if .Batteries}}
 <h3>Batteries Used</h3>
-<div class="table-wrap" style="max-width:600px">
+<div class="table-wrap" style="max-width:600px;margin-bottom:24px">
 <table>
-<thead><tr><th>Name</th><th>Cell</th><th>mAh</th><th>Cycles (after)</th><th>Status</th></tr></thead>
+<thead><tr><th>Brand</th><th>Name</th><th>Cell</th><th>mAh</th><th>Status</th></tr></thead>
 <tbody>
 {{range .Batteries}}
 <tr>
+  <td class="muted">{{dash .Brand}}</td>
   <td>{{.Name}}</td>
   <td class="muted">{{.CellCount}}S</td>
   <td class="muted">{{.CapacityMAh}}</td>
-  <td>{{.CycleCount}}</td>
   <td><span class="badge {{badgeClass .Status}}">{{.Status}}</span></td>
 </tr>
 {{end}}
 </tbody>
 </table>
 </div>
-{{else}}
-<p class="muted">No batteries recorded for this session.</p>
 {{end}}
 
-<p style="margin-top:24px"><a href="/log">&larr; Back to log</a></p>
+<h3>Videos</h3>
+{{if .Videos}}
+<div style="display:flex;flex-direction:column;gap:16px;max-width:860px;margin-bottom:24px">
+{{range .Videos}}
+<div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:12px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+    <span class="muted" style="font-size:13px">{{.OriginalName}}</span>
+    <form class="inline" method="POST" action="/videos/{{.ID}}/delete">
+      <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+    </form>
+  </div>
+  <video controls style="width:100%;border-radius:4px;max-height:480px;background:#000">
+    <source src="/videos/{{.ID}}">
+  </video>
+</div>
+{{end}}
+</div>
+{{else}}
+<p class="muted" style="margin-bottom:16px">No videos yet.</p>
+{{end}}
+<form method="POST" action="/log/{{.ID}}/videos" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center;margin-bottom:24px">
+  <input type="file" name="video" accept="video/*" style="color:#c9d1d9;font-size:13px">
+  <button class="btn btn-primary" type="submit">Upload</button>
+</form>
+
+<p><a href="/log">&larr; Back to log</a></p>
 {{end}}`

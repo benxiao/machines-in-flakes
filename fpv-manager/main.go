@@ -13,7 +13,8 @@ import (
 )
 
 type App struct {
-	db *pgxpool.Pool
+	db       *pgxpool.Pool
+	videoDir string
 }
 
 func main() {
@@ -28,7 +29,15 @@ func main() {
 	}
 	defer pool.Close()
 
-	app := &App{db: pool}
+	videoDir := os.Getenv("FPV_VIDEO_DIR")
+	if videoDir == "" {
+		videoDir = "/var/lib/fpv-manager/videos"
+	}
+	if err := os.MkdirAll(videoDir, 0755); err != nil {
+		log.Fatalf("create video dir: %v", err)
+	}
+
+	app := &App{db: pool, videoDir: videoDir}
 	if err := app.initSchema(ctx); err != nil {
 		log.Fatalf("init schema: %v", err)
 	}
@@ -97,55 +106,61 @@ CREATE TABLE IF NOT EXISTS motors (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS drones (
-    id          SERIAL PRIMARY KEY,
-    name        TEXT NOT NULL,
-    frame_id    INTEGER REFERENCES frames(id) ON DELETE SET NULL,
-    fc_id       INTEGER REFERENCES flight_controllers(id) ON DELETE SET NULL,
-    esc_id      INTEGER REFERENCES escs(id) ON DELETE SET NULL,
-    vtx_id      INTEGER REFERENCES vtx_units(id) ON DELETE SET NULL,
-    motor_id    INTEGER REFERENCES motors(id) ON DELETE SET NULL,
-    motor_count INTEGER NOT NULL DEFAULT 4,
-    status      TEXT NOT NULL DEFAULT 'build'
-                    CHECK (status IN ('flying','build','retired','crashed')),
-    build_date  DATE,
-    notes       TEXT NOT NULL DEFAULT '',
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS gps_modules (
+    id         SERIAL PRIMARY KEY,
+    brand      TEXT NOT NULL DEFAULT '',
+    name       TEXT NOT NULL,
+    notes      TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- item_counts tracks total units owned per component model.
--- available = count - installed (derived from drones table).
+CREATE TABLE IF NOT EXISTS radio_receivers (
+    id         SERIAL PRIMARY KEY,
+    brand      TEXT NOT NULL DEFAULT '',
+    name       TEXT NOT NULL,
+    protocol   TEXT NOT NULL DEFAULT '',
+    notes      TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS batteries (
+    id           SERIAL PRIMARY KEY,
+    brand        TEXT NOT NULL DEFAULT '',
+    name         TEXT NOT NULL,
+    cell_count   INTEGER NOT NULL,
+    capacity_mah INTEGER NOT NULL,
+    count        INTEGER NOT NULL DEFAULT 1,
+    status       TEXT NOT NULL DEFAULT 'good'
+                     CHECK (status IN ('good','degraded','dead','storage')),
+    notes        TEXT NOT NULL DEFAULT '',
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS drones (
+    id            SERIAL PRIMARY KEY,
+    name          TEXT NOT NULL,
+    frame_id      INTEGER REFERENCES frames(id) ON DELETE SET NULL,
+    fc_id         INTEGER REFERENCES flight_controllers(id) ON DELETE SET NULL,
+    esc_id        INTEGER REFERENCES escs(id) ON DELETE SET NULL,
+    vtx_id        INTEGER REFERENCES vtx_units(id) ON DELETE SET NULL,
+    motor_id      INTEGER REFERENCES motors(id) ON DELETE SET NULL,
+    motor_count   INTEGER NOT NULL DEFAULT 4,
+    battery_id    INTEGER REFERENCES batteries(id) ON DELETE SET NULL,
+    battery_count INTEGER NOT NULL DEFAULT 1,
+    gps_id        INTEGER REFERENCES gps_modules(id) ON DELETE SET NULL,
+    rx_id         INTEGER REFERENCES radio_receivers(id) ON DELETE SET NULL,
+    status        TEXT NOT NULL DEFAULT 'build'
+                      CHECK (status IN ('flying','build','retired','crashed')),
+    build_date    DATE,
+    notes         TEXT NOT NULL DEFAULT '',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS item_counts (
-    item_type TEXT NOT NULL CHECK (item_type IN ('frame','fc','esc','motor','vtx')),
+    item_type TEXT NOT NULL CHECK (item_type IN ('frame','fc','esc','motor','vtx','gps','rx')),
     item_id   INTEGER NOT NULL,
     count     INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (item_type, item_id)
-);
-
--- Migrate old schema if upgrading (DO blocks catch errors when already applied):
-DO $$ BEGIN ALTER TABLE motors      DROP COLUMN drone_id; EXCEPTION WHEN undefined_column THEN NULL; END $$;
-DROP INDEX IF EXISTS idx_motors_drone;
-DO $$ BEGIN ALTER TABLE motors      DROP COLUMN status;   EXCEPTION WHEN undefined_column THEN NULL; END $$;
-DO $$ BEGIN ALTER TABLE frames      DROP COLUMN status;   EXCEPTION WHEN undefined_column THEN NULL; END $$;
-DO $$ BEGIN ALTER TABLE flight_controllers DROP COLUMN status; EXCEPTION WHEN undefined_column THEN NULL; END $$;
-DO $$ BEGIN ALTER TABLE escs        DROP COLUMN status;   EXCEPTION WHEN undefined_column THEN NULL; END $$;
-DO $$ BEGIN ALTER TABLE vtx_units   DROP COLUMN status;   EXCEPTION WHEN undefined_column THEN NULL; END $$;
-DO $$ BEGIN ALTER TABLE drones ADD COLUMN motor_id INTEGER REFERENCES motors(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
-DO $$ BEGIN ALTER TABLE drones ADD COLUMN motor_count INTEGER NOT NULL DEFAULT 4; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
-
-CREATE TABLE IF NOT EXISTS batteries (
-    id                  SERIAL PRIMARY KEY,
-    name                TEXT NOT NULL,
-    brand               TEXT NOT NULL DEFAULT '',
-    cell_count          INTEGER NOT NULL,
-    capacity_mah        INTEGER NOT NULL,
-    cycle_count         INTEGER NOT NULL DEFAULT 0,
-    internal_resistance INTEGER,
-    purchase_date       DATE,
-    drone_id            INTEGER REFERENCES drones(id) ON DELETE SET NULL,
-    status              TEXT NOT NULL DEFAULT 'good'
-                            CHECK (status IN ('good','degraded','dead','storage')),
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS propellers (
@@ -175,7 +190,6 @@ CREATE TABLE IF NOT EXISTS spare_parts (
 
 CREATE TABLE IF NOT EXISTS sessions (
     id           SERIAL PRIMARY KEY,
-    drone_id     INTEGER NOT NULL REFERENCES drones(id) ON DELETE CASCADE,
     type         TEXT NOT NULL DEFAULT 'flight'
                      CHECK (type IN ('flight','maintenance','crash')),
     session_date DATE NOT NULL DEFAULT CURRENT_DATE,
@@ -185,20 +199,71 @@ CREATE TABLE IF NOT EXISTS sessions (
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS session_drones (
+    session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    drone_id   INTEGER NOT NULL REFERENCES drones(id) ON DELETE CASCADE,
+    PRIMARY KEY (session_id, drone_id)
+);
+
 CREATE TABLE IF NOT EXISTS session_batteries (
     session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     battery_id INTEGER NOT NULL REFERENCES batteries(id) ON DELETE CASCADE,
     PRIMARY KEY (session_id, battery_id)
 );
 
+CREATE TABLE IF NOT EXISTS session_videos (
+    id            SERIAL PRIMARY KEY,
+    session_id    INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    filename      TEXT NOT NULL,
+    original_name TEXT NOT NULL DEFAULT '',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Migrations (DO blocks are idempotent; run after all tables exist):
+DO $$ BEGIN ALTER TABLE motors      DROP COLUMN drone_id; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DROP INDEX IF EXISTS idx_motors_drone;
+DO $$ BEGIN ALTER TABLE motors      DROP COLUMN status;   EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE frames      DROP COLUMN status;   EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE flight_controllers DROP COLUMN status; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE escs        DROP COLUMN status;   EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE vtx_units   DROP COLUMN status;   EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE drones ADD COLUMN motor_id INTEGER REFERENCES motors(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE drones ADD COLUMN motor_count INTEGER NOT NULL DEFAULT 4; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE drones ADD COLUMN battery_id INTEGER REFERENCES batteries(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE drones ADD COLUMN battery_count INTEGER NOT NULL DEFAULT 1; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE batteries DROP COLUMN cycle_count; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE batteries DROP COLUMN internal_resistance; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE batteries DROP COLUMN purchase_date; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE batteries DROP COLUMN drone_id; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DROP INDEX IF EXISTS idx_batteries_drone;
+DO $$ BEGIN ALTER TABLE batteries ADD COLUMN count INTEGER NOT NULL DEFAULT 1; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE batteries ADD COLUMN notes TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE drones ADD COLUMN gps_id INTEGER REFERENCES gps_modules(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE drones ADD COLUMN rx_id  INTEGER REFERENCES radio_receivers(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE item_counts DROP CONSTRAINT IF EXISTS item_counts_item_type_check;
+  ALTER TABLE item_counts ADD CONSTRAINT item_counts_item_type_check
+    CHECK (item_type IN ('frame','fc','esc','motor','vtx','gps','rx'));
+END $$;
+DO $$ BEGIN
+  INSERT INTO session_drones (session_id, drone_id)
+    SELECT id, drone_id FROM sessions WHERE drone_id IS NOT NULL
+    ON CONFLICT DO NOTHING;
+EXCEPTION WHEN undefined_column THEN NULL;
+END $$;
+DO $$ BEGIN ALTER TABLE sessions DROP COLUMN drone_id; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+
 CREATE INDEX IF NOT EXISTS idx_drones_frame    ON drones(frame_id);
 CREATE INDEX IF NOT EXISTS idx_drones_fc       ON drones(fc_id);
 CREATE INDEX IF NOT EXISTS idx_drones_esc      ON drones(esc_id);
 CREATE INDEX IF NOT EXISTS idx_drones_vtx      ON drones(vtx_id);
 CREATE INDEX IF NOT EXISTS idx_drones_motor    ON drones(motor_id);
+CREATE INDEX IF NOT EXISTS idx_drones_battery  ON drones(battery_id);
+CREATE INDEX IF NOT EXISTS idx_drones_gps      ON drones(gps_id);
+CREATE INDEX IF NOT EXISTS idx_drones_rx       ON drones(rx_id);
 CREATE INDEX IF NOT EXISTS idx_props_drone     ON propellers(drone_id);
-CREATE INDEX IF NOT EXISTS idx_batteries_drone ON batteries(drone_id);
-CREATE INDEX IF NOT EXISTS idx_sessions_drone  ON sessions(drone_id);
+CREATE INDEX IF NOT EXISTS idx_sd_drone        ON session_drones(drone_id);
+CREATE INDEX IF NOT EXISTS idx_sv_session      ON session_videos(session_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_date   ON sessions(session_date DESC);
 CREATE INDEX IF NOT EXISTS idx_sb_battery      ON session_batteries(battery_id);
 `
@@ -243,6 +308,14 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/vtx/{id}/edit", a.handleVTXEdit)
 	mux.HandleFunc("POST /vtx/{id}/delete", a.handleVTXDelete)
 	mux.HandleFunc("POST /vtx/{id}/adjust", a.handleVTXAdjust)
+	mux.HandleFunc("/gps/new", a.handleGPSNew)
+	mux.HandleFunc("/gps/{id}/edit", a.handleGPSEdit)
+	mux.HandleFunc("POST /gps/{id}/delete", a.handleGPSDelete)
+	mux.HandleFunc("POST /gps/{id}/adjust", a.handleGPSAdjust)
+	mux.HandleFunc("/rx/new", a.handleRXNew)
+	mux.HandleFunc("/rx/{id}/edit", a.handleRXEdit)
+	mux.HandleFunc("POST /rx/{id}/delete", a.handleRXDelete)
+	mux.HandleFunc("POST /rx/{id}/adjust", a.handleRXAdjust)
 
 	mux.HandleFunc("/props", a.handleProps)
 	mux.HandleFunc("/props/new", a.handlePropNew)
@@ -253,17 +326,16 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/batteries/new", a.handleBatteryNew)
 	mux.HandleFunc("/batteries/{id}/edit", a.handleBatteryEdit)
 	mux.HandleFunc("POST /batteries/{id}/delete", a.handleBatteryDelete)
-
-	mux.HandleFunc("/parts", a.handleParts)
-	mux.HandleFunc("/parts/new", a.handlePartNew)
-	mux.HandleFunc("/parts/{id}/edit", a.handlePartEdit)
-	mux.HandleFunc("POST /parts/{id}/delete", a.handlePartDelete)
+	mux.HandleFunc("POST /batteries/{id}/adjust", a.handleBatteryAdjust)
 
 	mux.HandleFunc("/log", a.handleLog)
 	mux.HandleFunc("/log/new", a.handleSessionNew)
 	mux.HandleFunc("/log/{id}", a.handleSessionDetail)
 	mux.HandleFunc("/log/{id}/edit", a.handleSessionEdit)
 	mux.HandleFunc("POST /log/{id}/delete", a.handleSessionDelete)
+	mux.HandleFunc("POST /log/{id}/videos", a.handleVideoUpload)
+	mux.HandleFunc("GET /videos/{id}", a.handleVideoServe)
+	mux.HandleFunc("POST /videos/{id}/delete", a.handleVideoDelete)
 }
 
 func parseID(r *http.Request) (int, bool) {
