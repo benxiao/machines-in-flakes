@@ -30,7 +30,6 @@ type DroneRow struct {
 	MotorName    string
 	MotorCount   int
 	BatteryName  string
-	BatteryCount int
 	GPSName      string
 	RXName       string
 	Status       string
@@ -49,7 +48,6 @@ type DroneFormPage struct {
 	MotorID      int
 	MotorCount   string
 	BatteryID    int
-	BatteryCount string
 	GPSID        int
 	RXID         int
 	Status       string
@@ -678,7 +676,7 @@ const droneListTmpl = `{{define "content"}}
   <td class="muted">{{dash .ESCName}}</td>
   <td class="muted">{{dash .VTXName}}</td>
   <td class="muted">{{if .MotorName}}{{.MotorName}} ×{{.MotorCount}}{{else}}—{{end}}</td>
-  <td class="muted">{{if .BatteryName}}{{.BatteryName}} ×{{.BatteryCount}}{{else}}—{{end}}</td>
+  <td class="muted">{{dash .BatteryName}}</td>
   <td class="muted">{{dash .GPSName}}</td>
   <td class="muted">{{dash .RXName}}</td>
   <td><span class="badge {{badgeClass .Status}}">{{.Status}}</span></td>
@@ -780,20 +778,14 @@ const droneFormTmpl = `{{define "content"}}
       <input type="number" name="motor_count" value="{{if .MotorCount}}{{.MotorCount}}{{else}}4{{end}}" min="1">
     </div>
   </div>
-  <div class="form-row">
-    <div class="form-group">
-      <label>Batteries</label>
-      <select name="battery_id">
-        <option value="">— none —</option>
-        {{range .Batteries}}
-        <option value="{{.ID}}" {{if eq $.BatteryID .ID}}selected{{end}}>{{.Label}}</option>
-        {{end}}
-      </select>
-    </div>
-    <div class="form-group" style="max-width:100px">
-      <label>Battery count</label>
-      <input type="number" name="battery_count" value="{{if .BatteryCount}}{{.BatteryCount}}{{else}}1{{end}}" min="1">
-    </div>
+  <div class="form-group">
+    <label>Batteries</label>
+    <select name="battery_id">
+      <option value="">— none —</option>
+      {{range .Batteries}}
+      <option value="{{.ID}}" {{if eq $.BatteryID .ID}}selected{{end}}>{{.Label}}</option>
+      {{end}}
+    </select>
   </div>
   <div class="form-row">
     <div class="form-group">

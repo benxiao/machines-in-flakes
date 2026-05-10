@@ -235,7 +235,6 @@ func (a *App) handleDrones(w http.ResponseWriter, r *http.Request) {
                COALESCE(CASE WHEN m.brand!='' THEN m.brand||' '||m.name ELSE m.name END,''),
                d.motor_count,
                COALESCE(CASE WHEN b.brand!='' THEN b.brand||' '||b.name ELSE b.name END,''),
-               d.battery_count,
                COALESCE(CASE WHEN g.brand!='' THEN g.brand||' '||g.name ELSE g.name END,''),
                COALESCE(CASE WHEN rx.brand!='' THEN rx.brand||' '||rx.name ELSE rx.name END,'')
         FROM drones d
@@ -259,7 +258,7 @@ func (a *App) handleDrones(w http.ResponseWriter, r *http.Request) {
 		var bd *string
 		if err := rows.Scan(&d.ID, &d.Name, &d.Status, &bd,
 			&d.FrameName, &d.FCName, &d.ESCName, &d.VTXName,
-			&d.MotorName, &d.MotorCount, &d.BatteryName, &d.BatteryCount,
+			&d.MotorName, &d.MotorCount, &d.BatteryName,
 			&d.GPSName, &d.RXName); err != nil {
 			httpErr(w, err)
 			return
@@ -383,13 +382,9 @@ func (a *App) handleDroneNew(w http.ResponseWriter, r *http.Request) {
 		if mc == 0 {
 			mc = 4
 		}
-		bc, _ := strconv.Atoi(r.FormValue("battery_count"))
-		if bc == 0 {
-			bc = 1
-		}
 		_, err := a.db.Exec(ctx, `
-            INSERT INTO drones (name,frame_id,fc_id,esc_id,vtx_id,motor_id,motor_count,battery_id,battery_count,gps_id,rx_id,status,build_date,notes)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+            INSERT INTO drones (name,frame_id,fc_id,esc_id,vtx_id,motor_id,motor_count,battery_id,gps_id,rx_id,status,build_date,notes)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
 			name,
 			nullIntPtr(r.FormValue("frame_id")),
 			nullIntPtr(r.FormValue("fc_id")),
@@ -398,7 +393,6 @@ func (a *App) handleDroneNew(w http.ResponseWriter, r *http.Request) {
 			nullIntPtr(r.FormValue("motor_id")),
 			mc,
 			nullIntPtr(r.FormValue("battery_id")),
-			bc,
 			nullIntPtr(r.FormValue("gps_id")),
 			nullIntPtr(r.FormValue("rx_id")),
 			r.FormValue("status"),
@@ -439,14 +433,10 @@ func (a *App) handleDroneEdit(w http.ResponseWriter, r *http.Request) {
 		if mc == 0 {
 			mc = 4
 		}
-		bc, _ := strconv.Atoi(r.FormValue("battery_count"))
-		if bc == 0 {
-			bc = 1
-		}
 		_, err := a.db.Exec(ctx, `
             UPDATE drones SET name=$1,frame_id=$2,fc_id=$3,esc_id=$4,vtx_id=$5,
-            motor_id=$6,motor_count=$7,battery_id=$8,battery_count=$9,
-            gps_id=$10,rx_id=$11,status=$12,build_date=$13,notes=$14 WHERE id=$15`,
+            motor_id=$6,motor_count=$7,battery_id=$8,
+            gps_id=$9,rx_id=$10,status=$11,build_date=$12,notes=$13 WHERE id=$14`,
 			name,
 			nullIntPtr(r.FormValue("frame_id")),
 			nullIntPtr(r.FormValue("fc_id")),
@@ -455,7 +445,6 @@ func (a *App) handleDroneEdit(w http.ResponseWriter, r *http.Request) {
 			nullIntPtr(r.FormValue("motor_id")),
 			mc,
 			nullIntPtr(r.FormValue("battery_id")),
-			bc,
 			nullIntPtr(r.FormValue("gps_id")),
 			nullIntPtr(r.FormValue("rx_id")),
 			r.FormValue("status"),
@@ -470,15 +459,15 @@ func (a *App) handleDroneEdit(w http.ResponseWriter, r *http.Request) {
 	}
 	var page DroneFormPage
 	var frameID, fcID, escID, vtxID, motorID, batteryID, gpsID, rxID *int
-	var motorCount, batteryCount int
+	var motorCount int
 	var bd *string
 	err := a.db.QueryRow(ctx, `
         SELECT id,name,frame_id,fc_id,esc_id,vtx_id,motor_id,motor_count,
-               battery_id,battery_count,gps_id,rx_id,
+               battery_id,gps_id,rx_id,
                status,TO_CHAR(build_date,'YYYY-MM-DD'),notes
         FROM drones WHERE id=$1`, id).Scan(
 		&page.ID, &page.Name, &frameID, &fcID, &escID, &vtxID,
-		&motorID, &motorCount, &batteryID, &batteryCount,
+		&motorID, &motorCount, &batteryID,
 		&gpsID, &rxID, &page.Status, &bd, &page.Notes)
 	if err == pgx.ErrNoRows {
 		http.NotFound(w, r)
@@ -513,7 +502,6 @@ func (a *App) handleDroneEdit(w http.ResponseWriter, r *http.Request) {
 		page.RXID = *rxID
 	}
 	page.MotorCount = strconv.Itoa(motorCount)
-	page.BatteryCount = strconv.Itoa(batteryCount)
 	if bd != nil {
 		page.BuildDate = *bd
 	}
