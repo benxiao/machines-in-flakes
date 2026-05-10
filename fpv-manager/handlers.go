@@ -409,7 +409,7 @@ func (a *App) handleDroneNew(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/drones", http.StatusSeeOther)
 		return
 	}
-	page := DroneFormPage{ActiveTab: "drones", Status: "build"}
+	page := DroneFormPage{ActiveTab: "drones", Status: "build", BuildDate: time.Now().Format("2006-01-02")}
 	a.fillDroneFormOptions(r, &page)
 	render(w, "drone-form", page)
 }
@@ -1692,7 +1692,7 @@ func (a *App) handleSessionNew(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/log", http.StatusSeeOther)
 		return
 	}
-	page := SessionFormPage{ActiveTab: "log", Type: "flight"}
+	page := SessionFormPage{ActiveTab: "log", Type: "flight", SessionDate: time.Now().Format("2006-01-02")}
 	page.Drones, _ = a.droneChecks(r, 0)
 	page.Batteries, _ = a.batteryChecks(r, 0)
 	render(w, "session-form", page)

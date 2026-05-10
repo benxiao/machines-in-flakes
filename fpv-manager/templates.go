@@ -1631,15 +1631,12 @@ const sessionFormTmpl = `{{define "content"}}
 {{if .Error}}<div class="error-box">{{.Error}}</div>{{end}}
 <form method="POST">
   <div class="form-group">
-    <label>Drones *</label>
-    <div class="battery-checks">
+    <label>Drones * <span class="muted" style="font-weight:normal;font-size:12px">(hold Ctrl/Cmd for multiple)</span></label>
+    <select name="drone_ids" multiple size="8" style="height:auto">
       {{range .Drones}}
-      <label class="battery-check">
-        <input type="checkbox" name="drone_ids" value="{{.ID}}" {{if .Checked}}checked{{end}}>
-        {{.Label}}
-      </label>
+      <option value="{{.ID}}" {{if .Checked}}selected{{end}}>{{.Label}}</option>
       {{end}}
-    </div>
+    </select>
   </div>
   <div class="form-row">
     <div class="form-group">
