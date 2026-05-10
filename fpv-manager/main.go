@@ -399,43 +399,6 @@ func nullDate(s string) *time.Time {
 	return &t
 }
 
-func formatDate(t *time.Time) string {
-	if t == nil {
-		return ""
-	}
-	return t.Format("2006-01-02")
-}
-
-func ptrStr(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
-}
-
-func ptrIntStr(i *int) string {
-	if i == nil {
-		return ""
-	}
-	return strconv.Itoa(*i)
-}
-
-func compName(brand, name string) string {
-	if brand != "" {
-		return brand + " " + name
-	}
-	return name
-}
-
-func parsePrice(s string) int {
-	s = strings.TrimSpace(strings.TrimPrefix(s, "$"))
-	f, err := strconv.ParseFloat(s, 64)
-	if err != nil {
-		return 0
-	}
-	return int(f*100 + 0.5)
-}
-
 func httpErr(w http.ResponseWriter, err error) {
 	log.Printf("error: %v", err)
 	http.Error(w, "Internal server error", http.StatusInternalServerError)

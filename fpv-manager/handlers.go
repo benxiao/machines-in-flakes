@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -162,59 +161,11 @@ func (a *App) batteryChecks(r *http.Request, sessionID int) ([]BatteryCheck, err
 	return checks, rows.Err()
 }
 
-func sessionBatteryIDs(ctx context.Context, tx pgx.Tx, sessionID int) ([]int, error) {
-	rows, err := tx.Query(ctx, `SELECT battery_id FROM session_batteries WHERE session_id=$1`, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var ids []int
-	for rows.Next() {
-		var id int
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	return ids, rows.Err()
-}
-
-func sessionDroneIDs(ctx context.Context, tx pgx.Tx, sessionID int) ([]int, error) {
-	rows, err := tx.Query(ctx, `SELECT drone_id FROM session_drones WHERE session_id=$1`, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var ids []int
-	for rows.Next() {
-		var id int
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	return ids, rows.Err()
-}
-
 func parseIntList(ss []string) []int {
 	var out []int
 	for _, s := range ss {
 		v, err := strconv.Atoi(s)
 		if err == nil && v > 0 {
-			out = append(out, v)
-		}
-	}
-	return out
-}
-
-func setDiff(a, b []int) []int {
-	bset := make(map[int]bool, len(b))
-	for _, v := range b {
-		bset[v] = true
-	}
-	var out []int
-	for _, v := range a {
-		if !bset[v] {
 			out = append(out, v)
 		}
 	}
@@ -1663,7 +1614,10 @@ func (a *App) handleSessionNew(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, did := range droneIDs {
-			tx.Exec(ctx, `INSERT INTO session_drones (session_id,drone_id) VALUES ($1,$2)`, sessionID, did)
+			if _, err := tx.Exec(ctx, `INSERT INTO session_drones (session_id,drone_id) VALUES ($1,$2)`, sessionID, did); err != nil {
+				httpErr(w, err)
+				return
+			}
 		}
 		for _, batIDStr := range r.Form["battery_ids"] {
 			batID, err := strconv.Atoi(batIDStr)
@@ -1674,7 +1628,10 @@ func (a *App) handleSessionNew(w http.ResponseWriter, r *http.Request) {
 			if cnt < 1 {
 				cnt = 1
 			}
-			tx.Exec(ctx, `INSERT INTO session_batteries (session_id,battery_id,count) VALUES ($1,$2,$3)`, sessionID, batID, cnt)
+			if _, err := tx.Exec(ctx, `INSERT INTO session_batteries (session_id,battery_id,count) VALUES ($1,$2,$3)`, sessionID, batID, cnt); err != nil {
+				httpErr(w, err)
+				return
+			}
 		}
 		if err := tx.Commit(ctx); err != nil {
 			httpErr(w, err)
@@ -1810,17 +1767,29 @@ func (a *App) handleSessionEdit(w http.ResponseWriter, r *http.Request) {
 		}
 		defer tx.Rollback(ctx)
 
-		tx.Exec(ctx, `DELETE FROM session_drones WHERE session_id=$1`, id)
-		for _, did := range droneIDs {
-			tx.Exec(ctx, `INSERT INTO session_drones (session_id,drone_id) VALUES ($1,$2)`, id, did)
+		if _, err := tx.Exec(ctx, `DELETE FROM session_drones WHERE session_id=$1`, id); err != nil {
+			httpErr(w, err)
+			return
 		}
-		tx.Exec(ctx, `DELETE FROM session_batteries WHERE session_id=$1`, id)
+		for _, did := range droneIDs {
+			if _, err := tx.Exec(ctx, `INSERT INTO session_drones (session_id,drone_id) VALUES ($1,$2)`, id, did); err != nil {
+				httpErr(w, err)
+				return
+			}
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM session_batteries WHERE session_id=$1`, id); err != nil {
+			httpErr(w, err)
+			return
+		}
 		for _, bid := range newBatIDs {
 			cnt, _ := strconv.Atoi(r.FormValue(fmt.Sprintf("battery_count_%d", bid)))
 			if cnt < 1 {
 				cnt = 1
 			}
-			tx.Exec(ctx, `INSERT INTO session_batteries (session_id,battery_id,count) VALUES ($1,$2,$3)`, id, bid, cnt)
+			if _, err := tx.Exec(ctx, `INSERT INTO session_batteries (session_id,battery_id,count) VALUES ($1,$2,$3)`, id, bid, cnt); err != nil {
+				httpErr(w, err)
+				return
+			}
 		}
 		_, err = tx.Exec(ctx,
 			`UPDATE sessions SET type=$1,session_date=$2,duration_min=$3,location=$4,notes=$5 WHERE id=$6`,
