@@ -208,6 +208,7 @@ CREATE TABLE IF NOT EXISTS session_drones (
 CREATE TABLE IF NOT EXISTS session_batteries (
     session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     battery_id INTEGER NOT NULL REFERENCES batteries(id) ON DELETE CASCADE,
+    count      INTEGER NOT NULL DEFAULT 1,
     PRIMARY KEY (session_id, battery_id)
 );
 
@@ -263,6 +264,7 @@ EXCEPTION WHEN undefined_column THEN NULL;
 END $$;
 DO $$ BEGIN ALTER TABLE sessions DROP COLUMN drone_id; EXCEPTION WHEN undefined_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE session_videos ADD COLUMN notes TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE session_batteries ADD COLUMN count INTEGER NOT NULL DEFAULT 1; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 
 CREATE INDEX IF NOT EXISTS idx_drones_frame    ON drones(frame_id);
 CREATE INDEX IF NOT EXISTS idx_drones_fc       ON drones(fc_id);

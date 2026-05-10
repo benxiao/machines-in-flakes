@@ -257,6 +257,7 @@ type BatteryRow struct {
 	Available   int
 	InstalledOn string
 	Status      string
+	Count       int
 }
 
 type BatteryFormPage struct {
@@ -328,6 +329,7 @@ type BatteryCheck struct {
 	ID      int
 	Label   string
 	Checked bool
+	Count   int
 }
 
 type DroneCheck struct {
@@ -1673,12 +1675,15 @@ const sessionFormTmpl = `{{define "content"}}
   {{if .Batteries}}
   <div class="form-group">
     <label>Batteries Used</label>
-    <div class="battery-checks">
+    <div style="display:flex;flex-direction:column;gap:6px">
       {{range .Batteries}}
-      <label class="battery-check">
-        <input type="checkbox" name="battery_ids" value="{{.ID}}" {{if .Checked}}checked{{end}}>
-        {{.Label}}
-      </label>
+      <div style="display:flex;align-items:center;gap:8px">
+        <label class="battery-check" style="margin:0">
+          <input type="checkbox" name="battery_ids" value="{{.ID}}" {{if .Checked}}checked{{end}}>
+          {{.Label}}
+        </label>
+        <input type="number" name="battery_count_{{.ID}}" value="{{if gt .Count 0}}{{.Count}}{{else}}1{{end}}" min="1" style="width:52px;padding:2px 6px">
+      </div>
       {{end}}
     </div>
   </div>
@@ -1721,7 +1726,7 @@ const sessionDetailTmpl = `{{define "content"}}
 <h3>Batteries Used</h3>
 <div class="table-wrap" style="max-width:600px;margin-bottom:24px">
 <table>
-<thead><tr><th>Brand</th><th>Name</th><th>Cell</th><th>mAh</th><th>Status</th></tr></thead>
+<thead><tr><th>Brand</th><th>Name</th><th>Cell</th><th>mAh</th><th>Qty</th><th>Status</th></tr></thead>
 <tbody>
 {{range .Batteries}}
 <tr>
@@ -1729,6 +1734,7 @@ const sessionDetailTmpl = `{{define "content"}}
   <td>{{.Name}}</td>
   <td class="muted">{{.CellCount}}S</td>
   <td class="muted">{{.CapacityMAh}}</td>
+  <td><strong>{{.Count}}</strong></td>
   <td><span class="badge {{badgeClass .Status}}">{{.Status}}</span></td>
 </tr>
 {{end}}

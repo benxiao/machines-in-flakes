@@ -142,7 +142,9 @@ func (a *App) batteryChecks(r *http.Request, sessionID int) ([]BatteryCheck, err
                CASE WHEN b.brand!='' THEN b.brand||' '||b.name ELSE b.name END
                ||' ('||b.cell_count||'S '||b.capacity_mah||'mAh)',
                EXISTS(SELECT 1 FROM session_batteries sb
-                      WHERE sb.session_id=$1 AND sb.battery_id=b.id)
+                      WHERE sb.session_id=$1 AND sb.battery_id=b.id),
+               COALESCE((SELECT sb.count FROM session_batteries sb
+                         WHERE sb.session_id=$1 AND sb.battery_id=b.id), 1)
         FROM batteries b WHERE b.status != 'dead'
         ORDER BY b.brand, b.name`, sessionID)
 	if err != nil {
@@ -152,7 +154,7 @@ func (a *App) batteryChecks(r *http.Request, sessionID int) ([]BatteryCheck, err
 	var checks []BatteryCheck
 	for rows.Next() {
 		var c BatteryCheck
-		if err := rows.Scan(&c.ID, &c.Label, &c.Checked); err != nil {
+		if err := rows.Scan(&c.ID, &c.Label, &c.Checked, &c.Count); err != nil {
 			return nil, err
 		}
 		checks = append(checks, c)
@@ -1683,7 +1685,11 @@ func (a *App) handleSessionNew(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				continue
 			}
-			tx.Exec(ctx, `INSERT INTO session_batteries (session_id,battery_id) VALUES ($1,$2)`, sessionID, batID)
+			cnt, _ := strconv.Atoi(r.FormValue(fmt.Sprintf("battery_count_%d", batID)))
+			if cnt < 1 {
+				cnt = 1
+			}
+			tx.Exec(ctx, `INSERT INTO session_batteries (session_id,battery_id,count) VALUES ($1,$2,$3)`, sessionID, batID, cnt)
 		}
 		if err := tx.Commit(ctx); err != nil {
 			httpErr(w, err)
@@ -1724,7 +1730,7 @@ func (a *App) handleSessionDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := a.db.Query(ctx, `
-        SELECT b.id, b.brand, b.name, b.cell_count, b.capacity_mah, b.status
+        SELECT b.id, b.brand, b.name, b.cell_count, b.capacity_mah, b.status, sb.count
         FROM batteries b JOIN session_batteries sb ON sb.battery_id=b.id
         WHERE sb.session_id=$1 ORDER BY b.brand, b.name`, id)
 	if err != nil {
@@ -1733,7 +1739,7 @@ func (a *App) handleSessionDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	for rows.Next() {
 		var b BatteryRow
-		if err := rows.Scan(&b.ID, &b.Brand, &b.Name, &b.CellCount, &b.CapacityMAh, &b.Status); err != nil {
+		if err := rows.Scan(&b.ID, &b.Brand, &b.Name, &b.CellCount, &b.CapacityMAh, &b.Status, &b.Count); err != nil {
 			rows.Close()
 			httpErr(w, err)
 			return
@@ -1825,7 +1831,11 @@ func (a *App) handleSessionEdit(w http.ResponseWriter, r *http.Request) {
 		}
 		tx.Exec(ctx, `DELETE FROM session_batteries WHERE session_id=$1`, id)
 		for _, bid := range newBatIDs {
-			tx.Exec(ctx, `INSERT INTO session_batteries (session_id,battery_id) VALUES ($1,$2)`, id, bid)
+			cnt, _ := strconv.Atoi(r.FormValue(fmt.Sprintf("battery_count_%d", bid)))
+			if cnt < 1 {
+				cnt = 1
+			}
+			tx.Exec(ctx, `INSERT INTO session_batteries (session_id,battery_id,count) VALUES ($1,$2,$3)`, id, bid, cnt)
 		}
 		_, err = tx.Exec(ctx,
 			`UPDATE sessions SET type=$1,session_date=$2,duration_min=$3,location=$4,notes=$5 WHERE id=$6`,
