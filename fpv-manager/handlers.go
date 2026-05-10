@@ -1659,17 +1659,45 @@ func (a *App) handleSessionDelete(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/log", http.StatusSeeOther)
 }
 
-// ---- Duplicate handlers (copy item as new spare) ----
+// ---- Adjust handlers (add or remove spare items) ----
+// Positive count: insert N spare copies (cloned from this item).
+// Negative count: delete abs(N) spare units of the same brand+name.
 
-func (a *App) handleFrameDuplicate(w http.ResponseWriter, r *http.Request) {
+func adjustCount(r *http.Request) (int, bool) {
+	if err := r.ParseForm(); err != nil {
+		return 0, false
+	}
+	n, err := strconv.Atoi(r.FormValue("count"))
+	return n, err == nil && n != 0
+}
+
+func (a *App) handleFrameAdjust(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	id, ok := parseID(r)
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-	_, err := a.db.Exec(r.Context(), `
-        INSERT INTO frames (brand,name,size_mm,weight_g,notes,status)
-        SELECT brand,name,size_mm,weight_g,notes,'spare' FROM frames WHERE id=$1`, id)
+	n, ok := adjustCount(r)
+	if !ok {
+		http.Redirect(w, r, "/inventory", http.StatusSeeOther)
+		return
+	}
+	var err error
+	if n > 0 {
+		_, err = a.db.Exec(ctx, `
+            INSERT INTO frames (brand,name,size_mm,weight_g,notes,status)
+            SELECT brand,name,size_mm,weight_g,notes,'spare'
+            FROM frames, generate_series(1,$2) WHERE frames.id=$1`, id, n)
+	} else {
+		_, err = a.db.Exec(ctx, `
+            DELETE FROM frames WHERE id IN (
+                SELECT f2.id FROM frames f
+                JOIN frames f2 ON f2.brand=f.brand AND f2.name=f.name
+                WHERE f.id=$1 AND f2.status='spare'
+                AND NOT EXISTS (SELECT 1 FROM drones d WHERE d.frame_id=f2.id)
+                ORDER BY f2.id LIMIT $2)`, id, -n)
+	}
 	if err != nil {
 		httpErr(w, err)
 		return
@@ -1677,15 +1705,33 @@ func (a *App) handleFrameDuplicate(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/inventory", http.StatusSeeOther)
 }
 
-func (a *App) handleFCDuplicate(w http.ResponseWriter, r *http.Request) {
+func (a *App) handleFCAdjust(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	id, ok := parseID(r)
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-	_, err := a.db.Exec(r.Context(), `
-        INSERT INTO flight_controllers (brand,name,mcu,firmware,notes,status)
-        SELECT brand,name,mcu,firmware,notes,'spare' FROM flight_controllers WHERE id=$1`, id)
+	n, ok := adjustCount(r)
+	if !ok {
+		http.Redirect(w, r, "/inventory", http.StatusSeeOther)
+		return
+	}
+	var err error
+	if n > 0 {
+		_, err = a.db.Exec(ctx, `
+            INSERT INTO flight_controllers (brand,name,mcu,firmware,notes,status)
+            SELECT brand,name,mcu,firmware,notes,'spare'
+            FROM flight_controllers, generate_series(1,$2) WHERE flight_controllers.id=$1`, id, n)
+	} else {
+		_, err = a.db.Exec(ctx, `
+            DELETE FROM flight_controllers WHERE id IN (
+                SELECT fc2.id FROM flight_controllers fc
+                JOIN flight_controllers fc2 ON fc2.brand=fc.brand AND fc2.name=fc.name
+                WHERE fc.id=$1 AND fc2.status='spare'
+                AND NOT EXISTS (SELECT 1 FROM drones d WHERE d.fc_id=fc2.id)
+                ORDER BY fc2.id LIMIT $2)`, id, -n)
+	}
 	if err != nil {
 		httpErr(w, err)
 		return
@@ -1693,15 +1739,33 @@ func (a *App) handleFCDuplicate(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/inventory", http.StatusSeeOther)
 }
 
-func (a *App) handleESCDuplicate(w http.ResponseWriter, r *http.Request) {
+func (a *App) handleESCAdjust(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	id, ok := parseID(r)
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-	_, err := a.db.Exec(r.Context(), `
-        INSERT INTO escs (brand,name,current_rating,cell_max,notes,status)
-        SELECT brand,name,current_rating,cell_max,notes,'spare' FROM escs WHERE id=$1`, id)
+	n, ok := adjustCount(r)
+	if !ok {
+		http.Redirect(w, r, "/inventory", http.StatusSeeOther)
+		return
+	}
+	var err error
+	if n > 0 {
+		_, err = a.db.Exec(ctx, `
+            INSERT INTO escs (brand,name,current_rating,cell_max,notes,status)
+            SELECT brand,name,current_rating,cell_max,notes,'spare'
+            FROM escs, generate_series(1,$2) WHERE escs.id=$1`, id, n)
+	} else {
+		_, err = a.db.Exec(ctx, `
+            DELETE FROM escs WHERE id IN (
+                SELECT e2.id FROM escs e
+                JOIN escs e2 ON e2.brand=e.brand AND e2.name=e.name
+                WHERE e.id=$1 AND e2.status='spare'
+                AND NOT EXISTS (SELECT 1 FROM drones d WHERE d.esc_id=e2.id)
+                ORDER BY e2.id LIMIT $2)`, id, -n)
+	}
 	if err != nil {
 		httpErr(w, err)
 		return
@@ -1709,15 +1773,32 @@ func (a *App) handleESCDuplicate(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/inventory", http.StatusSeeOther)
 }
 
-func (a *App) handleMotorDuplicate(w http.ResponseWriter, r *http.Request) {
+func (a *App) handleMotorAdjust(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	id, ok := parseID(r)
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-	_, err := a.db.Exec(r.Context(), `
-        INSERT INTO motors (brand,name,stator_size,kv,notes,status)
-        SELECT brand,name,stator_size,kv,notes,'spare' FROM motors WHERE id=$1`, id)
+	n, ok := adjustCount(r)
+	if !ok {
+		http.Redirect(w, r, "/inventory", http.StatusSeeOther)
+		return
+	}
+	var err error
+	if n > 0 {
+		_, err = a.db.Exec(ctx, `
+            INSERT INTO motors (brand,name,stator_size,kv,notes,status)
+            SELECT brand,name,stator_size,kv,notes,'spare'
+            FROM motors, generate_series(1,$2) WHERE motors.id=$1`, id, n)
+	} else {
+		_, err = a.db.Exec(ctx, `
+            DELETE FROM motors WHERE id IN (
+                SELECT m2.id FROM motors m
+                JOIN motors m2 ON m2.brand=m.brand AND m2.name=m.name
+                WHERE m.id=$1 AND m2.status='spare' AND m2.drone_id IS NULL
+                ORDER BY m2.id LIMIT $2)`, id, -n)
+	}
 	if err != nil {
 		httpErr(w, err)
 		return
@@ -1725,15 +1806,33 @@ func (a *App) handleMotorDuplicate(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/inventory", http.StatusSeeOther)
 }
 
-func (a *App) handleVTXDuplicate(w http.ResponseWriter, r *http.Request) {
+func (a *App) handleVTXAdjust(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	id, ok := parseID(r)
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-	_, err := a.db.Exec(r.Context(), `
-        INSERT INTO vtx_units (brand,name,system,max_power_mw,resolution,weight_g,notes,status)
-        SELECT brand,name,system,max_power_mw,resolution,weight_g,notes,'spare' FROM vtx_units WHERE id=$1`, id)
+	n, ok := adjustCount(r)
+	if !ok {
+		http.Redirect(w, r, "/inventory", http.StatusSeeOther)
+		return
+	}
+	var err error
+	if n > 0 {
+		_, err = a.db.Exec(ctx, `
+            INSERT INTO vtx_units (brand,name,system,max_power_mw,resolution,weight_g,notes,status)
+            SELECT brand,name,system,max_power_mw,resolution,weight_g,notes,'spare'
+            FROM vtx_units, generate_series(1,$2) WHERE vtx_units.id=$1`, id, n)
+	} else {
+		_, err = a.db.Exec(ctx, `
+            DELETE FROM vtx_units WHERE id IN (
+                SELECT v2.id FROM vtx_units v
+                JOIN vtx_units v2 ON v2.brand=v.brand AND v2.name=v.name
+                WHERE v.id=$1 AND v2.status='spare'
+                AND NOT EXISTS (SELECT 1 FROM drones d WHERE d.vtx_id=v2.id)
+                ORDER BY v2.id LIMIT $2)`, id, -n)
+	}
 	if err != nil {
 		httpErr(w, err)
 		return
