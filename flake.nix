@@ -381,11 +381,60 @@
             hostName = "athena";
             extraModules = [
               ({ pkgs, lib, config, modulesPath, ... }:
+                let
+                  fpv-manager = pkgs.buildGoModule {
+                    pname = "fpv-manager";
+                    version = "0.1.0";
+                    src = ./fpv-manager;
+                    vendorHash = "sha256-Qs23BHgrlK0P5BREEzS5Y/2G7mL1pcSd1k3z8NUw/mM=";
+                  };
+                in
                 {
                   networking.hostId = "00000000"; # replace: run `head -c 8 /etc/machine-id` on athena
                   networking.firewall.enable = false;
                   networking.firewall.allowedTCPPorts = [ 22 ];
                   services.vscode-server.enable = true;
+
+                  services.postgresql = {
+                    enable = true;
+                    package = pkgs.postgresql_16;
+                    ensureDatabases = [ "fpv_manager" ];
+                    ensureUsers = [{
+                      name = "fpv_manager";
+                      ensureDBOwnership = true;
+                    }];
+                    authentication = pkgs.lib.mkOverride 10 ''
+                      local  all  all              trust
+                      host   all  all  127.0.0.1/32  trust
+                      host   all  all  ::1/128       trust
+                    '';
+                  };
+
+                  users.users.fpv_manager = {
+                    isSystemUser = true;
+                    group = "fpv_manager";
+                    description = "FPV Manager service user";
+                  };
+                  users.groups.fpv_manager = {};
+
+                  systemd.services.fpv-manager = {
+                    description = "FPV Drone Inventory Manager";
+                    wantedBy = [ "multi-user.target" ];
+                    after = [ "network.target" "postgresql.service" ];
+                    requires = [ "postgresql.service" ];
+                    environment = {
+                      FPV_LISTEN = ":10091";
+                      FPV_DB_DSN = "host=/run/postgresql dbname=fpv_manager user=fpv_manager sslmode=disable";
+                    };
+                    serviceConfig = {
+                      ExecStart = "${fpv-manager}/bin/fpv-manager";
+                      Restart = "on-failure";
+                      RestartSec = "5s";
+                      User = "fpv_manager";
+                      Group = "fpv_manager";
+                    };
+                  };
+
                   systemd.services.restart-broken-containers-after-reboot = {
                     wantedBy = [ "multi-user.target" ];
                     after = [
