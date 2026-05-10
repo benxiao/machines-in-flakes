@@ -124,6 +124,7 @@ CREATE TABLE IF NOT EXISTS item_counts (
 
 -- Migrate old schema if upgrading (DO blocks catch errors when already applied):
 DO $$ BEGIN ALTER TABLE motors      DROP COLUMN drone_id; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DROP INDEX IF EXISTS idx_motors_drone;
 DO $$ BEGIN ALTER TABLE motors      DROP COLUMN status;   EXCEPTION WHEN undefined_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE frames      DROP COLUMN status;   EXCEPTION WHEN undefined_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE flight_controllers DROP COLUMN status; EXCEPTION WHEN undefined_column THEN NULL; END $$;
@@ -194,7 +195,7 @@ CREATE INDEX IF NOT EXISTS idx_drones_frame    ON drones(frame_id);
 CREATE INDEX IF NOT EXISTS idx_drones_fc       ON drones(fc_id);
 CREATE INDEX IF NOT EXISTS idx_drones_esc      ON drones(esc_id);
 CREATE INDEX IF NOT EXISTS idx_drones_vtx      ON drones(vtx_id);
-CREATE INDEX IF NOT EXISTS idx_motors_drone    ON motors(drone_id);
+CREATE INDEX IF NOT EXISTS idx_drones_motor    ON drones(motor_id);
 CREATE INDEX IF NOT EXISTS idx_props_drone     ON propellers(drone_id);
 CREATE INDEX IF NOT EXISTS idx_batteries_drone ON batteries(drone_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_drone  ON sessions(drone_id);
