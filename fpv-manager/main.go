@@ -122,15 +122,15 @@ CREATE TABLE IF NOT EXISTS item_counts (
     PRIMARY KEY (item_type, item_id)
 );
 
--- Migrate old schema if upgrading:
-ALTER TABLE motors DROP COLUMN IF EXISTS drone_id;
-ALTER TABLE motors DROP COLUMN IF EXISTS status;
-ALTER TABLE frames DROP COLUMN IF EXISTS status;
-ALTER TABLE flight_controllers DROP COLUMN IF EXISTS status;
-ALTER TABLE escs DROP COLUMN IF EXISTS status;
-ALTER TABLE vtx_units DROP COLUMN IF EXISTS status;
-ALTER TABLE drones ADD COLUMN IF NOT EXISTS motor_id INTEGER REFERENCES motors(id) ON DELETE SET NULL;
-ALTER TABLE drones ADD COLUMN IF NOT EXISTS motor_count INTEGER NOT NULL DEFAULT 4;
+-- Migrate old schema if upgrading (DO blocks catch errors when already applied):
+DO $$ BEGIN ALTER TABLE motors      DROP COLUMN drone_id; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE motors      DROP COLUMN status;   EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE frames      DROP COLUMN status;   EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE flight_controllers DROP COLUMN status; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE escs        DROP COLUMN status;   EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE vtx_units   DROP COLUMN status;   EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE drones ADD COLUMN motor_id INTEGER REFERENCES motors(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE drones ADD COLUMN motor_count INTEGER NOT NULL DEFAULT 4; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 
 CREATE TABLE IF NOT EXISTS batteries (
     id                  SERIAL PRIMARY KEY,
