@@ -339,6 +339,13 @@ type DroneCheck struct {
 type VideoRow struct {
 	ID           int
 	OriginalName string
+	Notes        string
+}
+
+type PhotoRow struct {
+	ID           int
+	OriginalName string
+	Notes        string
 }
 
 type SessionFormPage struct {
@@ -365,6 +372,7 @@ type SessionDetailPage struct {
 	Notes      string
 	Batteries  []BatteryRow
 	Videos     []VideoRow
+	Photos     []PhotoRow
 }
 
 // ---- Template engine ----
@@ -1731,7 +1739,7 @@ const sessionDetailTmpl = `{{define "content"}}
 
 <h3>Videos</h3>
 {{if .Videos}}
-<div style="display:flex;flex-direction:column;gap:16px;max-width:860px;margin-bottom:24px">
+<div style="display:flex;flex-direction:column;gap:20px;max-width:860px;margin-bottom:16px">
 {{range .Videos}}
 <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:12px">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
@@ -1743,15 +1751,43 @@ const sessionDetailTmpl = `{{define "content"}}
   <video controls style="width:100%;border-radius:4px;max-height:480px;background:#000">
     <source src="/videos/{{.ID}}">
   </video>
+  <form method="POST" action="/videos/{{.ID}}/note" style="margin-top:10px;display:flex;gap:8px;align-items:flex-start">
+    <textarea name="notes" rows="2" style="flex:1;resize:vertical" placeholder="Add a note…">{{.Notes}}</textarea>
+    <button class="btn btn-sm btn-edit" type="submit">Save</button>
+  </form>
 </div>
 {{end}}
 </div>
 {{else}}
-<p class="muted" style="margin-bottom:16px">No videos yet.</p>
+<p class="muted" style="margin-bottom:8px">No videos yet.</p>
 {{end}}
-<form method="POST" action="/log/{{.ID}}/videos" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center;margin-bottom:24px">
+<form method="POST" action="/log/{{.ID}}/videos" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center;margin-bottom:32px">
   <input type="file" name="video" accept="video/*" style="color:#c9d1d9;font-size:13px">
-  <button class="btn btn-primary" type="submit">Upload</button>
+  <button class="btn btn-primary" type="submit">Upload Video</button>
+</form>
+
+<h3>Photos</h3>
+{{if .Photos}}
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;max-width:860px;margin-bottom:16px">
+{{range .Photos}}
+<div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px">
+  <img src="/photos/{{.ID}}" style="width:100%;border-radius:4px;display:block;max-height:300px;object-fit:cover">
+  <form method="POST" action="/photos/{{.ID}}/note" style="margin-top:8px;display:flex;gap:6px;align-items:flex-start">
+    <textarea name="notes" rows="2" style="flex:1;resize:vertical;font-size:13px" placeholder="Add a note…">{{.Notes}}</textarea>
+    <button class="btn btn-sm btn-edit" type="submit">Save</button>
+  </form>
+  <form method="POST" action="/photos/{{.ID}}/delete" style="margin-top:6px">
+    <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+  </form>
+</div>
+{{end}}
+</div>
+{{else}}
+<p class="muted" style="margin-bottom:8px">No photos yet.</p>
+{{end}}
+<form method="POST" action="/log/{{.ID}}/photos" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center;margin-bottom:32px">
+  <input type="file" name="photo" accept="image/*" style="color:#c9d1d9;font-size:13px">
+  <button class="btn btn-primary" type="submit">Upload Photo</button>
 </form>
 
 <p><a href="/log">&larr; Back to log</a></p>

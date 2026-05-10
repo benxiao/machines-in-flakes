@@ -1746,19 +1746,39 @@ func (a *App) handleSessionDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err = a.db.Query(ctx,
-		`SELECT id, original_name FROM session_videos WHERE session_id=$1 ORDER BY created_at`, id)
+		`SELECT id, original_name, notes FROM session_videos WHERE session_id=$1 ORDER BY created_at`, id)
 	if err != nil {
 		httpErr(w, err)
 		return
 	}
 	for rows.Next() {
 		var v VideoRow
-		if err := rows.Scan(&v.ID, &v.OriginalName); err != nil {
+		if err := rows.Scan(&v.ID, &v.OriginalName, &v.Notes); err != nil {
 			rows.Close()
 			httpErr(w, err)
 			return
 		}
 		page.Videos = append(page.Videos, v)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		httpErr(w, err)
+		return
+	}
+	rows, err = a.db.Query(ctx,
+		`SELECT id, original_name, notes FROM session_photos WHERE session_id=$1 ORDER BY created_at`, id)
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	for rows.Next() {
+		var p PhotoRow
+		if err := rows.Scan(&p.ID, &p.OriginalName, &p.Notes); err != nil {
+			rows.Close()
+			httpErr(w, err)
+			return
+		}
+		page.Photos = append(page.Photos, p)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
@@ -2187,5 +2207,127 @@ func (a *App) handleVideoDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	a.db.Exec(ctx, `DELETE FROM session_videos WHERE id=$1`, id)
 	os.Remove(filepath.Join(a.videoDir, filename))
+	http.Redirect(w, r, fmt.Sprintf("/log/%d", sessionID), http.StatusSeeOther)
+}
+
+func (a *App) handleVideoNote(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	ctx := r.Context()
+	if err := r.ParseForm(); err != nil {
+		httpErr(w, err)
+		return
+	}
+	var sessionID int
+	err := a.db.QueryRow(ctx, `SELECT session_id FROM session_videos WHERE id=$1`, id).Scan(&sessionID)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	a.db.Exec(ctx, `UPDATE session_videos SET notes=$1 WHERE id=$2`, r.FormValue("notes"), id)
+	http.Redirect(w, r, fmt.Sprintf("/log/%d", sessionID), http.StatusSeeOther)
+}
+
+func (a *App) handlePhotoUpload(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	ctx := r.Context()
+	if err := r.ParseMultipartForm(256 << 20); err != nil {
+		httpErr(w, err)
+		return
+	}
+	file, header, err := r.FormFile("photo")
+	if err != nil {
+		http.Redirect(w, r, fmt.Sprintf("/log/%d", id), http.StatusSeeOther)
+		return
+	}
+	defer file.Close()
+
+	ext := filepath.Ext(header.Filename)
+	filename := fmt.Sprintf("%d%s", time.Now().UnixNano(), ext)
+	dst := filepath.Join(a.videoDir, filename)
+	out, err := os.Create(dst)
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	if _, err := io.Copy(out, file); err != nil {
+		out.Close()
+		os.Remove(dst)
+		httpErr(w, err)
+		return
+	}
+	out.Close()
+
+	_, err = a.db.Exec(ctx,
+		`INSERT INTO session_photos (session_id,filename,original_name) VALUES ($1,$2,$3)`,
+		id, filename, header.Filename)
+	if err != nil {
+		os.Remove(dst)
+		httpErr(w, err)
+		return
+	}
+	http.Redirect(w, r, fmt.Sprintf("/log/%d", id), http.StatusSeeOther)
+}
+
+func (a *App) handlePhotoServe(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	var filename string
+	err := a.db.QueryRow(r.Context(), `SELECT filename FROM session_photos WHERE id=$1`, id).Scan(&filename)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	http.ServeFile(w, r, filepath.Join(a.videoDir, filename))
+}
+
+func (a *App) handlePhotoDelete(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	ctx := r.Context()
+	var filename string
+	var sessionID int
+	err := a.db.QueryRow(ctx,
+		`SELECT session_id,filename FROM session_photos WHERE id=$1`, id).Scan(&sessionID, &filename)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	a.db.Exec(ctx, `DELETE FROM session_photos WHERE id=$1`, id)
+	os.Remove(filepath.Join(a.videoDir, filename))
+	http.Redirect(w, r, fmt.Sprintf("/log/%d", sessionID), http.StatusSeeOther)
+}
+
+func (a *App) handlePhotoNote(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	ctx := r.Context()
+	if err := r.ParseForm(); err != nil {
+		httpErr(w, err)
+		return
+	}
+	var sessionID int
+	err := a.db.QueryRow(ctx, `SELECT session_id FROM session_photos WHERE id=$1`, id).Scan(&sessionID)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	a.db.Exec(ctx, `UPDATE session_photos SET notes=$1 WHERE id=$2`, r.FormValue("notes"), id)
 	http.Redirect(w, r, fmt.Sprintf("/log/%d", sessionID), http.StatusSeeOther)
 }

@@ -216,6 +216,16 @@ CREATE TABLE IF NOT EXISTS session_videos (
     session_id    INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     filename      TEXT NOT NULL,
     original_name TEXT NOT NULL DEFAULT '',
+    notes         TEXT NOT NULL DEFAULT '',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS session_photos (
+    id            SERIAL PRIMARY KEY,
+    session_id    INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    filename      TEXT NOT NULL,
+    original_name TEXT NOT NULL DEFAULT '',
+    notes         TEXT NOT NULL DEFAULT '',
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -252,6 +262,7 @@ DO $$ BEGIN
 EXCEPTION WHEN undefined_column THEN NULL;
 END $$;
 DO $$ BEGIN ALTER TABLE sessions DROP COLUMN drone_id; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE session_videos ADD COLUMN notes TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 
 CREATE INDEX IF NOT EXISTS idx_drones_frame    ON drones(frame_id);
 CREATE INDEX IF NOT EXISTS idx_drones_fc       ON drones(fc_id);
@@ -264,6 +275,7 @@ CREATE INDEX IF NOT EXISTS idx_drones_rx       ON drones(rx_id);
 CREATE INDEX IF NOT EXISTS idx_props_drone     ON propellers(drone_id);
 CREATE INDEX IF NOT EXISTS idx_sd_drone        ON session_drones(drone_id);
 CREATE INDEX IF NOT EXISTS idx_sv_session      ON session_videos(session_id);
+CREATE INDEX IF NOT EXISTS idx_sp_session      ON session_photos(session_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_date   ON sessions(session_date DESC);
 CREATE INDEX IF NOT EXISTS idx_sb_battery      ON session_batteries(battery_id);
 `
@@ -336,6 +348,11 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /log/{id}/videos", a.handleVideoUpload)
 	mux.HandleFunc("GET /videos/{id}", a.handleVideoServe)
 	mux.HandleFunc("POST /videos/{id}/delete", a.handleVideoDelete)
+	mux.HandleFunc("POST /videos/{id}/note", a.handleVideoNote)
+	mux.HandleFunc("POST /log/{id}/photos", a.handlePhotoUpload)
+	mux.HandleFunc("GET /photos/{id}", a.handlePhotoServe)
+	mux.HandleFunc("POST /photos/{id}/delete", a.handlePhotoDelete)
+	mux.HandleFunc("POST /photos/{id}/note", a.handlePhotoNote)
 }
 
 func parseID(r *http.Request) (int, bool) {
