@@ -65,8 +65,9 @@ type FrameRow struct {
 	Name        string
 	SizeMM      string
 	WeightG     string
-	Status      string
+	Status      string // kept for retired row dimming
 	InstalledOn string
+	Available   int
 }
 
 type FCRow struct {
@@ -77,6 +78,7 @@ type FCRow struct {
 	Firmware    string
 	Status      string
 	InstalledOn string
+	Available   int
 }
 
 type ESCRow struct {
@@ -87,6 +89,7 @@ type ESCRow struct {
 	CellMax       string
 	Status        string
 	InstalledOn   string
+	Available     int
 }
 
 type MotorRow struct {
@@ -97,6 +100,7 @@ type MotorRow struct {
 	KV          string
 	Status      string
 	InstalledOn string
+	Available   int
 }
 
 type VTXRow struct {
@@ -108,6 +112,7 @@ type VTXRow struct {
 	Resolution  string
 	Status      string
 	InstalledOn string
+	Available   int
 }
 
 type FrameFormPage struct {
@@ -733,7 +738,7 @@ const inventoryTmpl = `{{define "content"}}
   {{if .Frames}}
   <div class="table-wrap">
   <table>
-  <thead><tr><th>Brand</th><th>Name</th><th>Size</th><th>Weight</th><th>Status</th><th>Installed On</th><th></th></tr></thead>
+  <thead><tr><th>Brand</th><th>Name</th><th>Size</th><th>Weight</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .Frames}}
   <tr class="{{if eq .Status "retired"}}retired{{end}}">
@@ -741,8 +746,8 @@ const inventoryTmpl = `{{define "content"}}
     <td>{{.Name}}</td>
     <td class="muted">{{if .SizeMM}}{{.SizeMM}}mm{{else}}—{{end}}</td>
     <td class="muted">{{if .WeightG}}{{.WeightG}}g{{else}}—{{end}}</td>
-    <td><span class="badge {{badgeClass .Status}}">{{.Status}}</span></td>
-    <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">spare</span>{{end}}</td>
+    <td>{{if gt .Available 0}}<span style="color:#3fb950;font-weight:500">{{.Available}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
+    <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
     <td class="actions-cell">
       <a href="/frames/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
       <form class="inline" method="POST" action="/frames/{{.ID}}/delete">
@@ -763,7 +768,7 @@ const inventoryTmpl = `{{define "content"}}
   {{if .FCs}}
   <div class="table-wrap">
   <table>
-  <thead><tr><th>Brand</th><th>Name</th><th>MCU</th><th>Firmware</th><th>Status</th><th>Installed On</th><th></th></tr></thead>
+  <thead><tr><th>Brand</th><th>Name</th><th>MCU</th><th>Firmware</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .FCs}}
   <tr class="{{if eq .Status "retired"}}retired{{end}}">
@@ -771,8 +776,8 @@ const inventoryTmpl = `{{define "content"}}
     <td>{{.Name}}</td>
     <td class="muted">{{dash .MCU}}</td>
     <td class="muted">{{dash .Firmware}}</td>
-    <td><span class="badge {{badgeClass .Status}}">{{.Status}}</span></td>
-    <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">spare</span>{{end}}</td>
+    <td>{{if gt .Available 0}}<span style="color:#3fb950;font-weight:500">{{.Available}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
+    <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
     <td class="actions-cell">
       <a href="/fcs/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
       <form class="inline" method="POST" action="/fcs/{{.ID}}/delete">
@@ -793,7 +798,7 @@ const inventoryTmpl = `{{define "content"}}
   {{if .ESCs}}
   <div class="table-wrap">
   <table>
-  <thead><tr><th>Brand</th><th>Name</th><th>Current</th><th>Max Cell</th><th>Status</th><th>Installed On</th><th></th></tr></thead>
+  <thead><tr><th>Brand</th><th>Name</th><th>Current</th><th>Max Cell</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .ESCs}}
   <tr class="{{if eq .Status "retired"}}retired{{end}}">
@@ -801,8 +806,8 @@ const inventoryTmpl = `{{define "content"}}
     <td>{{.Name}}</td>
     <td class="muted">{{if .CurrentRating}}{{.CurrentRating}}A{{else}}—{{end}}</td>
     <td class="muted">{{if .CellMax}}{{.CellMax}}S{{else}}—{{end}}</td>
-    <td><span class="badge {{badgeClass .Status}}">{{.Status}}</span></td>
-    <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">spare</span>{{end}}</td>
+    <td>{{if gt .Available 0}}<span style="color:#3fb950;font-weight:500">{{.Available}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
+    <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
     <td class="actions-cell">
       <a href="/escs/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
       <form class="inline" method="POST" action="/escs/{{.ID}}/delete">
@@ -823,7 +828,7 @@ const inventoryTmpl = `{{define "content"}}
   {{if .Motors}}
   <div class="table-wrap">
   <table>
-  <thead><tr><th>Brand</th><th>Name</th><th>Stator</th><th>KV</th><th>Status</th><th>Installed On</th><th></th></tr></thead>
+  <thead><tr><th>Brand</th><th>Name</th><th>Stator</th><th>KV</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .Motors}}
   <tr class="{{if eq .Status "retired"}}retired{{end}}">
@@ -831,8 +836,8 @@ const inventoryTmpl = `{{define "content"}}
     <td>{{.Name}}</td>
     <td class="muted">{{dash .StatorSize}}</td>
     <td class="muted">{{if .KV}}{{.KV}}kv{{else}}—{{end}}</td>
-    <td><span class="badge {{badgeClass .Status}}">{{.Status}}</span></td>
-    <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">spare</span>{{end}}</td>
+    <td>{{if gt .Available 0}}<span style="color:#3fb950;font-weight:500">{{.Available}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
+    <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
     <td class="actions-cell">
       <a href="/motors/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
       <form class="inline" method="POST" action="/motors/{{.ID}}/delete">
@@ -853,7 +858,7 @@ const inventoryTmpl = `{{define "content"}}
   {{if .VTXs}}
   <div class="table-wrap">
   <table>
-  <thead><tr><th>Brand</th><th>Name</th><th>System</th><th>Max Power</th><th>Resolution</th><th>Status</th><th>Installed On</th><th></th></tr></thead>
+  <thead><tr><th>Brand</th><th>Name</th><th>System</th><th>Max Power</th><th>Resolution</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .VTXs}}
   <tr class="{{if eq .Status "retired"}}retired{{end}}">
@@ -862,8 +867,8 @@ const inventoryTmpl = `{{define "content"}}
     <td class="muted">{{dash .System}}</td>
     <td class="muted">{{if .MaxPowerMW}}{{.MaxPowerMW}}mW{{else}}—{{end}}</td>
     <td class="muted">{{dash .Resolution}}</td>
-    <td><span class="badge {{badgeClass .Status}}">{{.Status}}</span></td>
-    <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">spare</span>{{end}}</td>
+    <td>{{if gt .Available 0}}<span style="color:#3fb950;font-weight:500">{{.Available}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
+    <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
     <td class="actions-cell">
       <a href="/vtx/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
       <form class="inline" method="POST" action="/vtx/{{.ID}}/delete">

@@ -358,7 +358,11 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := a.db.Query(ctx, `
         SELECT f.id, f.brand, f.name, f.size_mm, f.weight_g, f.status,
-               COALESCE(d.name,'')
+               COALESCE(d.name,''),
+               (SELECT COUNT(*) FROM frames f2
+                WHERE f2.brand=f.brand AND f2.name=f.name
+                AND f2.status='spare'
+                AND NOT EXISTS (SELECT 1 FROM drones d2 WHERE d2.frame_id=f2.id))
         FROM frames f LEFT JOIN drones d ON d.frame_id=f.id
         ORDER BY (f.status='retired'), d.name NULLS LAST, f.brand, f.name`)
 	if err != nil {
@@ -368,7 +372,7 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var fr FrameRow
 		var sizeMM, weightG *int
-		if err := rows.Scan(&fr.ID, &fr.Brand, &fr.Name, &sizeMM, &weightG, &fr.Status, &fr.InstalledOn); err != nil {
+		if err := rows.Scan(&fr.ID, &fr.Brand, &fr.Name, &sizeMM, &weightG, &fr.Status, &fr.InstalledOn, &fr.Available); err != nil {
 			rows.Close()
 			httpErr(w, err)
 			return
@@ -389,7 +393,11 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 
 	rows, err = a.db.Query(ctx, `
         SELECT fc.id, fc.brand, fc.name, fc.mcu, fc.firmware, fc.status,
-               COALESCE(d.name,'')
+               COALESCE(d.name,''),
+               (SELECT COUNT(*) FROM flight_controllers fc2
+                WHERE fc2.brand=fc.brand AND fc2.name=fc.name
+                AND fc2.status='spare'
+                AND NOT EXISTS (SELECT 1 FROM drones d2 WHERE d2.fc_id=fc2.id))
         FROM flight_controllers fc LEFT JOIN drones d ON d.fc_id=fc.id
         ORDER BY (fc.status='retired'), d.name NULLS LAST, fc.brand, fc.name`)
 	if err != nil {
@@ -398,7 +406,7 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 	}
 	for rows.Next() {
 		var fc FCRow
-		if err := rows.Scan(&fc.ID, &fc.Brand, &fc.Name, &fc.MCU, &fc.Firmware, &fc.Status, &fc.InstalledOn); err != nil {
+		if err := rows.Scan(&fc.ID, &fc.Brand, &fc.Name, &fc.MCU, &fc.Firmware, &fc.Status, &fc.InstalledOn, &fc.Available); err != nil {
 			rows.Close()
 			httpErr(w, err)
 			return
@@ -413,7 +421,11 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 
 	rows, err = a.db.Query(ctx, `
         SELECT e.id, e.brand, e.name, e.current_rating, e.cell_max, e.status,
-               COALESCE(d.name,'')
+               COALESCE(d.name,''),
+               (SELECT COUNT(*) FROM escs e2
+                WHERE e2.brand=e.brand AND e2.name=e.name
+                AND e2.status='spare'
+                AND NOT EXISTS (SELECT 1 FROM drones d2 WHERE d2.esc_id=e2.id))
         FROM escs e LEFT JOIN drones d ON d.esc_id=e.id
         ORDER BY (e.status='retired'), d.name NULLS LAST, e.brand, e.name`)
 	if err != nil {
@@ -423,7 +435,7 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var e ESCRow
 		var cr, cm *int
-		if err := rows.Scan(&e.ID, &e.Brand, &e.Name, &cr, &cm, &e.Status, &e.InstalledOn); err != nil {
+		if err := rows.Scan(&e.ID, &e.Brand, &e.Name, &cr, &cm, &e.Status, &e.InstalledOn, &e.Available); err != nil {
 			rows.Close()
 			httpErr(w, err)
 			return
@@ -444,7 +456,10 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 
 	rows, err = a.db.Query(ctx, `
         SELECT m.id, m.brand, m.name, m.stator_size, m.kv, m.status,
-               COALESCE(d.name,'')
+               COALESCE(d.name,''),
+               (SELECT COUNT(*) FROM motors m2
+                WHERE m2.brand=m.brand AND m2.name=m.name
+                AND m2.status='spare' AND m2.drone_id IS NULL)
         FROM motors m LEFT JOIN drones d ON d.id=m.drone_id
         ORDER BY (m.status='retired'), d.name NULLS LAST, m.brand, m.name`)
 	if err != nil {
@@ -454,7 +469,7 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var m MotorRow
 		var kv *int
-		if err := rows.Scan(&m.ID, &m.Brand, &m.Name, &m.StatorSize, &kv, &m.Status, &m.InstalledOn); err != nil {
+		if err := rows.Scan(&m.ID, &m.Brand, &m.Name, &m.StatorSize, &kv, &m.Status, &m.InstalledOn, &m.Available); err != nil {
 			rows.Close()
 			httpErr(w, err)
 			return
@@ -472,7 +487,11 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 
 	rows, err = a.db.Query(ctx, `
         SELECT v.id, v.brand, v.name, v.system, v.max_power_mw, v.resolution, v.status,
-               COALESCE(d.name,'')
+               COALESCE(d.name,''),
+               (SELECT COUNT(*) FROM vtx_units v2
+                WHERE v2.brand=v.brand AND v2.name=v.name
+                AND v2.status='spare'
+                AND NOT EXISTS (SELECT 1 FROM drones d2 WHERE d2.vtx_id=v2.id))
         FROM vtx_units v LEFT JOIN drones d ON d.vtx_id=v.id
         ORDER BY (v.status='retired'), d.name NULLS LAST, v.brand, v.name`)
 	if err != nil {
@@ -482,7 +501,7 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var v VTXRow
 		var mw *int
-		if err := rows.Scan(&v.ID, &v.Brand, &v.Name, &v.System, &mw, &v.Resolution, &v.Status, &v.InstalledOn); err != nil {
+		if err := rows.Scan(&v.ID, &v.Brand, &v.Name, &v.System, &mw, &v.Resolution, &v.Status, &v.InstalledOn, &v.Available); err != nil {
 			rows.Close()
 			httpErr(w, err)
 			return
