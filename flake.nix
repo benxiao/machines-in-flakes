@@ -395,6 +395,11 @@
                   networking.firewall.allowedTCPPorts = [ 22 ];
                   services.vscode-server.enable = true;
 
+                  # Headless server — no GPU or monitor attached
+                  services.xserver.enable = lib.mkForce false;
+                  services.displayManager.gdm.enable = lib.mkForce false;
+                  services.desktopManager.gnome.enable = lib.mkForce false;
+
                   services.postgresql = {
                     enable = true;
                     package = pkgs.postgresql_16;
