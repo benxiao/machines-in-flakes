@@ -128,6 +128,12 @@ type BoardViewPage struct {
 	Columns []Column
 }
 
+type CardNewPage struct {
+	Board   Board
+	Columns []Column
+	Users   []User
+}
+
 type CardEditPage struct {
 	Card         Card
 	BoardID      int
@@ -166,6 +172,7 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /columns/{id}/delete", a.handleColumnDelete)
 	mux.HandleFunc("POST /columns/{id}/rename", a.handleColumnRename)
 	mux.HandleFunc("POST /columns/{id}/cards", a.handleCardCreate)
+	mux.HandleFunc("/boards/{id}/cards/new", a.handleCardNew)
 	mux.HandleFunc("/cards/{id}", a.handleCardEdit)
 	mux.HandleFunc("POST /cards/{id}/delete", a.handleCardDelete)
 	mux.HandleFunc("POST /api/move", a.handleMove)
@@ -568,6 +575,72 @@ func (a *App) handleMove(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(200)
 }
 
+// ── Card creation ─────────────────────────────────────────────────────────────
+
+func (a *App) handleCardNew(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r) // board id
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	ctx := r.Context()
+
+	var board Board
+	err := a.db.QueryRow(ctx, `SELECT id, name FROM boards WHERE id=$1`, id).Scan(&board.ID, &board.Name)
+	if err == pgx.ErrNoRows {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		if err := r.ParseForm(); err != nil {
+			httpErr(w, err)
+			return
+		}
+		title := strings.TrimSpace(r.FormValue("title"))
+		colID, _ := strconv.Atoi(r.FormValue("column_id"))
+		if title == "" || colID == 0 {
+			seeOther(w, r, fmt.Sprintf("/boards/%d/cards/new", id))
+			return
+		}
+		var createdBy *int
+		if v := r.FormValue("created_by"); v != "" {
+			if uid, err := strconv.Atoi(v); err == nil {
+				createdBy = &uid
+			}
+		}
+		var maxPos int
+		a.db.QueryRow(ctx, `SELECT COALESCE(MAX(position),0) FROM cards WHERE column_id=$1`, colID).Scan(&maxPos)
+		a.db.Exec(ctx,
+			`INSERT INTO cards (column_id, title, position, created_by) VALUES ($1,$2,$3,$4)`,
+			colID, title, maxPos+1000, createdBy)
+		seeOther(w, r, fmt.Sprintf("/boards/%d", id))
+		return
+	}
+
+	colRows, err := a.db.Query(ctx,
+		`SELECT id, name FROM columns WHERE board_id=$1 ORDER BY position`, id)
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	defer colRows.Close()
+	var columns []Column
+	for colRows.Next() {
+		var col Column
+		colRows.Scan(&col.ID, &col.Name)
+		columns = append(columns, col)
+	}
+	colRows.Close()
+
+	users, _ := a.listUsers(ctx)
+	render(w, "card-new", CardNewPage{Board: board, Columns: columns, Users: users})
+}
+
 // ── User handlers ─────────────────────────────────────────────────────────────
 
 func (a *App) listUsers(ctx context.Context) ([]User, error) {
@@ -665,7 +738,7 @@ textarea{min-height:100px;resize:vertical}
 /* Kanban board */
 .board-wrap{overflow-x:auto;padding-bottom:16px}
 .board-cols{display:flex;gap:12px;align-items:flex-start;min-height:calc(100vh - 140px)}
-.column{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:10px;width:280px;flex-shrink:0;display:flex;flex-direction:column}
+.column{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:10px;flex:1;min-width:160px;display:flex;flex-direction:column}
 .col-header{display:flex;align-items:center;gap:6px;margin-bottom:8px;min-height:32px}
 .col-name{font-weight:600;color:#f0f6fc;flex:1;padding:4px 6px;border-radius:4px;outline:none;cursor:text;font-size:14px}
 .col-name:hover{background:#21262d}
@@ -686,12 +759,7 @@ textarea{min-height:100px;resize:vertical}
 .card-due{font-size:11px;color:#6e7681;margin-top:4px}
 .card-due.overdue{color:#f85149;font-weight:600}
 .card-desc{font-size:11px;color:#6e7681;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
-.add-card-form{margin-top:8px;display:flex;flex-direction:column;gap:6px}
-.add-card-input{background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;padding:6px 10px;font-size:13px;font-family:inherit;width:100%}
-.add-card-input::placeholder{color:#6e7681}
-.add-card-input:focus{outline:none;border-color:#58a6ff}
-.add-card-row{display:flex;gap:6px}
-.add-col-panel{background:#161b22;border:1px dashed #30363d;border-radius:8px;padding:10px;width:280px;flex-shrink:0;display:flex;flex-direction:column;gap:8px}
+.add-col-panel{background:#161b22;border:1px dashed #30363d;border-radius:8px;padding:10px;width:200px;flex-shrink:0;display:flex;flex-direction:column;gap:8px}
 .add-col-panel input{background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;padding:7px 10px;font-size:13px;font-family:inherit;width:100%}
 .add-col-panel input:focus{outline:none;border-color:#58a6ff}
 
@@ -761,10 +829,13 @@ const boardViewTmpl = `{{define "header-extra"}}
   data-id="{{.Board.ID}}"
   onblur="renameBoard(this)"
   onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur()}">{{.Board.Name}}</span>
-<form method="POST" action="/boards/{{.Board.ID}}/delete" style="margin-left:auto"
-  onsubmit="return confirm('Delete this board and all its cards?')">
-  <button class="btn btn-sm btn-danger">Delete Board</button>
-</form>
+<div style="display:flex;gap:8px;align-items:center;margin-left:auto">
+  <a href="/boards/{{.Board.ID}}/cards/new" class="btn btn-primary btn-sm">+ Add Card</a>
+  <form method="POST" action="/boards/{{.Board.ID}}/delete"
+    onsubmit="return confirm('Delete this board and all its cards?')">
+    <button class="btn btn-sm btn-danger">Delete Board</button>
+  </form>
+</div>
 {{end}}
 {{define "content"}}
 <div class="board-wrap">
@@ -808,12 +879,6 @@ const boardViewTmpl = `{{define "header-extra"}}
     {{end}}
   </div>
 
-  <form method="POST" action="/columns/{{.ID}}/cards" class="add-card-form">
-    <input type="text" name="title" placeholder="Add a card…" class="add-card-input">
-    <div class="add-card-row">
-      <button class="btn btn-sm btn-primary" type="submit">Add</button>
-    </div>
-  </form>
 </div>
 {{end}}
 
@@ -959,6 +1024,43 @@ const cardEditTmpl = `{{define "header-extra"}}
 </div>
 {{end}}`
 
+const cardNewTmpl = `{{define "header-extra"}}
+<a href="/boards/{{.Board.ID}}" class="header-back">← {{.Board.Name}}</a>
+<span class="header-back" style="color:#6e7681">/ New Card</span>
+{{end}}
+{{define "content"}}
+<div class="form-page">
+<form method="POST">
+  <div class="form-group">
+    <label>Title *</label>
+    <input type="text" name="title" autofocus required placeholder="e.g. Fix login bug">
+  </div>
+  <div class="form-group">
+    <label>Column *</label>
+    <select name="column_id" required>
+      <option value="">— choose a column —</option>
+      {{range .Columns}}
+      <option value="{{.ID}}">{{.Name}}</option>
+      {{end}}
+    </select>
+  </div>
+  <div class="form-group">
+    <label>Created By</label>
+    <select name="created_by">
+      <option value="">— none —</option>
+      {{range .Users}}
+      <option value="{{.ID}}">{{if eq .Kind "agent"}}🤖 {{end}}{{.Name}}</option>
+      {{end}}
+    </select>
+  </div>
+  <div class="form-actions">
+    <button class="btn btn-primary" type="submit">Create Card</button>
+    <a href="/boards/{{.Board.ID}}" class="btn btn-cancel">Cancel</a>
+  </div>
+</form>
+</div>
+{{end}}`
+
 const userListTmpl = `{{define "content"}}
 <div class="page-header">
   <h2>Users</h2>
@@ -1034,6 +1136,7 @@ func initTemplates() {
 	}
 	add("board-list", boardListTmpl)
 	add("board-view", boardViewTmpl)
+	add("card-new", cardNewTmpl)
 	add("card-edit", cardEditTmpl)
 	add("user-list", userListTmpl)
 }
