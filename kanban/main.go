@@ -22,6 +22,13 @@ const defaultListen = ":10092"
 const defaultDSN = "host=/run/postgresql dbname=kanban user=kanban sslmode=disable"
 
 const schema = `
+CREATE TABLE IF NOT EXISTS users (
+    id         SERIAL PRIMARY KEY,
+    name       TEXT NOT NULL,
+    kind       TEXT NOT NULL DEFAULT 'human' CHECK (kind IN ('human', 'agent')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS boards (
     id         SERIAL PRIMARY KEY,
     name       TEXT NOT NULL,
@@ -47,13 +54,25 @@ CREATE TABLE IF NOT EXISTS cards (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Migration: add created_by to existing cards tables
+DO $$ BEGIN
+  ALTER TABLE cards ADD COLUMN created_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
+EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+
 CREATE INDEX IF NOT EXISTS idx_columns_board    ON columns(board_id);
 CREATE INDEX IF NOT EXISTS idx_columns_position ON columns(board_id, position);
 CREATE INDEX IF NOT EXISTS idx_cards_column     ON cards(column_id);
 CREATE INDEX IF NOT EXISTS idx_cards_position   ON cards(column_id, position);
+CREATE INDEX IF NOT EXISTS idx_cards_created_by ON cards(created_by);
 `
 
 // ── Data types ────────────────────────────────────────────────────────────────
+
+type User struct {
+	ID   int
+	Name string
+	Kind string // "human" | "agent"
+}
 
 type Board struct {
 	ID        int
@@ -70,15 +89,18 @@ type Column struct {
 }
 
 type Card struct {
-	ID          int
-	ColumnID    int
-	Title       string
-	Description string
-	Label       string
-	DueDate     *time.Time
-	DueDateStr  string // "2006-01-02" for <input type="date">
-	Position    int
-	Overdue     bool
+	ID            int
+	ColumnID      int
+	Title         string
+	Description   string
+	Label         string
+	DueDate       *time.Time
+	DueDateStr    string // "2006-01-02" for <input type="date">
+	Position      int
+	Overdue       bool
+	CreatedByID   *int
+	CreatedByName string
+	CreatedByKind string
 }
 
 type LabelOption struct{ Name, Color string }
@@ -112,7 +134,10 @@ type CardEditPage struct {
 	BoardName    string
 	ColumnName   string
 	LabelOptions []LabelOption
+	Users        []User
 }
+
+type UserListPage struct{ Users []User }
 
 // ── App ───────────────────────────────────────────────────────────────────────
 
@@ -144,6 +169,9 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/cards/{id}", a.handleCardEdit)
 	mux.HandleFunc("POST /cards/{id}/delete", a.handleCardDelete)
 	mux.HandleFunc("POST /api/move", a.handleMove)
+	mux.HandleFunc("/users", a.handleUsers)
+	mux.HandleFunc("POST /users", a.handleUserCreate)
+	mux.HandleFunc("POST /users/{id}/delete", a.handleUserDelete)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -287,8 +315,10 @@ func (a *App) handleBoardView(w http.ResponseWriter, r *http.Request) {
 			colIDs[i] = c.ID
 		}
 		cardRows, err := a.db.Query(ctx,
-			`SELECT id, column_id, title, description, label, due_date, position
-			 FROM cards WHERE column_id = ANY($1) ORDER BY position`, colIDs)
+			`SELECT c.id, c.column_id, c.title, c.description, c.label, c.due_date,
+			        c.position, c.created_by, u.name, u.kind
+			 FROM cards c LEFT JOIN users u ON u.id = c.created_by
+			 WHERE c.column_id = ANY($1) ORDER BY c.position`, colIDs)
 		if err != nil {
 			httpErr(w, err)
 			return
@@ -297,7 +327,8 @@ func (a *App) handleBoardView(w http.ResponseWriter, r *http.Request) {
 		cardsByCol := map[int][]Card{}
 		for cardRows.Next() {
 			var c Card
-			cardRows.Scan(&c.ID, &c.ColumnID, &c.Title, &c.Description, &c.Label, &c.DueDate, &c.Position)
+			cardRows.Scan(&c.ID, &c.ColumnID, &c.Title, &c.Description, &c.Label, &c.DueDate,
+				&c.Position, &c.CreatedByID, &c.CreatedByName, &c.CreatedByKind)
 			enrichCard(&c)
 			cardsByCol[c.ColumnID] = append(cardsByCol[c.ColumnID], c)
 		}
@@ -412,9 +443,15 @@ func (a *App) handleCardEdit(w http.ResponseWriter, r *http.Request) {
 				dueDate = &t
 			}
 		}
+		var createdBy *int
+		if v := r.FormValue("created_by"); v != "" {
+			if uid, err := strconv.Atoi(v); err == nil {
+				createdBy = &uid
+			}
+		}
 		a.db.Exec(ctx,
-			`UPDATE cards SET title=$1, description=$2, label=$3, due_date=$4 WHERE id=$5`,
-			title, desc, label, dueDate, id)
+			`UPDATE cards SET title=$1, description=$2, label=$3, due_date=$4, created_by=$5 WHERE id=$6`,
+			title, desc, label, dueDate, createdBy, id)
 		var colID int
 		a.db.QueryRow(ctx, `SELECT column_id FROM cards WHERE id=$1`, id).Scan(&colID)
 		var boardID int
@@ -425,8 +462,11 @@ func (a *App) handleCardEdit(w http.ResponseWriter, r *http.Request) {
 
 	var c Card
 	err := a.db.QueryRow(ctx,
-		`SELECT id, column_id, title, description, label, due_date, position FROM cards WHERE id=$1`, id).
-		Scan(&c.ID, &c.ColumnID, &c.Title, &c.Description, &c.Label, &c.DueDate, &c.Position)
+		`SELECT c.id, c.column_id, c.title, c.description, c.label, c.due_date,
+		        c.position, c.created_by, u.name, u.kind
+		 FROM cards c LEFT JOIN users u ON u.id = c.created_by WHERE c.id=$1`, id).
+		Scan(&c.ID, &c.ColumnID, &c.Title, &c.Description, &c.Label, &c.DueDate,
+			&c.Position, &c.CreatedByID, &c.CreatedByName, &c.CreatedByKind)
 	if err == pgx.ErrNoRows {
 		http.NotFound(w, r)
 		return
@@ -443,9 +483,10 @@ func (a *App) handleCardEdit(w http.ResponseWriter, r *http.Request) {
 		`SELECT b.id, b.name, col.name FROM columns col JOIN boards b ON b.id=col.board_id WHERE col.id=$1`,
 		c.ColumnID).Scan(&boardID, &boardName, &colName)
 
+	users, _ := a.listUsers(ctx)
 	render(w, "card-edit", CardEditPage{
 		Card: c, BoardID: boardID, BoardName: boardName,
-		ColumnName: colName, LabelOptions: labelOptions,
+		ColumnName: colName, LabelOptions: labelOptions, Users: users,
 	})
 }
 
@@ -525,6 +566,60 @@ func (a *App) handleMove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(200)
+}
+
+// ── User handlers ─────────────────────────────────────────────────────────────
+
+func (a *App) listUsers(ctx context.Context) ([]User, error) {
+	rows, err := a.db.Query(ctx, `SELECT id, name, kind FROM users ORDER BY kind, name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var users []User
+	for rows.Next() {
+		var u User
+		rows.Scan(&u.ID, &u.Name, &u.Kind)
+		users = append(users, u)
+	}
+	return users, nil
+}
+
+func (a *App) handleUsers(w http.ResponseWriter, r *http.Request) {
+	users, err := a.listUsers(r.Context())
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	render(w, "user-list", UserListPage{Users: users})
+}
+
+func (a *App) handleUserCreate(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		httpErr(w, err)
+		return
+	}
+	name := strings.TrimSpace(r.FormValue("name"))
+	kind := r.FormValue("kind")
+	if name == "" {
+		seeOther(w, r, "/users")
+		return
+	}
+	if kind != "human" && kind != "agent" {
+		kind = "human"
+	}
+	a.db.Exec(r.Context(), `INSERT INTO users (name, kind) VALUES ($1, $2)`, name, kind)
+	seeOther(w, r, "/users")
+}
+
+func (a *App) handleUserDelete(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	a.db.Exec(r.Context(), `DELETE FROM users WHERE id=$1`, id)
+	seeOther(w, r, "/users")
 }
 
 // ── Templates ─────────────────────────────────────────────────────────────────
@@ -630,6 +725,7 @@ const baseTmpl = `<!DOCTYPE html>
 <header>
   <span class="logo"><a href="/">Kanban</a></span>
   {{block "header-extra" .}}{{end}}
+  <a href="/users" style="margin-left:auto;font-size:13px;color:#8b949e;text-decoration:none" onmouseover="this.style.color='#c9d1d9'" onmouseout="this.style.color='#8b949e'">Users</a>
 </header>
 <main>
 {{block "content" .}}{{end}}
@@ -835,6 +931,22 @@ const cardEditTmpl = `{{define "header-extra"}}
     <label>Due Date</label>
     <input type="date" name="due_date" value="{{.Card.DueDateStr}}">
   </div>
+  <div class="form-group">
+    <label>Created By</label>
+    <select name="created_by">
+      <option value="">— none —</option>
+      {{range .Users}}
+      <option value="{{.ID}}" {{if and $.Card.CreatedByID (eq .ID (deref $.Card.CreatedByID))}}selected{{end}}>
+        {{if eq .Kind "agent"}}🤖 {{end}}{{.Name}}
+      </option>
+      {{end}}
+    </select>
+    {{if .Card.CreatedByName}}
+    <p style="font-size:12px;color:#6e7681;margin-top:4px">
+      Currently: {{if eq .Card.CreatedByKind "agent"}}🤖 {{end}}{{.Card.CreatedByName}}
+    </p>
+    {{end}}
+  </div>
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">Save</button>
     <a href="/boards/{{.BoardID}}" class="btn btn-cancel">Cancel</a>
@@ -845,6 +957,52 @@ const cardEditTmpl = `{{define "header-extra"}}
   <button class="btn btn-danger btn-sm" type="submit">Delete Card</button>
 </form>
 </div>
+{{end}}`
+
+const userListTmpl = `{{define "content"}}
+<div class="page-header">
+  <h2>Users</h2>
+  <a href="/" class="btn btn-cancel btn-sm">← Boards</a>
+</div>
+{{if .Users}}
+<table style="width:100%;max-width:560px;border-collapse:collapse;margin-bottom:28px">
+<thead><tr>
+  <th style="text-align:left;padding:8px 12px;background:#161b22;border-bottom:1px solid #30363d;color:#8b949e;font-size:12px;text-transform:uppercase">Name</th>
+  <th style="text-align:left;padding:8px 12px;background:#161b22;border-bottom:1px solid #30363d;color:#8b949e;font-size:12px;text-transform:uppercase">Kind</th>
+  <th style="padding:8px 12px;background:#161b22;border-bottom:1px solid #30363d"></th>
+</tr></thead>
+<tbody>
+{{range .Users}}
+<tr style="border-bottom:1px solid #21262d">
+  <td style="padding:9px 12px">{{if eq .Kind "agent"}}🤖 {{end}}{{.Name}}</td>
+  <td style="padding:9px 12px;color:#8b949e;font-size:13px">{{.Kind}}</td>
+  <td style="padding:9px 12px;text-align:right">
+    <form method="POST" action="/users/{{.ID}}/delete" style="display:inline"
+      onsubmit="return confirm('Delete user?')">
+      <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+    </form>
+  </td>
+</tr>
+{{end}}
+</tbody>
+</table>
+{{else}}
+<p style="color:#6e7681;margin-bottom:24px">No users yet.</p>
+{{end}}
+<form method="POST" action="/users" style="display:flex;gap:8px;align-items:flex-end;max-width:560px;flex-wrap:wrap">
+  <div class="form-group" style="flex:1;margin:0">
+    <label>Name</label>
+    <input type="text" name="name" placeholder="e.g. Alice or gpt-agent-1" required>
+  </div>
+  <div class="form-group" style="margin:0">
+    <label>Kind</label>
+    <select name="kind">
+      <option value="human">Human</option>
+      <option value="agent">Agent</option>
+    </select>
+  </div>
+  <button class="btn btn-primary" type="submit" style="margin-bottom:16px">Add User</button>
+</form>
 {{end}}`
 
 // ── Template engine ───────────────────────────────────────────────────────────
@@ -859,6 +1017,12 @@ func initTemplates() {
 			}
 			return "#6e7681"
 		},
+		"deref": func(p *int) int {
+			if p == nil {
+				return 0
+			}
+			return *p
+		},
 	}
 	base := template.Must(template.New("base").Funcs(funcMap).Parse(baseTmpl))
 	add := func(name, tmpl string) {
@@ -871,6 +1035,7 @@ func initTemplates() {
 	add("board-list", boardListTmpl)
 	add("board-view", boardViewTmpl)
 	add("card-edit", cardEditTmpl)
+	add("user-list", userListTmpl)
 }
 
 func render(w http.ResponseWriter, name string, data any) {
