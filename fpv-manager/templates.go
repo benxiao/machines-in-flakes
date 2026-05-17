@@ -128,7 +128,7 @@ type FrameRow struct {
 	ID          int
 	Brand       string
 	Name        string
-	SizeMM      string
+	SizeInch    string
 	WeightG     string
 	Total       int
 	Installed   int
@@ -191,7 +191,7 @@ type FrameFormPage struct {
 	ID        int
 	Brand     string
 	Name      string
-	SizeMM    string
+	SizeInch  string
 	WeightG   string
 	Notes     string
 	Quantity  string
@@ -318,6 +318,7 @@ type LogListPage struct {
 
 type SessionRow struct {
 	ID          int
+	Title       string
 	DroneNames  string
 	Type        string
 	SessionDate string
@@ -356,6 +357,7 @@ type SessionFormPage struct {
 	ActiveTab   string
 	Error       string
 	ID          int
+	Title       string
 	Type        string
 	SessionDate string
 	DurationMin string
@@ -368,6 +370,7 @@ type SessionFormPage struct {
 type SessionDetailPage struct {
 	ActiveTab  string
 	ID         int
+	Title      string
 	DroneNames string
 	Type       string
 	Date       string
@@ -377,6 +380,41 @@ type SessionDetailPage struct {
 	Batteries  []BatteryRow
 	Videos     []VideoRow
 	Photos     []PhotoRow
+}
+
+type PlaceListPage struct {
+	ActiveTab string
+	Places    []PlaceRow
+}
+
+type PlaceRow struct {
+	ID        int
+	Name      string
+	Address   string
+	PlaceType string
+	Notes     string
+	Lat       *float64
+	Lng       *float64
+	HasCoords bool
+	LatStr    string
+	LngStr    string
+}
+
+type PlaceDetailPage struct {
+	ActiveTab string
+	PlaceRow
+}
+
+type PlaceFormPage struct {
+	ActiveTab string
+	Error     string
+	ID        int
+	Name      string
+	Address   string
+	PlaceType string
+	Notes     string
+	Lat       *float64
+	Lng       *float64
 }
 
 // ---- Template engine ----
@@ -401,8 +439,8 @@ var funcMap = template.FuncMap{
 			return "badge-build"
 		case "retired":
 			return "badge-retired"
-		case "crashed":
-			return "badge-crashed"
+		case "repairing":
+			return "badge-repairing"
 		case "good":
 			return "badge-good"
 		case "degraded":
@@ -460,6 +498,9 @@ func initTemplates() {
 	add("log-list", logListTmpl)
 	add("session-form", sessionFormTmpl)
 	add("session-detail", sessionDetailTmpl)
+	add("place-list", placeListTmpl)
+	add("place-form", placeFormTmpl)
+	add("place-detail", placeDetailTmpl)
 }
 
 func render(w http.ResponseWriter, name string, data any) {
@@ -549,7 +590,7 @@ tr.retired td { opacity: 0.5; }
 .badge-flying     { background: rgba(63,185,80,0.15);  color: #3fb950; border: 1px solid rgba(63,185,80,0.4); }
 .badge-build      { background: rgba(210,153,34,0.15); color: #d29922; border: 1px solid rgba(210,153,34,0.4); }
 .badge-retired    { background: rgba(139,148,158,0.15);color: #8b949e; border: 1px solid rgba(139,148,158,0.4); }
-.badge-crashed    { background: rgba(248,81,73,0.15);  color: #f85149; border: 1px solid rgba(248,81,73,0.4); }
+.badge-repairing  { background: rgba(248,81,73,0.15);  color: #f85149; border: 1px solid rgba(248,81,73,0.4); }
 .badge-good       { background: rgba(63,185,80,0.15);  color: #3fb950; border: 1px solid rgba(63,185,80,0.4); }
 .badge-degraded   { background: rgba(210,153,34,0.15); color: #d29922; border: 1px solid rgba(210,153,34,0.4); }
 .badge-dead       { background: rgba(248,81,73,0.15);  color: #f85149; border: 1px solid rgba(248,81,73,0.4); }
@@ -664,6 +705,7 @@ const baseTmpl = `<!DOCTYPE html>
   <a href="/props"     {{if eq .ActiveTab "props"}}class="active"{{end}}>Props</a>
   <a href="/batteries" {{if eq .ActiveTab "batteries"}}class="active"{{end}}>Batteries</a>
   <a href="/log"       {{if eq .ActiveTab "log"}}class="active"{{end}}>Log</a>
+  <a href="/places"    {{if eq .ActiveTab "places"}}class="active"{{end}}>Places</a>
 </nav>
 <main>
 {{template "content" .}}
@@ -692,7 +734,7 @@ const droneListTmpl = `{{define "content"}}
 <tr class="{{if eq .Status "retired"}}retired{{end}}">
   <td style="width:56px;padding:6px 8px">
     {{if .FirstPhotoID}}
-    <img src="/drone-photos/{{.FirstPhotoID}}" style="width:48px;height:48px;object-fit:cover;border-radius:4px;display:block">
+    <img src="/drone-photos/{{.FirstPhotoID}}" style="width:48px;height:48px;object-fit:cover;border-radius:4px;display:block;cursor:zoom-in" onclick="openLightbox('/drone-photos/{{.FirstPhotoID}}')">
     {{else}}
     <div style="width:48px;height:48px;background:#21262d;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#8b949e;font-size:20px">✈</div>
     {{end}}
@@ -722,6 +764,15 @@ const droneListTmpl = `{{define "content"}}
 {{else}}
 <p class="muted">No drones yet. <a href="/drones/new">Add your first drone.</a></p>
 {{end}}
+
+<div id="lightbox" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;align-items:center;justify-content:center" onclick="closeLightbox()">
+  <img id="lightbox-img" src="" style="max-width:90vw;max-height:90vh;border-radius:8px;object-fit:contain;box-shadow:0 8px 40px rgba(0,0,0,.6)">
+</div>
+<script>
+function openLightbox(src){var lb=document.getElementById('lightbox');document.getElementById('lightbox-img').src=src;lb.style.display='flex';}
+function closeLightbox(){document.getElementById('lightbox').style.display='none';}
+document.addEventListener('keydown',function(e){if(e.key==='Escape')closeLightbox();});
+</script>
 {{end}}`
 
 const droneFormTmpl = `{{define "content"}}
@@ -742,7 +793,7 @@ const droneFormTmpl = `{{define "content"}}
         <option value="build"   {{if eq .Status "build"}}selected{{end}}>build</option>
         <option value="flying"  {{if eq .Status "flying"}}selected{{end}}>flying</option>
         <option value="retired" {{if eq .Status "retired"}}selected{{end}}>retired</option>
-        <option value="crashed" {{if eq .Status "crashed"}}selected{{end}}>crashed</option>
+        <option value="repairing" {{if eq .Status "repairing"}}selected{{end}}>repairing</option>
       </select>
     </div>
     <div class="form-group">
@@ -891,7 +942,7 @@ const inventoryTmpl = `{{define "content"}}
   <tr>
     <td class="muted">{{dash .Brand}}</td>
     <td>{{.Name}}</td>
-    <td class="muted">{{if .SizeMM}}{{.SizeMM}}mm{{else}}—{{end}}</td>
+    <td class="muted">{{if .SizeInch}}{{.SizeInch}}"{{else}}—{{end}}</td>
     <td class="muted">{{if .WeightG}}{{.WeightG}}g{{else}}—{{end}}</td>
     <td class="muted">{{.Total}}</td>
     <td class="muted">{{.Installed}}</td>
@@ -1147,8 +1198,16 @@ const frameFormTmpl = `{{define "content"}}
   </div>
   <div class="form-row">
     <div class="form-group">
-      <label>Size (mm)</label>
-      <input type="number" name="size_mm" value="{{.SizeMM}}" placeholder="e.g. 250">
+      <label>Size (in)</label>
+      <select name="size_inch">
+        <option value="">—</option>
+        <option value="under 2" {{if eq .SizeInch "under 2"}}selected{{end}}>under 2"</option>
+        <option value="2"       {{if eq .SizeInch "2"}}selected{{end}}>2"</option>
+        <option value="2.5"     {{if eq .SizeInch "2.5"}}selected{{end}}>2.5"</option>
+        <option value="3"       {{if eq .SizeInch "3"}}selected{{end}}>3"</option>
+        <option value="3.5"     {{if eq .SizeInch "3.5"}}selected{{end}}>3.5"</option>
+        <option value="5"       {{if eq .SizeInch "5"}}selected{{end}}>5"</option>
+      </select>
     </div>
     <div class="form-group">
       <label>Weight (g)</label>
@@ -1631,18 +1690,18 @@ const logListTmpl = `{{define "content"}}
 <div class="table-wrap">
 <table>
 <thead><tr>
-  <th>Date</th><th>Drone</th><th>Type</th><th>Duration</th><th>Location</th><th>Batteries</th><th>Notes</th><th></th>
+  <th>Date</th><th>Title / Notes</th><th>Drone</th><th>Type</th><th>Duration</th><th>Location</th><th>Batteries</th><th></th>
 </tr></thead>
 <tbody>
 {{range .Sessions}}
 <tr>
   <td class="muted" style="white-space:nowrap">{{.SessionDate}}</td>
+  <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{if .Title}}<strong>{{.Title}}</strong>{{else}}<span class="muted">{{dash .Notes}}</span>{{end}}</td>
   <td><strong>{{.DroneNames}}</strong></td>
   <td><span class="badge {{badgeClass .Type}}">{{.Type}}</span></td>
   <td class="muted">{{if gt .DurationMin 0}}{{.DurationMin}}m{{else}}—{{end}}</td>
   <td class="muted">{{dash .Location}}</td>
   <td class="muted" style="font-size:12px">{{dash .BatteryList}}</td>
-  <td class="muted" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{dash .Notes}}</td>
   <td class="actions-cell">
     <a href="/log/{{.ID}}" class="btn btn-sm btn-edit">View</a>
     <a href="/log/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
@@ -1667,6 +1726,10 @@ const sessionFormTmpl = `{{define "content"}}
 <div class="form-page">
 {{if .Error}}<div class="error-box">{{.Error}}</div>{{end}}
 <form method="POST">
+  <div class="form-group">
+    <label>Title</label>
+    <input type="text" name="title" value="{{.Title}}" placeholder="e.g. Golden hour at the park">
+  </div>
   <div class="form-group">
     <label>Drones * <span class="muted" style="font-weight:normal;font-size:12px">(hold Ctrl/Cmd for multiple)</span></label>
     <select name="drone_ids" multiple size="8" style="height:auto">
@@ -1730,7 +1793,7 @@ const sessionFormTmpl = `{{define "content"}}
 const sessionDetailTmpl = `{{define "content"}}
 <div class="page-header">
   <div class="page-header-left">
-    <h2>Session #{{.ID}}</h2>
+    <h2>{{if .Title}}{{.Title}}{{else}}Session #{{.ID}}{{end}}</h2>
     <div class="summary">{{.DroneNames}} &mdash; {{.Date}}</div>
   </div>
   <div>
@@ -1823,4 +1886,144 @@ const sessionDetailTmpl = `{{define "content"}}
 </form>
 
 <p><a href="/log">&larr; Back to log</a></p>
+{{end}}`
+
+const placeListTmpl = `{{define "content"}}
+<div class="page-header">
+  <div class="page-header-left"><h2>Places</h2></div>
+  <a href="/places/new" class="btn btn-primary">+ Add Place</a>
+</div>
+{{if .Places}}
+<div class="table-wrap">
+<table>
+<thead><tr>
+  <th>Name</th><th>Type</th><th>Address</th><th>Notes</th><th></th>
+</tr></thead>
+<tbody>
+{{range .Places}}
+<tr>
+  <td><strong>{{.Name}}</strong></td>
+  <td class="muted">{{.PlaceType}}</td>
+  <td class="muted">{{dash .Address}}</td>
+  <td class="muted" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{dash .Notes}}</td>
+  <td class="actions-cell">
+    <a href="/places/{{.ID}}" class="btn btn-sm btn-edit">View</a>
+    <a href="/places/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
+    <form class="inline" method="POST" action="/places/{{.ID}}/delete">
+      <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+    </form>
+  </td>
+</tr>
+{{end}}
+</tbody>
+</table>
+</div>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<div id="places-map" style="height:360px;border-radius:6px;border:1px solid #30363d;margin-top:24px"></div>
+<script>
+(function(){
+  var map = L.map('places-map');
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+  }).addTo(map);
+  var group = L.featureGroup().addTo(map);
+  {{range .Places}}{{if .HasCoords}}
+  L.marker([{{.LatStr}},{{.LngStr}}]).addTo(group)
+    .bindPopup('<a href="/places/{{.ID}}"><strong>{{.Name}}</strong></a><br><span style="color:#8b949e">{{.PlaceType}}</span>');
+  {{end}}{{end}}
+  if (group.getLayers().length > 0) {
+    map.fitBounds(group.getBounds().pad(0.2));
+  } else {
+    map.setView([20,0],2);
+  }
+})();
+</script>
+{{else}}
+<p class="muted">No places yet. <a href="/places/new">Add your first flying spot.</a></p>
+{{end}}
+{{end}}`
+
+const placeFormTmpl = `{{define "content"}}
+<div class="page-header">
+  <h2>{{if .ID}}Edit Place{{else}}New Place{{end}}</h2>
+</div>
+<div class="form-page">
+{{if .Error}}<div class="error-box">{{.Error}}</div>{{end}}
+<form method="POST">
+  <div class="form-group">
+    <label>Name *</label>
+    <input type="text" name="name" value="{{.Name}}" required autofocus placeholder="e.g. Riverside Park Field">
+  </div>
+  <div class="form-group">
+    <label>Address *</label>
+    <input type="text" name="address" value="{{.Address}}" required placeholder="e.g. 123 Main St, Springfield, CA">
+  </div>
+  <div class="form-group" style="max-width:200px">
+    <label>Type</label>
+    <select name="place_type">
+      <option value="field"    {{if eq .PlaceType "field"}}selected{{end}}>field</option>
+      <option value="park"     {{if eq .PlaceType "park"}}selected{{end}}>park</option>
+      <option value="backyard" {{if eq .PlaceType "backyard"}}selected{{end}}>backyard</option>
+      <option value="rooftop"  {{if eq .PlaceType "rooftop"}}selected{{end}}>rooftop</option>
+      <option value="other"    {{if eq .PlaceType "other"}}selected{{end}}>other</option>
+    </select>
+  </div>
+  <div class="form-group">
+    <label>Notes</label>
+    <textarea name="notes" placeholder="e.g. No flying after sunset, LAANC authorization required">{{.Notes}}</textarea>
+  </div>
+  <div class="form-actions">
+    <button class="btn btn-primary" type="submit">{{if .ID}}Save Changes{{else}}Add Place{{end}}</button>
+    <a href="/places" class="btn btn-cancel">Cancel</a>
+  </div>
+</form>
+<p class="muted" style="margin-top:16px;font-size:12px">The address will be geocoded automatically to show a map pin.</p>
+</div>
+{{end}}`
+
+const placeDetailTmpl = `{{define "content"}}
+<div class="page-header">
+  <div class="page-header-left">
+    <h2>{{.Name}}</h2>
+    <div class="summary">{{.PlaceType}} &mdash; {{.Address}}</div>
+  </div>
+  <div>
+    <a href="/places/{{.ID}}/edit" class="btn btn-edit">Edit</a>
+    <form class="inline" method="POST" action="/places/{{.ID}}/delete">
+      <button class="btn btn-danger" type="submit">Delete</button>
+    </form>
+  </div>
+</div>
+
+<table style="max-width:500px;margin-bottom:24px">
+<tr><td class="muted" style="padding:6px 12px 6px 0;width:100px">Type</td><td>{{.PlaceType}}</td></tr>
+<tr><td class="muted" style="padding:6px 12px 6px 0">Address</td><td>{{dash .Address}}</td></tr>
+{{if .HasCoords}}
+<tr><td class="muted" style="padding:6px 12px 6px 0">Coordinates</td><td class="muted" style="font-size:12px">{{.LatStr}}, {{.LngStr}}</td></tr>
+{{end}}
+<tr><td class="muted" style="padding:6px 12px 6px 0;vertical-align:top">Notes</td><td style="white-space:pre-wrap">{{dash .Notes}}</td></tr>
+</table>
+
+{{if .HasCoords}}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<div id="map" style="height:420px;border-radius:6px;border:1px solid #30363d;margin-bottom:24px"></div>
+<script>
+(function(){
+  var lat={{.LatStr}}, lng={{.LngStr}};
+  var map=L.map('map').setView([lat,lng],15);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+  }).addTo(map);
+  L.marker([lat,lng]).addTo(map).bindPopup("{{.Name}}").openPopup();
+})();
+</script>
+{{else}}
+<div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:20px;color:#8b949e;font-size:13px;margin-bottom:24px">
+  No map coordinates available. <a href="/places/{{.ID}}/edit">Edit the place</a> to re-save and retry geocoding.
+</div>
+{{end}}
+
+<p><a href="/places">&larr; Back to places</a></p>
 {{end}}`

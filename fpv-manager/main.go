@@ -150,7 +150,7 @@ CREATE TABLE IF NOT EXISTS drones (
     gps_id        INTEGER REFERENCES gps_modules(id) ON DELETE SET NULL,
     rx_id         INTEGER REFERENCES radio_receivers(id) ON DELETE SET NULL,
     status        TEXT NOT NULL DEFAULT 'build'
-                      CHECK (status IN ('flying','build','retired','crashed')),
+                      CHECK (status IN ('flying','build','retired','repairing')),
     build_date    DATE,
     notes         TEXT NOT NULL DEFAULT '',
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -239,6 +239,18 @@ CREATE TABLE IF NOT EXISTS session_photos (
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS places (
+    id         SERIAL PRIMARY KEY,
+    name       TEXT NOT NULL,
+    address    TEXT NOT NULL DEFAULT '',
+    lat        NUMERIC(10,7),
+    lng        NUMERIC(10,7),
+    place_type TEXT NOT NULL DEFAULT 'field'
+                   CHECK (place_type IN ('field','park','backyard','rooftop','other')),
+    notes      TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Migrations (DO blocks are idempotent; run after all tables exist):
 DO $$ BEGIN ALTER TABLE motors      DROP COLUMN drone_id; EXCEPTION WHEN undefined_column THEN NULL; END $$;
 DROP INDEX IF EXISTS idx_motors_drone;
@@ -274,6 +286,8 @@ END $$;
 DO $$ BEGIN ALTER TABLE sessions DROP COLUMN drone_id; EXCEPTION WHEN undefined_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE session_videos ADD COLUMN notes TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE session_batteries ADD COLUMN count INTEGER NOT NULL DEFAULT 1; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE frames ADD COLUMN size_inch TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE sessions ADD COLUMN title TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 
 CREATE INDEX IF NOT EXISTS idx_drones_frame    ON drones(frame_id);
 CREATE INDEX IF NOT EXISTS idx_drones_fc       ON drones(fc_id);
@@ -369,6 +383,12 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /photos/{id}", a.handlePhotoServe)
 	mux.HandleFunc("POST /photos/{id}/delete", a.handlePhotoDelete)
 	mux.HandleFunc("POST /photos/{id}/note", a.handlePhotoNote)
+
+	mux.HandleFunc("/places", a.handlePlaces)
+	mux.HandleFunc("/places/new", a.handlePlaceNew)
+	mux.HandleFunc("/places/{id}", a.handlePlaceDetail)
+	mux.HandleFunc("/places/{id}/edit", a.handlePlaceEdit)
+	mux.HandleFunc("POST /places/{id}/delete", a.handlePlaceDelete)
 }
 
 func parseID(r *http.Request) (int, bool) {

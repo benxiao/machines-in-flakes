@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -612,7 +614,7 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 	// available = total - installed.
 
 	rows, err := a.db.Query(ctx, `
-        SELECT f.id, f.brand, f.name, f.size_mm, f.weight_g,
+        SELECT f.id, f.brand, f.name, f.size_inch, f.weight_g,
                COALESCE(ic.count,0),
                (SELECT COUNT(*) FROM drones d WHERE d.frame_id=f.id),
                COALESCE(ic.count,0) - (SELECT COUNT(*) FROM drones d WHERE d.frame_id=f.id),
@@ -620,7 +622,7 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
         FROM frames f
         LEFT JOIN item_counts ic ON ic.item_type='frame' AND ic.item_id=f.id
         LEFT JOIN drones d ON d.frame_id=f.id
-        GROUP BY f.id, f.brand, f.name, f.size_mm, f.weight_g, ic.count
+        GROUP BY f.id, f.brand, f.name, f.size_inch, f.weight_g, ic.count
         ORDER BY f.brand, f.name`)
 	if err != nil {
 		httpErr(w, err)
@@ -628,15 +630,12 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 	}
 	for rows.Next() {
 		var fr FrameRow
-		var sizeMM, weightG *int
-		if err := rows.Scan(&fr.ID, &fr.Brand, &fr.Name, &sizeMM, &weightG,
+		var weightG *int
+		if err := rows.Scan(&fr.ID, &fr.Brand, &fr.Name, &fr.SizeInch, &weightG,
 			&fr.Total, &fr.Installed, &fr.Available, &fr.InstalledOn); err != nil {
 			rows.Close()
 			httpErr(w, err)
 			return
-		}
-		if sizeMM != nil {
-			fr.SizeMM = strconv.Itoa(*sizeMM)
 		}
 		if weightG != nil {
 			fr.WeightG = strconv.Itoa(*weightG)
@@ -870,9 +869,9 @@ func (a *App) handleFrameNew(w http.ResponseWriter, r *http.Request) {
 		qty, _ := strconv.Atoi(r.FormValue("quantity"))
 		var id int
 		err := a.db.QueryRow(ctx,
-			`INSERT INTO frames (brand,name,size_mm,weight_g,notes) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+			`INSERT INTO frames (brand,name,size_inch,weight_g,notes) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
 			r.FormValue("brand"), name,
-			nullIntPtr(r.FormValue("size_mm")), nullIntPtr(r.FormValue("weight_g")),
+			r.FormValue("size_inch"), nullIntPtr(r.FormValue("weight_g")),
 			r.FormValue("notes")).Scan(&id)
 		if err != nil {
 			httpErr(w, err)
@@ -904,9 +903,9 @@ func (a *App) handleFrameEdit(w http.ResponseWriter, r *http.Request) {
 		}
 		qty, _ := strconv.Atoi(r.FormValue("quantity"))
 		_, err := a.db.Exec(ctx,
-			`UPDATE frames SET brand=$1,name=$2,size_mm=$3,weight_g=$4,notes=$5 WHERE id=$6`,
+			`UPDATE frames SET brand=$1,name=$2,size_inch=$3,weight_g=$4,notes=$5 WHERE id=$6`,
 			r.FormValue("brand"), name,
-			nullIntPtr(r.FormValue("size_mm")), nullIntPtr(r.FormValue("weight_g")),
+			r.FormValue("size_inch"), nullIntPtr(r.FormValue("weight_g")),
 			r.FormValue("notes"), id)
 		if err != nil {
 			httpErr(w, err)
@@ -919,13 +918,13 @@ func (a *App) handleFrameEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var page FrameFormPage
-	var sizeMM, weightG *int
+	var weightG *int
 	var qty int
 	err := a.db.QueryRow(ctx,
-		`SELECT f.id,f.brand,f.name,f.size_mm,f.weight_g,f.notes,COALESCE(ic.count,0)
+		`SELECT f.id,f.brand,f.name,f.size_inch,f.weight_g,f.notes,COALESCE(ic.count,0)
          FROM frames f LEFT JOIN item_counts ic ON ic.item_type='frame' AND ic.item_id=f.id
          WHERE f.id=$1`, id).
-		Scan(&page.ID, &page.Brand, &page.Name, &sizeMM, &weightG, &page.Notes, &qty)
+		Scan(&page.ID, &page.Brand, &page.Name, &page.SizeInch, &weightG, &page.Notes, &qty)
 	if err == pgx.ErrNoRows {
 		http.NotFound(w, r)
 		return
@@ -933,9 +932,6 @@ func (a *App) handleFrameEdit(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		httpErr(w, err)
 		return
-	}
-	if sizeMM != nil {
-		page.SizeMM = strconv.Itoa(*sizeMM)
 	}
 	if weightG != nil {
 		page.WeightG = strconv.Itoa(*weightG)
@@ -1675,7 +1671,7 @@ func (a *App) handleBatteryAdjust(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleLog(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	rows, err := a.db.Query(ctx, `
-        SELECT s.id, s.type,
+        SELECT s.id, s.title, s.type,
                TO_CHAR(s.session_date,'YYYY-MM-DD'),
                s.duration_min, s.location, s.notes,
                COALESCE((SELECT string_agg(d.name,', ' ORDER BY d.name)
@@ -1694,7 +1690,7 @@ func (a *App) handleLog(w http.ResponseWriter, r *http.Request) {
 	var sessions []SessionRow
 	for rows.Next() {
 		var s SessionRow
-		if err := rows.Scan(&s.ID, &s.Type, &s.SessionDate,
+		if err := rows.Scan(&s.ID, &s.Title, &s.Type, &s.SessionDate,
 			&s.DurationMin, &s.Location, &s.Notes, &s.DroneNames, &s.BatteryList); err != nil {
 			httpErr(w, err)
 			return
@@ -1734,9 +1730,9 @@ func (a *App) handleSessionNew(w http.ResponseWriter, r *http.Request) {
 
 		var sessionID int
 		err = tx.QueryRow(ctx,
-			`INSERT INTO sessions (type,session_date,duration_min,location,notes)
-             VALUES ($1,$2,$3,$4,$5) RETURNING id`,
-			r.FormValue("type"), nullDate(r.FormValue("session_date")), dur,
+			`INSERT INTO sessions (title,type,session_date,duration_min,location,notes)
+             VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+			r.FormValue("title"), r.FormValue("type"), nullDate(r.FormValue("session_date")), dur,
 			r.FormValue("location"), r.FormValue("notes")).Scan(&sessionID)
 		if err != nil {
 			httpErr(w, err)
@@ -1784,13 +1780,13 @@ func (a *App) handleSessionDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	var page SessionDetailPage
 	err := a.db.QueryRow(ctx, `
-        SELECT s.id, s.type, TO_CHAR(s.session_date,'YYYY-MM-DD'),
+        SELECT s.id, s.title, s.type, TO_CHAR(s.session_date,'YYYY-MM-DD'),
                s.duration_min, s.location, s.notes,
                COALESCE((SELECT string_agg(d.name,', ' ORDER BY d.name)
                          FROM session_drones sd JOIN drones d ON d.id=sd.drone_id
                          WHERE sd.session_id=s.id),'')
         FROM sessions s WHERE s.id=$1`, id).
-		Scan(&page.ID, &page.Type, &page.Date,
+		Scan(&page.ID, &page.Title, &page.Type, &page.Date,
 			&page.Duration, &page.Location, &page.Notes, &page.DroneNames)
 	if err == pgx.ErrNoRows {
 		http.NotFound(w, r)
@@ -1921,8 +1917,8 @@ func (a *App) handleSessionEdit(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		_, err = tx.Exec(ctx,
-			`UPDATE sessions SET type=$1,session_date=$2,duration_min=$3,location=$4,notes=$5 WHERE id=$6`,
-			r.FormValue("type"), nullDate(r.FormValue("session_date")), dur,
+			`UPDATE sessions SET title=$1,type=$2,session_date=$3,duration_min=$4,location=$5,notes=$6 WHERE id=$7`,
+			r.FormValue("title"), r.FormValue("type"), nullDate(r.FormValue("session_date")), dur,
 			r.FormValue("location"), r.FormValue("notes"), id)
 		if err != nil {
 			httpErr(w, err)
@@ -1938,8 +1934,8 @@ func (a *App) handleSessionEdit(w http.ResponseWriter, r *http.Request) {
 	var page SessionFormPage
 	var dur int
 	err := a.db.QueryRow(ctx,
-		`SELECT id,type,TO_CHAR(session_date,'YYYY-MM-DD'),duration_min,location,notes FROM sessions WHERE id=$1`, id).
-		Scan(&page.ID, &page.Type, &page.SessionDate, &dur, &page.Location, &page.Notes)
+		`SELECT id,title,type,TO_CHAR(session_date,'YYYY-MM-DD'),duration_min,location,notes FROM sessions WHERE id=$1`, id).
+		Scan(&page.ID, &page.Title, &page.Type, &page.SessionDate, &dur, &page.Location, &page.Notes)
 	if err == pgx.ErrNoRows {
 		http.NotFound(w, r)
 		return
@@ -2423,4 +2419,189 @@ func (a *App) handlePhotoNote(w http.ResponseWriter, r *http.Request) {
 	}
 	a.db.Exec(ctx, `UPDATE session_photos SET notes=$1 WHERE id=$2`, r.FormValue("notes"), id)
 	http.Redirect(w, r, fmt.Sprintf("/log/%d", sessionID), http.StatusSeeOther)
+}
+
+// ---- Places ----
+
+func geocodeAddress(address string) (lat, lng *float64) {
+	req, err := http.NewRequest("GET",
+		"https://nominatim.openstreetmap.org/search?format=json&limit=1&q="+url.QueryEscape(address),
+		nil)
+	if err != nil {
+		return
+	}
+	req.Header.Set("User-Agent", "FPV-Manager/1.0")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	var results []struct {
+		Lat string `json:"lat"`
+		Lon string `json:"lon"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&results); err != nil || len(results) == 0 {
+		return
+	}
+	la, err := strconv.ParseFloat(results[0].Lat, 64)
+	if err != nil {
+		return
+	}
+	lo, err := strconv.ParseFloat(results[0].Lon, 64)
+	if err != nil {
+		return
+	}
+	return &la, &lo
+}
+
+func (a *App) handlePlaces(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	rows, err := a.db.Query(ctx,
+		`SELECT id, name, address, lat, lng, place_type, notes FROM places ORDER BY name`)
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	defer rows.Close()
+	var places []PlaceRow
+	for rows.Next() {
+		var p PlaceRow
+		if err := rows.Scan(&p.ID, &p.Name, &p.Address, &p.Lat, &p.Lng, &p.PlaceType, &p.Notes); err != nil {
+			httpErr(w, err)
+			return
+		}
+		if p.Lat != nil && p.Lng != nil {
+			p.HasCoords = true
+			p.LatStr = strconv.FormatFloat(*p.Lat, 'f', 7, 64)
+			p.LngStr = strconv.FormatFloat(*p.Lng, 'f', 7, 64)
+		}
+		places = append(places, p)
+	}
+	if err := rows.Err(); err != nil {
+		httpErr(w, err)
+		return
+	}
+	render(w, "place-list", PlaceListPage{ActiveTab: "places", Places: places})
+}
+
+func (a *App) handlePlaceNew(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if r.Method == http.MethodPost {
+		if err := r.ParseForm(); err != nil {
+			httpErr(w, err)
+			return
+		}
+		name := strings.TrimSpace(r.FormValue("name"))
+		address := strings.TrimSpace(r.FormValue("address"))
+		if name == "" || address == "" {
+			render(w, "place-form", PlaceFormPage{
+				ActiveTab: "places",
+				Error:     "Name and address are required",
+				Name:      name, Address: address,
+				PlaceType: r.FormValue("place_type"),
+				Notes:     r.FormValue("notes"),
+			})
+			return
+		}
+		lat, lng := geocodeAddress(address)
+		var id int
+		err := a.db.QueryRow(ctx,
+			`INSERT INTO places (name,address,lat,lng,place_type,notes)
+             VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+			name, address, lat, lng, r.FormValue("place_type"), r.FormValue("notes")).Scan(&id)
+		if err != nil {
+			httpErr(w, err)
+			return
+		}
+		http.Redirect(w, r, fmt.Sprintf("/places/%d", id), http.StatusSeeOther)
+		return
+	}
+	render(w, "place-form", PlaceFormPage{ActiveTab: "places", PlaceType: "field"})
+}
+
+func (a *App) handlePlaceDetail(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	var p PlaceRow
+	err := a.db.QueryRow(r.Context(),
+		`SELECT id, name, address, lat, lng, place_type, notes FROM places WHERE id=$1`, id).
+		Scan(&p.ID, &p.Name, &p.Address, &p.Lat, &p.Lng, &p.PlaceType, &p.Notes)
+	if err == pgx.ErrNoRows {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	if p.Lat != nil && p.Lng != nil {
+		p.HasCoords = true
+		p.LatStr = strconv.FormatFloat(*p.Lat, 'f', 7, 64)
+		p.LngStr = strconv.FormatFloat(*p.Lng, 'f', 7, 64)
+	}
+	render(w, "place-detail", PlaceDetailPage{ActiveTab: "places", PlaceRow: p})
+}
+
+func (a *App) handlePlaceEdit(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method == http.MethodPost {
+		if err := r.ParseForm(); err != nil {
+			httpErr(w, err)
+			return
+		}
+		name := strings.TrimSpace(r.FormValue("name"))
+		address := strings.TrimSpace(r.FormValue("address"))
+		if name == "" || address == "" {
+			render(w, "place-form", PlaceFormPage{
+				ActiveTab: "places",
+				Error:     "Name and address are required",
+				ID:        id, Name: name, Address: address,
+				PlaceType: r.FormValue("place_type"),
+				Notes:     r.FormValue("notes"),
+			})
+			return
+		}
+		lat, lng := geocodeAddress(address)
+		_, err := a.db.Exec(ctx,
+			`UPDATE places SET name=$1,address=$2,lat=$3,lng=$4,place_type=$5,notes=$6 WHERE id=$7`,
+			name, address, lat, lng, r.FormValue("place_type"), r.FormValue("notes"), id)
+		if err != nil {
+			httpErr(w, err)
+			return
+		}
+		http.Redirect(w, r, fmt.Sprintf("/places/%d", id), http.StatusSeeOther)
+		return
+	}
+	var p PlaceFormPage
+	err := a.db.QueryRow(ctx,
+		`SELECT id, name, address, place_type, notes FROM places WHERE id=$1`, id).
+		Scan(&p.ID, &p.Name, &p.Address, &p.PlaceType, &p.Notes)
+	if err == pgx.ErrNoRows {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	p.ActiveTab = "places"
+	render(w, "place-form", p)
+}
+
+func (a *App) handlePlaceDelete(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	a.db.Exec(r.Context(), `DELETE FROM places WHERE id=$1`, id)
+	http.Redirect(w, r, "/places", http.StatusSeeOther)
 }
