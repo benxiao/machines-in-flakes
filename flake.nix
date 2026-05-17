@@ -389,6 +389,12 @@
                     src = ./fpv-manager;
                     vendorHash = "sha256-Qs23BHgrlK0P5BREEzS5Y/2G7mL1pcSd1k3z8NUw/mM=";
                   };
+                  drive-monitor = pkgs.buildGoModule {
+                    pname = "drive-monitor";
+                    version = "0.1.0";
+                    src = ./drive-monitor;
+                    vendorHash = null;
+                  };
                 in
                 {
                   networking.hostId = "00000000"; # replace: run `head -c 8 /etc/machine-id` on athena
@@ -481,7 +487,7 @@
                     after = [ "network.target" ];
                     path = [ pkgs.smartmontools pkgs.zfs ];
                     serviceConfig = {
-                      ExecStart = "${pkgs.python3}/bin/python3 ${./drive-monitor/web.py}";
+                      ExecStart = "${drive-monitor}/bin/drive-monitor";
                       Restart = "on-failure";
                       RestartSec = "5s";
                     };
