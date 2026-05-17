@@ -512,6 +512,7 @@
                     environment = {
                       KANBAN_LISTEN = ":10092";
                       KANBAN_DB_DSN = "host=/run/postgresql dbname=kanban user=kanban sslmode=disable";
+                      KANBAN_UPLOAD_DIR = "/var/lib/kanban/uploads";
                     };
                     serviceConfig = {
                       ExecStart = "${kanban}/bin/kanban";
@@ -519,6 +520,7 @@
                       RestartSec = "5s";
                       User = "kanban";
                       Group = "kanban";
+                      StateDirectory = "kanban";
                     };
                   };
                   users.users.kanban = {
