@@ -1253,35 +1253,41 @@ const cardViewTmpl = `{{define "header-extra"}}
 {{define "content"}}
 <div style="max-width:720px">
 
-<h2 style="margin-bottom:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-  {{if .Card.LabelName}}
-  <span class="card-label-chip" style="background:{{.Card.LabelColor}}22;color:{{.Card.LabelColor}};border:1px solid {{.Card.LabelColor}}55;font-size:13px">{{.Card.LabelName}}</span>
-  {{end}}
-  {{.Card.Title}}
-</h2>
+<h2 style="margin-bottom:20px">{{.Card.Title}}</h2>
 
-<table style="border-collapse:collapse;margin-bottom:24px;font-size:13px">
-  {{if .Card.CreatedByName}}
+<table style="border-collapse:collapse;margin-bottom:24px;font-size:13px;width:100%;max-width:600px">
   <tr>
-    <td style="color:#8b949e;padding:4px 16px 4px 0;white-space:nowrap">Created by</td>
-    <td>{{if eq .Card.CreatedByKind "agent"}}🤖 {{end}}{{.Card.CreatedByName}}</td>
+    <td style="color:#8b949e;padding:6px 16px 6px 0;white-space:nowrap;vertical-align:top;width:110px">Label</td>
+    <td style="padding:6px 0">
+      {{if .Card.LabelName}}
+      <span class="card-label-chip" style="background:{{.Card.LabelColor}}22;color:{{.Card.LabelColor}};border:1px solid {{.Card.LabelColor}}55">{{.Card.LabelName}}</span>
+      {{else}}<span style="color:#6e7681">—</span>{{end}}
+    </td>
   </tr>
-  {{end}}
-  {{if .Card.DueDateStr}}
   <tr>
-    <td style="color:#8b949e;padding:4px 16px 4px 0">Due date</td>
-    <td class="{{if .Card.Overdue}}card-due overdue{{end}}">{{if .Card.Overdue}}⚠ {{end}}{{.Card.DueDateStr}}</td>
+    <td style="color:#8b949e;padding:6px 16px 6px 0;white-space:nowrap">Created by</td>
+    <td style="padding:6px 0">
+      {{if .Card.CreatedByName}}{{if eq .Card.CreatedByKind "agent"}}🤖 {{end}}{{.Card.CreatedByName}}
+      {{else}}<span style="color:#6e7681">—</span>{{end}}
+    </td>
   </tr>
-  {{end}}
   <tr>
-    <td style="color:#8b949e;padding:4px 16px 4px 0">Column</td>
-    <td>{{.ColumnName}}</td>
+    <td style="color:#8b949e;padding:6px 16px 6px 0">Due date</td>
+    <td style="padding:6px 0">
+      {{if .Card.DueDateStr}}<span {{if .Card.Overdue}}class="card-due overdue"{{end}}>{{if .Card.Overdue}}⚠ {{end}}{{.Card.DueDateStr}}</span>
+      {{else}}<span style="color:#6e7681">—</span>{{end}}
+    </td>
+  </tr>
+  <tr>
+    <td style="color:#8b949e;padding:6px 16px 6px 0">Column</td>
+    <td style="padding:6px 0">{{.ColumnName}}</td>
   </tr>
 </table>
 
-{{if .Card.Description}}
-<div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px;margin-bottom:32px;white-space:pre-wrap;font-size:14px;line-height:1.6">{{.Card.Description}}</div>
-{{end}}
+<h4 style="color:#8b949e;font-size:13px;font-weight:500;margin-bottom:8px">Description</h4>
+<div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px;margin-bottom:32px;white-space:pre-wrap;font-size:14px;line-height:1.6;min-height:60px">
+  {{if .Card.Description}}{{.Card.Description}}{{else}}<span style="color:#6e7681">No description.</span>{{end}}
+</div>
 
 <hr style="border:none;border-top:1px solid #30363d;margin-bottom:28px">
 
