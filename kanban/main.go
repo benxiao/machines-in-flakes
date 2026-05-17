@@ -160,6 +160,7 @@ type CardViewPage struct {
 	ColumnName string
 	Comments   []Comment
 	Users      []User
+	Labels     []Label
 }
 
 type CardNewPage struct {
@@ -213,6 +214,7 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/cards/{id}/edit", a.handleCardEdit)
 	mux.HandleFunc("POST /cards/{id}/delete", a.handleCardDelete)
 	mux.HandleFunc("POST /cards/{id}/comments", a.handleCommentCreate)
+	mux.HandleFunc("POST /api/cards/{id}/update", a.handleCardFieldUpdate)
 	mux.HandleFunc("POST /comments/{id}/delete", a.handleCommentDelete)
 	mux.HandleFunc("POST /api/move", a.handleMove)
 	mux.HandleFunc("/labels", a.handleLabels)
@@ -768,10 +770,55 @@ func (a *App) handleCardView(w http.ResponseWriter, r *http.Request) {
 	rows.Close()
 
 	users, _ := a.listUsers(ctx)
+	labels, _ := a.listLabels(ctx)
 	render(w, "card-view", CardViewPage{
 		Card: c, BoardID: boardID, BoardName: boardName,
-		ColumnName: colName, Comments: comments, Users: users,
+		ColumnName: colName, Comments: comments, Users: users, Labels: labels,
 	})
+}
+
+func (a *App) handleCardFieldUpdate(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	var req struct {
+		Field string `json:"field"`
+		Value string `json:"value"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	ctx := r.Context()
+	switch req.Field {
+	case "title":
+		if t := strings.TrimSpace(req.Value); t != "" {
+			a.db.Exec(ctx, `UPDATE cards SET title=$1 WHERE id=$2`, t, id)
+		}
+	case "description":
+		a.db.Exec(ctx, `UPDATE cards SET description=$1 WHERE id=$2`, req.Value, id)
+	case "due_date":
+		if req.Value == "" {
+			a.db.Exec(ctx, `UPDATE cards SET due_date=NULL WHERE id=$2`, id)
+		} else if t, err := time.Parse("2006-01-02", req.Value); err == nil {
+			a.db.Exec(ctx, `UPDATE cards SET due_date=$1 WHERE id=$2`, t, id)
+		}
+	case "label_id":
+		if req.Value == "" {
+			a.db.Exec(ctx, `UPDATE cards SET label_id=NULL WHERE id=$2`, id)
+		} else if lid, err := strconv.Atoi(req.Value); err == nil {
+			a.db.Exec(ctx, `UPDATE cards SET label_id=$1 WHERE id=$2`, lid, id)
+		}
+	case "created_by":
+		if req.Value == "" {
+			a.db.Exec(ctx, `UPDATE cards SET created_by=NULL WHERE id=$2`, id)
+		} else if uid, err := strconv.Atoi(req.Value); err == nil {
+			a.db.Exec(ctx, `UPDATE cards SET created_by=$1 WHERE id=$2`, uid, id)
+		}
+	}
+	w.WriteHeader(200)
 }
 
 func (a *App) handleCommentDelete(w http.ResponseWriter, r *http.Request) {
@@ -1248,46 +1295,75 @@ const cardEditTmpl = `{{define "header-extra"}}
 const cardViewTmpl = `{{define "header-extra"}}
 <a href="/boards/{{.BoardID}}" class="header-back">← {{.BoardName}}</a>
 <span class="header-back" style="color:#6e7681">/ {{.ColumnName}}</span>
-<a href="/cards/{{.Card.ID}}/edit" class="btn btn-sm btn-edit" style="margin-left:auto">Edit</a>
 {{end}}
 {{define "content"}}
 <div style="max-width:720px">
 
-<h2 style="margin-bottom:20px">{{.Card.Title}}</h2>
+<h2 id="card-title"
+  contenteditable="true"
+  spellcheck="false"
+  style="margin-bottom:20px;border-radius:6px;padding:4px 8px;margin-left:-8px;outline:none;cursor:text"
+  onmouseover="this.style.background='#161b22'"
+  onmouseout="if(document.activeElement!==this)this.style.background=''"
+  onfocus="this.style.background='#161b22';this.style.boxShadow='0 0 0 2px #58a6ff'"
+  onblur="this.style.background='';this.style.boxShadow='';saveField('title',this.innerText.trim())"
+  onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur()}">{{.Card.Title}}</h2>
 
 <table style="border-collapse:collapse;margin-bottom:24px;font-size:13px;width:100%;max-width:600px">
   <tr>
-    <td style="color:#8b949e;padding:6px 16px 6px 0;white-space:nowrap;vertical-align:top;width:110px">Label</td>
-    <td style="padding:6px 0">
-      {{if .Card.LabelName}}
-      <span class="card-label-chip" style="background:{{.Card.LabelColor}}22;color:{{.Card.LabelColor}};border:1px solid {{.Card.LabelColor}}55">{{.Card.LabelName}}</span>
-      {{else}}<span style="color:#6e7681">—</span>{{end}}
+    <td style="color:#8b949e;padding:6px 16px 6px 0;white-space:nowrap;width:110px">Label</td>
+    <td style="padding:4px 0">
+      <select onchange="onLabelChange(this)" style="background:transparent;border:1px solid transparent;border-radius:4px;color:#c9d1d9;padding:3px 6px;font-size:13px;cursor:pointer;font-family:inherit"
+        onmouseover="this.style.borderColor='#30363d';this.style.background='#161b22'"
+        onmouseout="this.style.borderColor='transparent';this.style.background='transparent'">
+        <option value="">— none —</option>
+        {{range .Labels}}
+        <option value="{{.ID}}" data-color="{{.Color}}" data-name="{{.Name}}"
+          {{if and $.Card.LabelID (eq .ID (deref $.Card.LabelID))}}selected{{end}}>{{.Name}}</option>
+        {{end}}
+      </select>
+      <span id="label-chip" class="card-label-chip"
+        style="{{if .Card.LabelName}}background:{{.Card.LabelColor}}22;color:{{.Card.LabelColor}};border:1px solid {{.Card.LabelColor}}55{{else}}display:none{{end}}">{{.Card.LabelName}}</span>
     </td>
   </tr>
   <tr>
     <td style="color:#8b949e;padding:6px 16px 6px 0;white-space:nowrap">Created by</td>
-    <td style="padding:6px 0">
-      {{if .Card.CreatedByName}}{{if eq .Card.CreatedByKind "agent"}}🤖 {{end}}{{.Card.CreatedByName}}
-      {{else}}<span style="color:#6e7681">—</span>{{end}}
+    <td style="padding:4px 0">
+      <select onchange="saveField('created_by',this.value)" style="background:transparent;border:1px solid transparent;border-radius:4px;color:#c9d1d9;padding:3px 6px;font-size:13px;cursor:pointer;font-family:inherit"
+        onmouseover="this.style.borderColor='#30363d';this.style.background='#161b22'"
+        onmouseout="this.style.borderColor='transparent';this.style.background='transparent'">
+        <option value="">— none —</option>
+        {{range .Users}}
+        <option value="{{.ID}}" {{if and $.Card.CreatedByID (eq .ID (deref $.Card.CreatedByID))}}selected{{end}}>
+          {{if eq .Kind "agent"}}🤖 {{end}}{{.Name}}</option>
+        {{end}}
+      </select>
     </td>
   </tr>
   <tr>
-    <td style="color:#8b949e;padding:6px 16px 6px 0">Due date</td>
-    <td style="padding:6px 0">
-      {{if .Card.DueDateStr}}<span {{if .Card.Overdue}}class="card-due overdue"{{end}}>{{if .Card.Overdue}}⚠ {{end}}{{.Card.DueDateStr}}</span>
-      {{else}}<span style="color:#6e7681">—</span>{{end}}
+    <td style="color:#8b949e;padding:6px 16px 6px 0;white-space:nowrap">Due date</td>
+    <td style="padding:4px 0">
+      <input type="date" value="{{.Card.DueDateStr}}"
+        onchange="saveField('due_date',this.value)"
+        style="background:transparent;border:1px solid transparent;border-radius:4px;color:{{if .Card.Overdue}}#f85149{{else}}#c9d1d9{{end}};padding:3px 6px;font-size:13px;cursor:pointer;font-family:inherit"
+        onmouseover="this.style.borderColor='#30363d';this.style.background='#161b22'"
+        onmouseout="this.style.borderColor='transparent';this.style.background='transparent'">
     </td>
   </tr>
   <tr>
     <td style="color:#8b949e;padding:6px 16px 6px 0">Column</td>
-    <td style="padding:6px 0">{{.ColumnName}}</td>
+    <td style="padding:6px 0;color:#c9d1d9">{{.ColumnName}}</td>
   </tr>
 </table>
 
-<h4 style="color:#8b949e;font-size:13px;font-weight:500;margin-bottom:8px">Description</h4>
-<div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px;margin-bottom:32px;white-space:pre-wrap;font-size:14px;line-height:1.6;min-height:60px">
-  {{if .Card.Description}}{{.Card.Description}}{{else}}<span style="color:#6e7681">No description.</span>{{end}}
-</div>
+<h4 style="color:#8b949e;font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Description</h4>
+<div id="card-desc"
+  contenteditable="true"
+  spellcheck="false"
+  style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px 16px;margin-bottom:32px;white-space:pre-wrap;font-size:14px;line-height:1.6;min-height:72px;outline:none;cursor:text"
+  onfocus="this.style.borderColor='#58a6ff';descFocused=true"
+  onblur="this.style.borderColor='#30363d';descFocused=false;saveField('description',this.innerText)"
+  data-placeholder="Click to add a description…">{{if .Card.Description}}{{.Card.Description}}{{end}}</div>
 
 <hr style="border:none;border-top:1px solid #30363d;margin-bottom:28px">
 
@@ -1297,7 +1373,7 @@ const cardViewTmpl = `{{define "header-extra"}}
 <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:28px">
 {{range .Comments}}
 <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px 16px">
-  <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
     <span style="font-weight:600;font-size:13px;color:#f0f6fc">
       {{if .UserName}}{{if eq .UserKind "agent"}}🤖 {{end}}{{.UserName}}{{else}}<span style="color:#6e7681">Anonymous</span>{{end}}
     </span>
@@ -1333,6 +1409,58 @@ const cardViewTmpl = `{{define "header-extra"}}
 </div>
 
 </div>
+<script>
+const CARD_ID = {{.Card.ID}};
+let descFocused = false;
+
+function saveField(field, value) {
+  fetch('/api/cards/' + CARD_ID + '/update', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({field: field, value: String(value)})
+  });
+}
+
+function onLabelChange(sel) {
+  saveField('label_id', sel.value);
+  const chip = document.getElementById('label-chip');
+  const opt = sel.options[sel.selectedIndex];
+  const color = opt.dataset.color || '';
+  const name = opt.dataset.name || '';
+  if (sel.value && color) {
+    chip.textContent = name;
+    chip.style.background = color + '22';
+    chip.style.color = color;
+    chip.style.border = '1px solid ' + color + '55';
+    chip.style.display = 'inline-block';
+  } else {
+    chip.style.display = 'none';
+  }
+}
+
+// Description placeholder
+(function(){
+  const d = document.getElementById('card-desc');
+  if (!d) return;
+  function updatePlaceholder() {
+    if (!d.innerText.trim()) {
+      d.style.color = '#6e7681';
+      d.innerText = d.dataset.placeholder;
+    }
+  }
+  function clearPlaceholder() {
+    if (d.innerText === d.dataset.placeholder) {
+      d.innerText = '';
+      d.style.color = '';
+    }
+  }
+  d.addEventListener('focus', clearPlaceholder);
+  d.addEventListener('blur', function(){
+    if (!d.innerText.trim()) updatePlaceholder();
+  });
+  if (!d.innerText.trim()) updatePlaceholder();
+})();
+</script>
 {{end}}`
 
 const cardNewTmpl = `{{define "header-extra"}}
