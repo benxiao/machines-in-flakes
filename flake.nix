@@ -395,6 +395,12 @@
                     src = ./drive-monitor;
                     vendorHash = null;
                   };
+                  kanban = pkgs.buildGoModule {
+                    pname = "kanban";
+                    version = "0.1.0";
+                    src = ./kanban;
+                    vendorHash = "sha256-Qs23BHgrlK0P5BREEzS5Y/2G7mL1pcSd1k3z8NUw/mM=";
+                  };
                 in
                 {
                   networking.hostId = "00000000"; # replace: run `head -c 8 /etc/machine-id` on athena
@@ -410,11 +416,17 @@
                   services.postgresql = {
                     enable = true;
                     package = pkgs.postgresql_16;
-                    ensureDatabases = [ "fpv_manager" ];
-                    ensureUsers = [{
-                      name = "fpv_manager";
-                      ensureDBOwnership = true;
-                    }];
+                    ensureDatabases = [ "fpv_manager" "kanban" ];
+                    ensureUsers = [
+                      {
+                        name = "fpv_manager";
+                        ensureDBOwnership = true;
+                      }
+                      {
+                        name = "kanban";
+                        ensureDBOwnership = true;
+                      }
+                    ];
                     authentication = pkgs.lib.mkOverride 10 ''
                       local  all  all              trust
                       host   all  all  127.0.0.1/32  trust
@@ -492,6 +504,29 @@
                       RestartSec = "5s";
                     };
                   };
+                  systemd.services.kanban = {
+                    description = "Kanban Board";
+                    wantedBy = [ "multi-user.target" ];
+                    after = [ "network.target" "postgresql.service" ];
+                    requires = [ "postgresql.service" ];
+                    environment = {
+                      KANBAN_LISTEN = ":10092";
+                      KANBAN_DB_DSN = "host=/run/postgresql dbname=kanban user=kanban sslmode=disable";
+                    };
+                    serviceConfig = {
+                      ExecStart = "${kanban}/bin/kanban";
+                      Restart = "on-failure";
+                      RestartSec = "5s";
+                      User = "kanban";
+                      Group = "kanban";
+                    };
+                  };
+                  users.users.kanban = {
+                    isSystemUser = true;
+                    group = "kanban";
+                    description = "Kanban service user";
+                  };
+                  users.groups.kanban = {};
                 })
               checkRouterAliveModule
               # nvidiaModule
