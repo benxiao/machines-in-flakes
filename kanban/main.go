@@ -60,6 +60,14 @@ CREATE TABLE IF NOT EXISTS cards (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS comments (
+    id         SERIAL PRIMARY KEY,
+    card_id    INTEGER NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+    user_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    body       TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Migrations
 DO $$ BEGIN
   ALTER TABLE cards ADD COLUMN created_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
@@ -78,6 +86,7 @@ CREATE INDEX IF NOT EXISTS idx_cards_position   ON cards(column_id, position);
 CREATE INDEX IF NOT EXISTS idx_cards_created_by ON cards(created_by);
 CREATE INDEX IF NOT EXISTS idx_cards_label      ON cards(label_id);
 CREATE INDEX IF NOT EXISTS idx_labels_name      ON labels(name);
+CREATE INDEX IF NOT EXISTS idx_comments_card    ON comments(card_id);
 `
 
 // ── Data types ────────────────────────────────────────────────────────────────
@@ -135,6 +144,24 @@ type BoardViewPage struct {
 	Columns []Column
 }
 
+type Comment struct {
+	ID        int
+	CardID    int
+	UserName  string
+	UserKind  string
+	Body      string
+	CreatedAt string
+}
+
+type CardViewPage struct {
+	Card       Card
+	BoardID    int
+	BoardName  string
+	ColumnName string
+	Comments   []Comment
+	Users      []User
+}
+
 type CardNewPage struct {
 	Board   Board
 	Columns []Column
@@ -182,8 +209,11 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /columns/{id}/rename", a.handleColumnRename)
 	mux.HandleFunc("POST /columns/{id}/cards", a.handleCardCreate)
 	mux.HandleFunc("/boards/{id}/cards/new", a.handleCardNew)
-	mux.HandleFunc("/cards/{id}", a.handleCardEdit)
+	mux.HandleFunc("GET /cards/{id}", a.handleCardView)
+	mux.HandleFunc("/cards/{id}/edit", a.handleCardEdit)
 	mux.HandleFunc("POST /cards/{id}/delete", a.handleCardDelete)
+	mux.HandleFunc("POST /cards/{id}/comments", a.handleCommentCreate)
+	mux.HandleFunc("POST /comments/{id}/delete", a.handleCommentDelete)
 	mux.HandleFunc("POST /api/move", a.handleMove)
 	mux.HandleFunc("/labels", a.handleLabels)
 	mux.HandleFunc("POST /labels", a.handleLabelCreate)
@@ -480,11 +510,7 @@ func (a *App) handleCardEdit(w http.ResponseWriter, r *http.Request) {
 		a.db.Exec(ctx,
 			`UPDATE cards SET title=$1, description=$2, due_date=$3, created_by=$4, label_id=$5 WHERE id=$6`,
 			title, desc, dueDate, createdBy, labelID, id)
-		var colID int
-		a.db.QueryRow(ctx, `SELECT column_id FROM cards WHERE id=$1`, id).Scan(&colID)
-		var boardID int
-		a.db.QueryRow(ctx, `SELECT board_id FROM columns WHERE id=$1`, colID).Scan(&boardID)
-		seeOther(w, r, fmt.Sprintf("/boards/%d", boardID))
+		seeOther(w, r, fmt.Sprintf("/cards/%d", id))
 		return
 	}
 
@@ -682,6 +708,110 @@ func (a *App) handleCardNew(w http.ResponseWriter, r *http.Request) {
 	users, _ := a.listUsers(ctx)
 	labels, _ := a.listLabels(ctx)
 	render(w, "card-new", CardNewPage{Board: board, Columns: columns, Users: users, Labels: labels})
+}
+
+// ── Card view & comments ──────────────────────────────────────────────────────
+
+func (a *App) handleCardView(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	ctx := r.Context()
+
+	var c Card
+	err := a.db.QueryRow(ctx,
+		`SELECT c.id, c.column_id, c.title, c.description, c.due_date,
+		        c.position, c.created_by, COALESCE(u.name,''), COALESCE(u.kind,''),
+		        c.label_id, COALESCE(l.name,''), COALESCE(l.color,'')
+		 FROM cards c
+		 LEFT JOIN users  u ON u.id = c.created_by
+		 LEFT JOIN labels l ON l.id = c.label_id
+		 WHERE c.id=$1`, id).
+		Scan(&c.ID, &c.ColumnID, &c.Title, &c.Description, &c.DueDate,
+			&c.Position, &c.CreatedByID, &c.CreatedByName, &c.CreatedByKind,
+			&c.LabelID, &c.LabelName, &c.LabelColor)
+	if err == pgx.ErrNoRows {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	enrichCard(&c)
+
+	var boardID int
+	var boardName, colName string
+	a.db.QueryRow(ctx,
+		`SELECT b.id, b.name, col.name FROM columns col JOIN boards b ON b.id=col.board_id WHERE col.id=$1`,
+		c.ColumnID).Scan(&boardID, &boardName, &colName)
+
+	rows, err := a.db.Query(ctx,
+		`SELECT co.id, co.card_id, COALESCE(u.name,''), COALESCE(u.kind,''), co.body, co.created_at
+		 FROM comments co LEFT JOIN users u ON u.id = co.user_id
+		 WHERE co.card_id=$1 ORDER BY co.created_at`, id)
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	defer rows.Close()
+	var comments []Comment
+	for rows.Next() {
+		var co Comment
+		var t time.Time
+		rows.Scan(&co.ID, &co.CardID, &co.UserName, &co.UserKind, &co.Body, &t)
+		co.CreatedAt = t.Local().Format("2006-01-02 15:04")
+		comments = append(comments, co)
+	}
+	rows.Close()
+
+	users, _ := a.listUsers(ctx)
+	render(w, "card-view", CardViewPage{
+		Card: c, BoardID: boardID, BoardName: boardName,
+		ColumnName: colName, Comments: comments, Users: users,
+	})
+}
+
+func (a *App) handleCommentDelete(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	ctx := r.Context()
+	var cardID int
+	a.db.QueryRow(ctx, `SELECT card_id FROM comments WHERE id=$1`, id).Scan(&cardID)
+	a.db.Exec(ctx, `DELETE FROM comments WHERE id=$1`, id)
+	seeOther(w, r, fmt.Sprintf("/cards/%d#comments", cardID))
+}
+
+func (a *App) handleCommentCreate(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r) // card id
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		httpErr(w, err)
+		return
+	}
+	body := strings.TrimSpace(r.FormValue("body"))
+	if body == "" {
+		seeOther(w, r, fmt.Sprintf("/cards/%d", id))
+		return
+	}
+	var userID *int
+	if v := r.FormValue("user_id"); v != "" {
+		if uid, err := strconv.Atoi(v); err == nil {
+			userID = &uid
+		}
+	}
+	a.db.Exec(r.Context(),
+		`INSERT INTO comments (card_id, user_id, body) VALUES ($1,$2,$3)`,
+		id, userID, body)
+	seeOther(w, r, fmt.Sprintf("/cards/%d#comments", id))
 }
 
 // ── Label handlers ────────────────────────────────────────────────────────────
@@ -1058,8 +1188,7 @@ function renameBoard(el) {
 {{end}}`
 
 const cardEditTmpl = `{{define "header-extra"}}
-<a href="/boards/{{.BoardID}}" class="header-back">← {{.BoardName}}</a>
-<span class="header-back" style="color:#6e7681">/ {{.ColumnName}}</span>
+<a href="/cards/{{.Card.ID}}" class="header-back">← {{.Card.Title}}</a>
 {{end}}
 {{define "content"}}
 <div class="form-page">
@@ -1106,13 +1235,97 @@ const cardEditTmpl = `{{define "header-extra"}}
   </div>
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">Save</button>
-    <a href="/boards/{{.BoardID}}" class="btn btn-cancel">Cancel</a>
+    <a href="/cards/{{.Card.ID}}" class="btn btn-cancel">Cancel</a>
   </div>
 </form>
 <form method="POST" action="/cards/{{.Card.ID}}/delete" style="margin-top:32px"
   onsubmit="return confirm('Delete this card?')">
   <button class="btn btn-danger btn-sm" type="submit">Delete Card</button>
 </form>
+</div>
+{{end}}`
+
+const cardViewTmpl = `{{define "header-extra"}}
+<a href="/boards/{{.BoardID}}" class="header-back">← {{.BoardName}}</a>
+<span class="header-back" style="color:#6e7681">/ {{.ColumnName}}</span>
+<a href="/cards/{{.Card.ID}}/edit" class="btn btn-sm btn-edit" style="margin-left:auto">Edit</a>
+{{end}}
+{{define "content"}}
+<div style="max-width:720px">
+
+<h2 style="margin-bottom:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+  {{if .Card.LabelName}}
+  <span class="card-label-chip" style="background:{{.Card.LabelColor}}22;color:{{.Card.LabelColor}};border:1px solid {{.Card.LabelColor}}55;font-size:13px">{{.Card.LabelName}}</span>
+  {{end}}
+  {{.Card.Title}}
+</h2>
+
+<table style="border-collapse:collapse;margin-bottom:24px;font-size:13px">
+  {{if .Card.CreatedByName}}
+  <tr>
+    <td style="color:#8b949e;padding:4px 16px 4px 0;white-space:nowrap">Created by</td>
+    <td>{{if eq .Card.CreatedByKind "agent"}}🤖 {{end}}{{.Card.CreatedByName}}</td>
+  </tr>
+  {{end}}
+  {{if .Card.DueDateStr}}
+  <tr>
+    <td style="color:#8b949e;padding:4px 16px 4px 0">Due date</td>
+    <td class="{{if .Card.Overdue}}card-due overdue{{end}}">{{if .Card.Overdue}}⚠ {{end}}{{.Card.DueDateStr}}</td>
+  </tr>
+  {{end}}
+  <tr>
+    <td style="color:#8b949e;padding:4px 16px 4px 0">Column</td>
+    <td>{{.ColumnName}}</td>
+  </tr>
+</table>
+
+{{if .Card.Description}}
+<div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px;margin-bottom:32px;white-space:pre-wrap;font-size:14px;line-height:1.6">{{.Card.Description}}</div>
+{{end}}
+
+<hr style="border:none;border-top:1px solid #30363d;margin-bottom:28px">
+
+<h3 id="comments" style="margin-bottom:16px">Comments <span style="color:#6e7681;font-weight:400;font-size:14px">({{len .Comments}})</span></h3>
+
+{{if .Comments}}
+<div style="display:flex;flex-direction:column;gap:12px;margin-bottom:28px">
+{{range .Comments}}
+<div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px 16px">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+    <span style="font-weight:600;font-size:13px;color:#f0f6fc">
+      {{if .UserName}}{{if eq .UserKind "agent"}}🤖 {{end}}{{.UserName}}{{else}}<span style="color:#6e7681">Anonymous</span>{{end}}
+    </span>
+    <span style="color:#6e7681;font-size:12px">{{.CreatedAt}}</span>
+    <form method="POST" action="/comments/{{.ID}}/delete" style="margin-left:auto">
+      <button class="btn btn-sm btn-danger" type="submit" style="padding:1px 8px;font-size:11px">×</button>
+    </form>
+  </div>
+  <div style="white-space:pre-wrap;font-size:14px;line-height:1.6;color:#c9d1d9">{{.Body}}</div>
+</div>
+{{end}}
+</div>
+{{else}}
+<p style="color:#6e7681;margin-bottom:24px">No comments yet.</p>
+{{end}}
+
+<div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px">
+  <h4 style="margin-bottom:12px;font-size:14px;color:#8b949e">Add a comment</h4>
+  <form method="POST" action="/cards/{{.Card.ID}}/comments">
+    <div class="form-group">
+      <textarea name="body" rows="3" placeholder="Write a comment…" required style="margin-bottom:10px"></textarea>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <select name="user_id" style="flex:1;min-width:160px">
+        <option value="">— anonymous —</option>
+        {{range .Users}}
+        <option value="{{.ID}}">{{if eq .Kind "agent"}}🤖 {{end}}{{.Name}}</option>
+        {{end}}
+      </select>
+      <button class="btn btn-primary" type="submit">Post Comment</button>
+    </div>
+  </form>
+</div>
+
 </div>
 {{end}}`
 
@@ -1289,6 +1502,7 @@ func initTemplates() {
 	}
 	add("board-list", boardListTmpl)
 	add("board-view", boardViewTmpl)
+	add("card-view", cardViewTmpl)
 	add("card-new", cardNewTmpl)
 	add("card-edit", cardEditTmpl)
 	add("label-list", labelListTmpl)
