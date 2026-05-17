@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -87,6 +89,17 @@ CREATE INDEX IF NOT EXISTS idx_cards_created_by ON cards(created_by);
 CREATE INDEX IF NOT EXISTS idx_cards_label      ON cards(label_id);
 CREATE INDEX IF NOT EXISTS idx_labels_name      ON labels(name);
 CREATE INDEX IF NOT EXISTS idx_comments_card    ON comments(card_id);
+
+CREATE TABLE IF NOT EXISTS card_attachments (
+    id            SERIAL PRIMARY KEY,
+    card_id       INTEGER NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+    filename      TEXT NOT NULL,
+    original_name TEXT NOT NULL DEFAULT '',
+    size_bytes    BIGINT NOT NULL DEFAULT 0,
+    mime_type     TEXT NOT NULL DEFAULT '',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_attachments_card ON card_attachments(card_id);
 `
 
 // ── Data types ────────────────────────────────────────────────────────────────
@@ -144,6 +157,15 @@ type BoardViewPage struct {
 	Columns []Column
 }
 
+type Attachment struct {
+	ID           int
+	CardID       int
+	OriginalName string
+	SizeBytes    int64
+	MimeType     string
+	CreatedAt    string
+}
+
 type Comment struct {
 	ID        int
 	CardID    int
@@ -154,13 +176,14 @@ type Comment struct {
 }
 
 type CardViewPage struct {
-	Card       Card
-	BoardID    int
-	BoardName  string
-	ColumnName string
-	Comments   []Comment
-	Users      []User
-	Labels     []Label
+	Card        Card
+	BoardID     int
+	BoardName   string
+	ColumnName  string
+	Comments    []Comment
+	Users       []User
+	Labels      []Label
+	Attachments []Attachment
 }
 
 type CardNewPage struct {
@@ -184,14 +207,17 @@ type LabelListPage struct{ Labels []Label }
 
 // ── App ───────────────────────────────────────────────────────────────────────
 
-type App struct{ db *pgxpool.Pool }
+type App struct {
+	db        *pgxpool.Pool
+	uploadDir string
+}
 
-func newApp(ctx context.Context, dsn string) (*App, error) {
+func newApp(ctx context.Context, dsn, uploadDir string) (*App, error) {
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		return nil, err
 	}
-	return &App{db: pool}, nil
+	return &App{db: pool, uploadDir: uploadDir}, nil
 }
 
 func (a *App) initSchema(ctx context.Context) error {
@@ -215,6 +241,9 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /cards/{id}/delete", a.handleCardDelete)
 	mux.HandleFunc("POST /cards/{id}/comments", a.handleCommentCreate)
 	mux.HandleFunc("POST /api/cards/{id}/update", a.handleCardFieldUpdate)
+	mux.HandleFunc("POST /cards/{id}/attachments", a.handleAttachmentUpload)
+	mux.HandleFunc("GET /attachments/{id}", a.handleAttachmentServe)
+	mux.HandleFunc("POST /attachments/{id}/delete", a.handleAttachmentDelete)
 	mux.HandleFunc("POST /comments/{id}/delete", a.handleCommentDelete)
 	mux.HandleFunc("POST /api/move", a.handleMove)
 	mux.HandleFunc("/labels", a.handleLabels)
@@ -769,11 +798,27 @@ func (a *App) handleCardView(w http.ResponseWriter, r *http.Request) {
 	}
 	rows.Close()
 
+	arows, _ := a.db.Query(ctx,
+		`SELECT id, card_id, original_name, size_bytes, mime_type, created_at
+		 FROM card_attachments WHERE card_id=$1 ORDER BY created_at`, id)
+	var attachments []Attachment
+	if arows != nil {
+		for arows.Next() {
+			var att Attachment
+			var t time.Time
+			arows.Scan(&att.ID, &att.CardID, &att.OriginalName, &att.SizeBytes, &att.MimeType, &t)
+			att.CreatedAt = t.Local().Format("2006-01-02 15:04")
+			attachments = append(attachments, att)
+		}
+		arows.Close()
+	}
+
 	users, _ := a.listUsers(ctx)
 	labels, _ := a.listLabels(ctx)
 	render(w, "card-view", CardViewPage{
 		Card: c, BoardID: boardID, BoardName: boardName,
 		ColumnName: colName, Comments: comments, Users: users, Labels: labels,
+		Attachments: attachments,
 	})
 }
 
@@ -859,6 +904,98 @@ func (a *App) handleCommentCreate(w http.ResponseWriter, r *http.Request) {
 		`INSERT INTO comments (card_id, user_id, body) VALUES ($1,$2,$3)`,
 		id, userID, body)
 	seeOther(w, r, fmt.Sprintf("/cards/%d#comments", id))
+}
+
+// ── Attachment handlers ───────────────────────────────────────────────────────
+
+func (a *App) handleAttachmentUpload(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseMultipartForm(256 << 20); err != nil {
+		httpErr(w, err)
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		seeOther(w, r, fmt.Sprintf("/cards/%d", id))
+		return
+	}
+	defer file.Close()
+
+	ext := filepath.Ext(header.Filename)
+	stored := fmt.Sprintf("%d%s", time.Now().UnixNano(), ext)
+	dst := filepath.Join(a.uploadDir, stored)
+	out, err := os.Create(dst)
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	n, err := io.Copy(out, file)
+	out.Close()
+	if err != nil {
+		os.Remove(dst)
+		httpErr(w, err)
+		return
+	}
+	mimeType := header.Header.Get("Content-Type")
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+	_, err = a.db.Exec(r.Context(),
+		`INSERT INTO card_attachments (card_id, filename, original_name, size_bytes, mime_type)
+		 VALUES ($1,$2,$3,$4,$5)`,
+		id, stored, header.Filename, n, mimeType)
+	if err != nil {
+		os.Remove(dst)
+		httpErr(w, err)
+		return
+	}
+	seeOther(w, r, fmt.Sprintf("/cards/%d#attachments", id))
+}
+
+func (a *App) handleAttachmentServe(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	var stored, originalName, mimeType string
+	err := a.db.QueryRow(r.Context(),
+		`SELECT filename, original_name, mime_type FROM card_attachments WHERE id=$1`, id).
+		Scan(&stored, &originalName, &mimeType)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if mimeType != "" {
+		w.Header().Set("Content-Type", mimeType)
+	}
+	w.Header().Set("Content-Disposition", `attachment; filename="`+strings.ReplaceAll(originalName, `"`, `\"`)+`"`)
+	http.ServeFile(w, r, filepath.Join(a.uploadDir, stored))
+}
+
+func (a *App) handleAttachmentDelete(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	ctx := r.Context()
+	var cardID int
+	var stored string
+	err := a.db.QueryRow(ctx,
+		`SELECT card_id, filename FROM card_attachments WHERE id=$1`, id).
+		Scan(&cardID, &stored)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	a.db.Exec(ctx, `DELETE FROM card_attachments WHERE id=$1`, id)
+	os.Remove(filepath.Join(a.uploadDir, stored))
+	seeOther(w, r, fmt.Sprintf("/cards/%d#attachments", cardID))
 }
 
 // ── Label handlers ────────────────────────────────────────────────────────────
@@ -1367,6 +1504,30 @@ const cardViewTmpl = `{{define "header-extra"}}
 
 <hr style="border:none;border-top:1px solid #30363d;margin-bottom:28px">
 
+<h3 id="attachments" style="margin-bottom:12px">Attachments <span style="color:#6e7681;font-weight:400;font-size:14px">({{len .Attachments}})</span></h3>
+
+{{if .Attachments}}
+<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px">
+{{range .Attachments}}
+<div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+  <a href="/attachments/{{.ID}}" style="font-size:13px;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📎 {{.OriginalName}}</a>
+  <span style="color:#6e7681;font-size:12px;white-space:nowrap">{{fmtSize .SizeBytes}} · {{.CreatedAt}}</span>
+  <form method="POST" action="/attachments/{{.ID}}/delete" style="flex-shrink:0"
+    onsubmit="return confirm('Delete attachment?')">
+    <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+  </form>
+</div>
+{{end}}
+</div>
+{{end}}
+
+<form method="POST" action="/cards/{{.Card.ID}}/attachments" enctype="multipart/form-data" class="upload-form" style="margin-bottom:32px">
+  <input type="file" name="file" style="color:#c9d1d9;font-size:13px">
+  <button class="btn btn-primary btn-sm" type="submit">Upload</button>
+</form>
+
+<hr style="border:none;border-top:1px solid #30363d;margin-bottom:28px">
+
 <h3 id="comments" style="margin-bottom:16px">Comments <span style="color:#6e7681;font-weight:400;font-size:14px">({{len .Comments}})</span></h3>
 
 {{if .Comments}}
@@ -1619,6 +1780,18 @@ var pages map[string]*template.Template
 
 func initTemplates() {
 	funcMap := template.FuncMap{
+		"fmtSize": func(b int64) string {
+			switch {
+			case b < 1024:
+				return fmt.Sprintf("%dB", b)
+			case b < 1024*1024:
+				return fmt.Sprintf("%.1fKB", float64(b)/1024)
+			case b < 1024*1024*1024:
+				return fmt.Sprintf("%.1fMB", float64(b)/1024/1024)
+			default:
+				return fmt.Sprintf("%.1fGB", float64(b)/1024/1024/1024)
+			}
+		},
 		"deref": func(p *int) int {
 			if p == nil {
 				return 0
@@ -1666,9 +1839,16 @@ func main() {
 	if dsn == "" {
 		dsn = defaultDSN
 	}
+	uploadDir := os.Getenv("KANBAN_UPLOAD_DIR")
+	if uploadDir == "" {
+		uploadDir = "/var/lib/kanban/uploads"
+	}
+	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		log.Fatal("upload dir:", err)
+	}
 
 	ctx := context.Background()
-	app, err := newApp(ctx, dsn)
+	app, err := newApp(ctx, dsn, uploadDir)
 	if err != nil {
 		log.Fatal("db connect:", err)
 	}
