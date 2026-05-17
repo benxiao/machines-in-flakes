@@ -316,7 +316,7 @@ func (a *App) handleBoardView(w http.ResponseWriter, r *http.Request) {
 		}
 		cardRows, err := a.db.Query(ctx,
 			`SELECT c.id, c.column_id, c.title, c.description, c.label, c.due_date,
-			        c.position, c.created_by, u.name, u.kind
+			        c.position, c.created_by, COALESCE(u.name,''), COALESCE(u.kind,'')
 			 FROM cards c LEFT JOIN users u ON u.id = c.created_by
 			 WHERE c.column_id = ANY($1) ORDER BY c.position`, colIDs)
 		if err != nil {
@@ -463,7 +463,7 @@ func (a *App) handleCardEdit(w http.ResponseWriter, r *http.Request) {
 	var c Card
 	err := a.db.QueryRow(ctx,
 		`SELECT c.id, c.column_id, c.title, c.description, c.label, c.due_date,
-		        c.position, c.created_by, u.name, u.kind
+		        c.position, c.created_by, COALESCE(u.name,''), COALESCE(u.kind,'')
 		 FROM cards c LEFT JOIN users u ON u.id = c.created_by WHERE c.id=$1`, id).
 		Scan(&c.ID, &c.ColumnID, &c.Title, &c.Description, &c.Label, &c.DueDate,
 			&c.Position, &c.CreatedByID, &c.CreatedByName, &c.CreatedByKind)
