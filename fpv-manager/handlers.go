@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -602,6 +603,367 @@ func (a *App) handleDronePhotoNote(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, fmt.Sprintf("/drones/%d/edit", droneID), http.StatusSeeOther)
 }
 
+// ---- Drone log ----
+
+func (a *App) handleDroneDetail(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	ctx := r.Context()
+	var name string
+	err := a.db.QueryRow(ctx, `SELECT name FROM drones WHERE id=$1`, id).Scan(&name)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	rows, err := a.db.Query(ctx,
+		`SELECT id, logged_at, body FROM drone_log_entries WHERE drone_id=$1 ORDER BY logged_at DESC`, id)
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	defer rows.Close()
+	var entries []DroneLogEntry
+	for rows.Next() {
+		var e DroneLogEntry
+		var t time.Time
+		if rows.Scan(&e.ID, &t, &e.Body) == nil {
+			lt := t.Local()
+			e.LoggedAt = lt.Format("2006-01-02 15:04")
+			e.LoggedAtInput = lt.Format("2006-01-02T15:04")
+			entries = append(entries, e)
+		}
+	}
+	render(w, "drone-detail", DroneDetailPage{ActiveTab: "drones", ID: id, Name: name, Entries: entries})
+}
+
+func (a *App) handleDroneLogAdd(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		httpErr(w, err)
+		return
+	}
+	loggedAt := time.Now()
+	if s := r.FormValue("logged_at"); s != "" {
+		if t, err := time.ParseInLocation("2006-01-02T15:04", s, time.Local); err == nil {
+			loggedAt = t
+		}
+	}
+	body := strings.TrimSpace(r.FormValue("body"))
+	if body != "" {
+		a.db.Exec(r.Context(),
+			`INSERT INTO drone_log_entries (drone_id, logged_at, body) VALUES ($1, $2, $3)`,
+			id, loggedAt, body)
+	}
+	http.Redirect(w, r, fmt.Sprintf("/drones/%d", id), http.StatusSeeOther)
+}
+
+func (a *App) handleDroneLogDelete(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	ctx := r.Context()
+	var droneID int
+	err := a.db.QueryRow(ctx, `SELECT drone_id FROM drone_log_entries WHERE id=$1`, id).Scan(&droneID)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	a.db.Exec(ctx, `DELETE FROM drone_log_entries WHERE id=$1`, id)
+	http.Redirect(w, r, fmt.Sprintf("/drones/%d", droneID), http.StatusSeeOther)
+}
+
+func (a *App) handleDroneLogEdit(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		httpErr(w, err)
+		return
+	}
+	ctx := r.Context()
+	var droneID int
+	err := a.db.QueryRow(ctx, `SELECT drone_id FROM drone_log_entries WHERE id=$1`, id).Scan(&droneID)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	loggedAt := time.Now()
+	if s := r.FormValue("logged_at"); s != "" {
+		if t, err := time.ParseInLocation("2006-01-02T15:04", s, time.Local); err == nil {
+			loggedAt = t
+		}
+	}
+	body := strings.TrimSpace(r.FormValue("body"))
+	a.db.Exec(ctx, `UPDATE drone_log_entries SET logged_at=$1, body=$2 WHERE id=$3`, loggedAt, body, id)
+	http.Redirect(w, r, fmt.Sprintf("/drones/%d", droneID), http.StatusSeeOther)
+}
+
+// ---- Item photo helpers ----
+
+func (a *App) itemPhotoUpload(w http.ResponseWriter, r *http.Request, table, fkCol, redirectFmt string) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	ctx := r.Context()
+	if err := r.ParseMultipartForm(256 << 20); err != nil {
+		httpErr(w, err)
+		return
+	}
+	file, header, err := r.FormFile("photo")
+	if err != nil {
+		http.Redirect(w, r, fmt.Sprintf(redirectFmt, id), http.StatusSeeOther)
+		return
+	}
+	defer file.Close()
+
+	ext := filepath.Ext(header.Filename)
+	filename := fmt.Sprintf("%d%s", time.Now().UnixNano(), ext)
+	dst := filepath.Join(a.videoDir, filename)
+	out, err := os.Create(dst)
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	if _, err := io.Copy(out, file); err != nil {
+		out.Close()
+		os.Remove(dst)
+		httpErr(w, err)
+		return
+	}
+	out.Close()
+
+	_, err = a.db.Exec(ctx,
+		`INSERT INTO `+table+` (`+fkCol+`,filename,original_name) VALUES ($1,$2,$3)`,
+		id, filename, header.Filename)
+	if err != nil {
+		os.Remove(dst)
+		httpErr(w, err)
+		return
+	}
+	http.Redirect(w, r, fmt.Sprintf(redirectFmt, id), http.StatusSeeOther)
+}
+
+func (a *App) itemPhotoServe(w http.ResponseWriter, r *http.Request, table string) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	var filename string
+	err := a.db.QueryRow(r.Context(), `SELECT filename FROM `+table+` WHERE id=$1`, id).Scan(&filename)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	http.ServeFile(w, r, filepath.Join(a.videoDir, filename))
+}
+
+func (a *App) itemPhotoDelete(w http.ResponseWriter, r *http.Request, table, fkCol, redirectFmt string) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	ctx := r.Context()
+	var filename string
+	var itemID int
+	err := a.db.QueryRow(ctx,
+		`SELECT `+fkCol+`,filename FROM `+table+` WHERE id=$1`, id).Scan(&itemID, &filename)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	a.db.Exec(ctx, `DELETE FROM `+table+` WHERE id=$1`, id)
+	os.Remove(filepath.Join(a.videoDir, filename))
+	http.Redirect(w, r, fmt.Sprintf(redirectFmt, itemID), http.StatusSeeOther)
+}
+
+func (a *App) itemPhotoNote(w http.ResponseWriter, r *http.Request, table, fkCol, redirectFmt string) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	ctx := r.Context()
+	if err := r.ParseForm(); err != nil {
+		httpErr(w, err)
+		return
+	}
+	var itemID int
+	err := a.db.QueryRow(ctx, `SELECT `+fkCol+` FROM `+table+` WHERE id=$1`, id).Scan(&itemID)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	a.db.Exec(ctx, `UPDATE `+table+` SET notes=$1 WHERE id=$2`, r.FormValue("notes"), id)
+	http.Redirect(w, r, fmt.Sprintf(redirectFmt, itemID), http.StatusSeeOther)
+}
+
+// ---- Frame photos ----
+
+func (a *App) handleFramePhotoUpload(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoUpload(w, r, "frame_photos", "frame_id", "/frames/%d/edit")
+}
+func (a *App) handleFramePhotoServe(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoServe(w, r, "frame_photos")
+}
+func (a *App) handleFramePhotoDelete(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoDelete(w, r, "frame_photos", "frame_id", "/frames/%d/edit")
+}
+func (a *App) handleFramePhotoNote(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoNote(w, r, "frame_photos", "frame_id", "/frames/%d/edit")
+}
+
+// ---- FC photos ----
+
+func (a *App) handleFCPhotoUpload(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoUpload(w, r, "fc_photos", "fc_id", "/fcs/%d/edit")
+}
+func (a *App) handleFCPhotoServe(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoServe(w, r, "fc_photos")
+}
+func (a *App) handleFCPhotoDelete(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoDelete(w, r, "fc_photos", "fc_id", "/fcs/%d/edit")
+}
+func (a *App) handleFCPhotoNote(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoNote(w, r, "fc_photos", "fc_id", "/fcs/%d/edit")
+}
+
+// ---- ESC photos ----
+
+func (a *App) handleESCPhotoUpload(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoUpload(w, r, "esc_photos", "esc_id", "/escs/%d/edit")
+}
+func (a *App) handleESCPhotoServe(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoServe(w, r, "esc_photos")
+}
+func (a *App) handleESCPhotoDelete(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoDelete(w, r, "esc_photos", "esc_id", "/escs/%d/edit")
+}
+func (a *App) handleESCPhotoNote(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoNote(w, r, "esc_photos", "esc_id", "/escs/%d/edit")
+}
+
+// ---- Motor photos ----
+
+func (a *App) handleMotorPhotoUpload(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoUpload(w, r, "motor_photos", "motor_id", "/motors/%d/edit")
+}
+func (a *App) handleMotorPhotoServe(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoServe(w, r, "motor_photos")
+}
+func (a *App) handleMotorPhotoDelete(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoDelete(w, r, "motor_photos", "motor_id", "/motors/%d/edit")
+}
+func (a *App) handleMotorPhotoNote(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoNote(w, r, "motor_photos", "motor_id", "/motors/%d/edit")
+}
+
+// ---- VTX photos ----
+
+func (a *App) handleVTXPhotoUpload(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoUpload(w, r, "vtx_photos", "vtx_id", "/vtx/%d/edit")
+}
+func (a *App) handleVTXPhotoServe(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoServe(w, r, "vtx_photos")
+}
+func (a *App) handleVTXPhotoDelete(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoDelete(w, r, "vtx_photos", "vtx_id", "/vtx/%d/edit")
+}
+func (a *App) handleVTXPhotoNote(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoNote(w, r, "vtx_photos", "vtx_id", "/vtx/%d/edit")
+}
+
+// ---- GPS photos ----
+
+func (a *App) handleGPSPhotoUpload(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoUpload(w, r, "gps_photos", "gps_id", "/gps/%d/edit")
+}
+func (a *App) handleGPSPhotoServe(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoServe(w, r, "gps_photos")
+}
+func (a *App) handleGPSPhotoDelete(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoDelete(w, r, "gps_photos", "gps_id", "/gps/%d/edit")
+}
+func (a *App) handleGPSPhotoNote(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoNote(w, r, "gps_photos", "gps_id", "/gps/%d/edit")
+}
+
+// ---- RX photos ----
+
+func (a *App) handleRXPhotoUpload(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoUpload(w, r, "rx_photos", "rx_id", "/rx/%d/edit")
+}
+func (a *App) handleRXPhotoServe(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoServe(w, r, "rx_photos")
+}
+func (a *App) handleRXPhotoDelete(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoDelete(w, r, "rx_photos", "rx_id", "/rx/%d/edit")
+}
+func (a *App) handleRXPhotoNote(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoNote(w, r, "rx_photos", "rx_id", "/rx/%d/edit")
+}
+
+// ---- Battery photos ----
+
+func (a *App) handleBatteryPhotoUpload(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoUpload(w, r, "battery_photos", "battery_id", "/batteries/%d/edit")
+}
+func (a *App) handleBatteryPhotoServe(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoServe(w, r, "battery_photos")
+}
+func (a *App) handleBatteryPhotoDelete(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoDelete(w, r, "battery_photos", "battery_id", "/batteries/%d/edit")
+}
+func (a *App) handleBatteryPhotoNote(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoNote(w, r, "battery_photos", "battery_id", "/batteries/%d/edit")
+}
+
+// ---- Prop photos ----
+
+func (a *App) handlePropPhotoUpload(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoUpload(w, r, "prop_photos", "prop_id", "/props/%d/edit")
+}
+func (a *App) handlePropPhotoServe(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoServe(w, r, "prop_photos")
+}
+func (a *App) handlePropPhotoDelete(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoDelete(w, r, "prop_photos", "prop_id", "/props/%d/edit")
+}
+func (a *App) handlePropPhotoNote(w http.ResponseWriter, r *http.Request) {
+	a.itemPhotoNote(w, r, "prop_photos", "prop_id", "/props/%d/edit")
+}
+
+func (a *App) fetchItemPhotos(ctx context.Context, table, fkCol string, id int) []DronePhotoRow {
+	rows, err := a.db.Query(ctx,
+		`SELECT id, original_name, notes FROM `+table+` WHERE `+fkCol+`=$1 ORDER BY created_at`, id)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var photos []DronePhotoRow
+	for rows.Next() {
+		var p DronePhotoRow
+		if rows.Scan(&p.ID, &p.OriginalName, &p.Notes) == nil {
+			photos = append(photos, p)
+		}
+	}
+	return photos
+}
+
 // ---- Inventory ----
 
 func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
@@ -618,11 +980,13 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
                COALESCE(ic.count,0),
                (SELECT COUNT(*) FROM drones d WHERE d.frame_id=f.id),
                COALESCE(ic.count,0) - (SELECT COUNT(*) FROM drones d WHERE d.frame_id=f.id),
-               COALESCE(string_agg(d.name,', ' ORDER BY d.name),'')
+               COALESCE(string_agg(d.name,', ' ORDER BY d.name),''),
+               COALESCE(fp.id,0)
         FROM frames f
         LEFT JOIN item_counts ic ON ic.item_type='frame' AND ic.item_id=f.id
         LEFT JOIN drones d ON d.frame_id=f.id
-        GROUP BY f.id, f.brand, f.name, f.size_inch, f.weight_g, ic.count
+        LEFT JOIN LATERAL (SELECT id FROM frame_photos WHERE frame_id=f.id ORDER BY created_at LIMIT 1) fp ON true
+        GROUP BY f.id, f.brand, f.name, f.size_inch, f.weight_g, ic.count, fp.id
         ORDER BY f.brand, f.name`)
 	if err != nil {
 		httpErr(w, err)
@@ -632,7 +996,7 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 		var fr FrameRow
 		var weightG *int
 		if err := rows.Scan(&fr.ID, &fr.Brand, &fr.Name, &fr.SizeInch, &weightG,
-			&fr.Total, &fr.Installed, &fr.Available, &fr.InstalledOn); err != nil {
+			&fr.Total, &fr.Installed, &fr.Available, &fr.InstalledOn, &fr.FirstPhotoID); err != nil {
 			rows.Close()
 			httpErr(w, err)
 			return
@@ -653,11 +1017,13 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
                COALESCE(ic.count,0),
                (SELECT COUNT(*) FROM drones d WHERE d.fc_id=fc.id),
                COALESCE(ic.count,0) - (SELECT COUNT(*) FROM drones d WHERE d.fc_id=fc.id),
-               COALESCE(string_agg(d.name,', ' ORDER BY d.name),'')
+               COALESCE(string_agg(d.name,', ' ORDER BY d.name),''),
+               COALESCE(fcp.id,0)
         FROM flight_controllers fc
         LEFT JOIN item_counts ic ON ic.item_type='fc' AND ic.item_id=fc.id
         LEFT JOIN drones d ON d.fc_id=fc.id
-        GROUP BY fc.id, fc.brand, fc.name, fc.mcu, fc.firmware, ic.count
+        LEFT JOIN LATERAL (SELECT id FROM fc_photos WHERE fc_id=fc.id ORDER BY created_at LIMIT 1) fcp ON true
+        GROUP BY fc.id, fc.brand, fc.name, fc.mcu, fc.firmware, ic.count, fcp.id
         ORDER BY fc.brand, fc.name`)
 	if err != nil {
 		httpErr(w, err)
@@ -666,7 +1032,7 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var fc FCRow
 		if err := rows.Scan(&fc.ID, &fc.Brand, &fc.Name, &fc.MCU, &fc.Firmware,
-			&fc.Total, &fc.Installed, &fc.Available, &fc.InstalledOn); err != nil {
+			&fc.Total, &fc.Installed, &fc.Available, &fc.InstalledOn, &fc.FirstPhotoID); err != nil {
 			rows.Close()
 			httpErr(w, err)
 			return
@@ -684,11 +1050,13 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
                COALESCE(ic.count,0),
                (SELECT COUNT(*) FROM drones d WHERE d.esc_id=e.id),
                COALESCE(ic.count,0) - (SELECT COUNT(*) FROM drones d WHERE d.esc_id=e.id),
-               COALESCE(string_agg(d.name,', ' ORDER BY d.name),'')
+               COALESCE(string_agg(d.name,', ' ORDER BY d.name),''),
+               COALESCE(ep.id,0)
         FROM escs e
         LEFT JOIN item_counts ic ON ic.item_type='esc' AND ic.item_id=e.id
         LEFT JOIN drones d ON d.esc_id=e.id
-        GROUP BY e.id, e.brand, e.name, e.current_rating, e.cell_max, ic.count
+        LEFT JOIN LATERAL (SELECT id FROM esc_photos WHERE esc_id=e.id ORDER BY created_at LIMIT 1) ep ON true
+        GROUP BY e.id, e.brand, e.name, e.current_rating, e.cell_max, ic.count, ep.id
         ORDER BY e.brand, e.name`)
 	if err != nil {
 		httpErr(w, err)
@@ -698,7 +1066,7 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 		var e ESCRow
 		var cr, cm *int
 		if err := rows.Scan(&e.ID, &e.Brand, &e.Name, &cr, &cm,
-			&e.Total, &e.Installed, &e.Available, &e.InstalledOn); err != nil {
+			&e.Total, &e.Installed, &e.Available, &e.InstalledOn, &e.FirstPhotoID); err != nil {
 			rows.Close()
 			httpErr(w, err)
 			return
@@ -722,11 +1090,13 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
                COALESCE(ic.count,0),
                COALESCE((SELECT SUM(d.motor_count) FROM drones d WHERE d.motor_id=m.id),0),
                COALESCE(ic.count,0) - COALESCE((SELECT SUM(d.motor_count) FROM drones d WHERE d.motor_id=m.id),0),
-               COALESCE(string_agg(d.name||' (×'||d.motor_count||')',', ' ORDER BY d.name),'')
+               COALESCE(string_agg(d.name||' (×'||d.motor_count||')',', ' ORDER BY d.name),''),
+               COALESCE(mp.id,0)
         FROM motors m
         LEFT JOIN item_counts ic ON ic.item_type='motor' AND ic.item_id=m.id
         LEFT JOIN drones d ON d.motor_id=m.id
-        GROUP BY m.id, m.brand, m.name, m.stator_size, m.kv, ic.count
+        LEFT JOIN LATERAL (SELECT id FROM motor_photos WHERE motor_id=m.id ORDER BY created_at LIMIT 1) mp ON true
+        GROUP BY m.id, m.brand, m.name, m.stator_size, m.kv, ic.count, mp.id
         ORDER BY m.brand, m.name`)
 	if err != nil {
 		httpErr(w, err)
@@ -736,7 +1106,7 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 		var m MotorRow
 		var kv *int
 		if err := rows.Scan(&m.ID, &m.Brand, &m.Name, &m.StatorSize, &kv,
-			&m.Total, &m.Installed, &m.Available, &m.InstalledOn); err != nil {
+			&m.Total, &m.Installed, &m.Available, &m.InstalledOn, &m.FirstPhotoID); err != nil {
 			rows.Close()
 			httpErr(w, err)
 			return
@@ -757,11 +1127,13 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
                COALESCE(ic.count,0),
                (SELECT COUNT(*) FROM drones d WHERE d.vtx_id=v.id),
                COALESCE(ic.count,0) - (SELECT COUNT(*) FROM drones d WHERE d.vtx_id=v.id),
-               COALESCE(string_agg(d.name,', ' ORDER BY d.name),'')
+               COALESCE(string_agg(d.name,', ' ORDER BY d.name),''),
+               COALESCE(vp.id,0)
         FROM vtx_units v
         LEFT JOIN item_counts ic ON ic.item_type='vtx' AND ic.item_id=v.id
         LEFT JOIN drones d ON d.vtx_id=v.id
-        GROUP BY v.id, v.brand, v.name, v.system, v.max_power_mw, v.resolution, ic.count
+        LEFT JOIN LATERAL (SELECT id FROM vtx_photos WHERE vtx_id=v.id ORDER BY created_at LIMIT 1) vp ON true
+        GROUP BY v.id, v.brand, v.name, v.system, v.max_power_mw, v.resolution, ic.count, vp.id
         ORDER BY v.brand, v.name`)
 	if err != nil {
 		httpErr(w, err)
@@ -771,7 +1143,7 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 		var v VTXRow
 		var mw *int
 		if err := rows.Scan(&v.ID, &v.Brand, &v.Name, &v.System, &mw, &v.Resolution,
-			&v.Total, &v.Installed, &v.Available, &v.InstalledOn); err != nil {
+			&v.Total, &v.Installed, &v.Available, &v.InstalledOn, &v.FirstPhotoID); err != nil {
 			rows.Close()
 			httpErr(w, err)
 			return
@@ -792,11 +1164,13 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
                COALESCE(ic.count,0),
                (SELECT COUNT(*) FROM drones d WHERE d.gps_id=g.id),
                COALESCE(ic.count,0) - (SELECT COUNT(*) FROM drones d WHERE d.gps_id=g.id),
-               COALESCE(string_agg(d.name,', ' ORDER BY d.name),'')
+               COALESCE(string_agg(d.name,', ' ORDER BY d.name),''),
+               COALESCE(gp.id,0)
         FROM gps_modules g
         LEFT JOIN item_counts ic ON ic.item_type='gps' AND ic.item_id=g.id
         LEFT JOIN drones d ON d.gps_id=g.id
-        GROUP BY g.id, g.brand, g.name, ic.count
+        LEFT JOIN LATERAL (SELECT id FROM gps_photos WHERE gps_id=g.id ORDER BY created_at LIMIT 1) gp ON true
+        GROUP BY g.id, g.brand, g.name, ic.count, gp.id
         ORDER BY g.brand, g.name`)
 	if err != nil {
 		httpErr(w, err)
@@ -805,7 +1179,7 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var g GPSRow
 		if err := rows.Scan(&g.ID, &g.Brand, &g.Name,
-			&g.Total, &g.Installed, &g.Available, &g.InstalledOn); err != nil {
+			&g.Total, &g.Installed, &g.Available, &g.InstalledOn, &g.FirstPhotoID); err != nil {
 			rows.Close()
 			httpErr(w, err)
 			return
@@ -823,11 +1197,13 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
                COALESCE(ic.count,0),
                (SELECT COUNT(*) FROM drones d WHERE d.rx_id=rx.id),
                COALESCE(ic.count,0) - (SELECT COUNT(*) FROM drones d WHERE d.rx_id=rx.id),
-               COALESCE(string_agg(d.name,', ' ORDER BY d.name),'')
+               COALESCE(string_agg(d.name,', ' ORDER BY d.name),''),
+               COALESCE(rxp.id,0)
         FROM radio_receivers rx
         LEFT JOIN item_counts ic ON ic.item_type='rx' AND ic.item_id=rx.id
         LEFT JOIN drones d ON d.rx_id=rx.id
-        GROUP BY rx.id, rx.brand, rx.name, rx.protocol, ic.count
+        LEFT JOIN LATERAL (SELECT id FROM rx_photos WHERE rx_id=rx.id ORDER BY created_at LIMIT 1) rxp ON true
+        GROUP BY rx.id, rx.brand, rx.name, rx.protocol, ic.count, rxp.id
         ORDER BY rx.brand, rx.name`)
 	if err != nil {
 		httpErr(w, err)
@@ -836,7 +1212,7 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var rx RXRow
 		if err := rows.Scan(&rx.ID, &rx.Brand, &rx.Name, &rx.Protocol,
-			&rx.Total, &rx.Installed, &rx.Available, &rx.InstalledOn); err != nil {
+			&rx.Total, &rx.Installed, &rx.Available, &rx.InstalledOn, &rx.FirstPhotoID); err != nil {
 			rows.Close()
 			httpErr(w, err)
 			return
@@ -938,6 +1314,7 @@ func (a *App) handleFrameEdit(w http.ResponseWriter, r *http.Request) {
 	}
 	page.Quantity = strconv.Itoa(qty)
 	page.ActiveTab = "inventory"
+	page.Photos = a.fetchItemPhotos(ctx, "frame_photos", "frame_id", id)
 	render(w, "frame-form", page)
 }
 
@@ -1033,6 +1410,7 @@ func (a *App) handleFCEdit(w http.ResponseWriter, r *http.Request) {
 	}
 	page.Quantity = strconv.Itoa(qty)
 	page.ActiveTab = "inventory"
+	page.Photos = a.fetchItemPhotos(ctx, "fc_photos", "fc_id", id)
 	render(w, "fc-form", page)
 }
 
@@ -1137,6 +1515,7 @@ func (a *App) handleESCEdit(w http.ResponseWriter, r *http.Request) {
 	}
 	page.Quantity = strconv.Itoa(qty)
 	page.ActiveTab = "inventory"
+	page.Photos = a.fetchItemPhotos(ctx, "esc_photos", "esc_id", id)
 	render(w, "esc-form", page)
 }
 
@@ -1236,6 +1615,7 @@ func (a *App) handleMotorEdit(w http.ResponseWriter, r *http.Request) {
 	}
 	page.Quantity = strconv.Itoa(qty)
 	page.ActiveTab = "inventory"
+	page.Photos = a.fetchItemPhotos(ctx, "motor_photos", "motor_id", id)
 	render(w, "motor-form", page)
 }
 
@@ -1340,6 +1720,7 @@ func (a *App) handleVTXEdit(w http.ResponseWriter, r *http.Request) {
 	}
 	page.Quantity = strconv.Itoa(qty)
 	page.ActiveTab = "inventory"
+	page.Photos = a.fetchItemPhotos(ctx, "vtx_photos", "vtx_id", id)
 	render(w, "vtx-form", page)
 }
 
@@ -1363,8 +1744,10 @@ func (a *App) handleProps(w http.ResponseWriter, r *http.Request) {
         SELECT p.id, p.brand, p.name,
                CAST(p.size_inch AS FLOAT8), CAST(p.pitch AS FLOAT8),
                p.blade_count, p.material, p.quantity, p.reorder_threshold,
-               COALESCE(d.name,'')
-        FROM propellers p LEFT JOIN drones d ON d.id=p.drone_id
+               COALESCE(d.name,''), COALESCE(pp.id,0)
+        FROM propellers p
+        LEFT JOIN drones d ON d.id=p.drone_id
+        LEFT JOIN LATERAL (SELECT id FROM prop_photos WHERE prop_id=p.id ORDER BY created_at LIMIT 1) pp ON true
         ORDER BY p.brand, p.name`)
 	if err != nil {
 		httpErr(w, err)
@@ -1376,7 +1759,7 @@ func (a *App) handleProps(w http.ResponseWriter, r *http.Request) {
 		var p PropRow
 		var si, pitch *float64
 		if err := rows.Scan(&p.ID, &p.Brand, &p.Name, &si, &pitch,
-			&p.BladeCount, &p.Material, &p.Quantity, &p.ReorderThreshold, &p.DroneName); err != nil {
+			&p.BladeCount, &p.Material, &p.Quantity, &p.ReorderThreshold, &p.DroneName, &p.FirstPhotoID); err != nil {
 			httpErr(w, err)
 			return
 		}
@@ -1506,6 +1889,7 @@ func (a *App) handlePropEdit(w http.ResponseWriter, r *http.Request) {
 	}
 	page.ActiveTab = "props"
 	page.Drones, _ = a.droneOptions(r)
+	page.Photos = a.fetchItemPhotos(ctx, "prop_photos", "prop_id", id)
 	render(w, "prop-form", page)
 }
 
@@ -1526,10 +1910,12 @@ func (a *App) handleBatteries(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.Query(ctx, `
         SELECT b.id, b.brand, b.name, b.cell_count, b.capacity_mah,
                b.count,
-               COALESCE(string_agg(d.name, ', ' ORDER BY d.name), '')
+               COALESCE(string_agg(d.name, ', ' ORDER BY d.name), ''),
+               COALESCE(bp.id,0)
         FROM batteries b
         LEFT JOIN drones d ON d.battery_id=b.id
-        GROUP BY b.id, b.brand, b.name, b.cell_count, b.capacity_mah, b.count
+        LEFT JOIN LATERAL (SELECT id FROM battery_photos WHERE battery_id=b.id ORDER BY created_at LIMIT 1) bp ON true
+        GROUP BY b.id, b.brand, b.name, b.cell_count, b.capacity_mah, b.count, bp.id
         ORDER BY b.brand, b.name, b.cell_count, b.capacity_mah`)
 	if err != nil {
 		httpErr(w, err)
@@ -1540,7 +1926,7 @@ func (a *App) handleBatteries(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var b BatteryRow
 		if err := rows.Scan(&b.ID, &b.Brand, &b.Name, &b.CellCount, &b.CapacityMAh,
-			&b.Total, &b.AssignedTo); err != nil {
+			&b.Total, &b.AssignedTo, &b.FirstPhotoID); err != nil {
 			httpErr(w, err)
 			return
 		}
@@ -1637,6 +2023,7 @@ func (a *App) handleBatteryEdit(w http.ResponseWriter, r *http.Request) {
 	page.CapacityMAh = strconv.Itoa(capMAh)
 	page.Quantity = strconv.Itoa(qty)
 	page.ActiveTab = "batteries"
+	page.Photos = a.fetchItemPhotos(ctx, "battery_photos", "battery_id", id)
 	render(w, "battery-form", page)
 }
 
@@ -2054,6 +2441,7 @@ func (a *App) handleGPSEdit(w http.ResponseWriter, r *http.Request) {
 	}
 	page.Quantity = strconv.Itoa(qty)
 	page.ActiveTab = "inventory"
+	page.Photos = a.fetchItemPhotos(ctx, "gps_photos", "gps_id", id)
 	render(w, "gps-form", page)
 }
 
@@ -2147,6 +2535,7 @@ func (a *App) handleRXEdit(w http.ResponseWriter, r *http.Request) {
 	}
 	page.Quantity = strconv.Itoa(qty)
 	page.ActiveTab = "inventory"
+	page.Photos = a.fetchItemPhotos(ctx, "rx_photos", "rx_id", id)
 	render(w, "rx-form", page)
 }
 

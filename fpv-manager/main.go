@@ -221,6 +221,95 @@ CREATE TABLE IF NOT EXISTS drone_photos (
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS frame_photos (
+    id            SERIAL PRIMARY KEY,
+    frame_id      INTEGER NOT NULL REFERENCES frames(id) ON DELETE CASCADE,
+    filename      TEXT NOT NULL,
+    original_name TEXT NOT NULL DEFAULT '',
+    notes         TEXT NOT NULL DEFAULT '',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS fc_photos (
+    id            SERIAL PRIMARY KEY,
+    fc_id         INTEGER NOT NULL REFERENCES flight_controllers(id) ON DELETE CASCADE,
+    filename      TEXT NOT NULL,
+    original_name TEXT NOT NULL DEFAULT '',
+    notes         TEXT NOT NULL DEFAULT '',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS esc_photos (
+    id            SERIAL PRIMARY KEY,
+    esc_id        INTEGER NOT NULL REFERENCES escs(id) ON DELETE CASCADE,
+    filename      TEXT NOT NULL,
+    original_name TEXT NOT NULL DEFAULT '',
+    notes         TEXT NOT NULL DEFAULT '',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS motor_photos (
+    id            SERIAL PRIMARY KEY,
+    motor_id      INTEGER NOT NULL REFERENCES motors(id) ON DELETE CASCADE,
+    filename      TEXT NOT NULL,
+    original_name TEXT NOT NULL DEFAULT '',
+    notes         TEXT NOT NULL DEFAULT '',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS vtx_photos (
+    id            SERIAL PRIMARY KEY,
+    vtx_id        INTEGER NOT NULL REFERENCES vtx_units(id) ON DELETE CASCADE,
+    filename      TEXT NOT NULL,
+    original_name TEXT NOT NULL DEFAULT '',
+    notes         TEXT NOT NULL DEFAULT '',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS gps_photos (
+    id            SERIAL PRIMARY KEY,
+    gps_id        INTEGER NOT NULL REFERENCES gps_modules(id) ON DELETE CASCADE,
+    filename      TEXT NOT NULL,
+    original_name TEXT NOT NULL DEFAULT '',
+    notes         TEXT NOT NULL DEFAULT '',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS rx_photos (
+    id            SERIAL PRIMARY KEY,
+    rx_id         INTEGER NOT NULL REFERENCES radio_receivers(id) ON DELETE CASCADE,
+    filename      TEXT NOT NULL,
+    original_name TEXT NOT NULL DEFAULT '',
+    notes         TEXT NOT NULL DEFAULT '',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS battery_photos (
+    id            SERIAL PRIMARY KEY,
+    battery_id    INTEGER NOT NULL REFERENCES batteries(id) ON DELETE CASCADE,
+    filename      TEXT NOT NULL,
+    original_name TEXT NOT NULL DEFAULT '',
+    notes         TEXT NOT NULL DEFAULT '',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS prop_photos (
+    id            SERIAL PRIMARY KEY,
+    prop_id       INTEGER NOT NULL REFERENCES propellers(id) ON DELETE CASCADE,
+    filename      TEXT NOT NULL,
+    original_name TEXT NOT NULL DEFAULT '',
+    notes         TEXT NOT NULL DEFAULT '',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS drone_log_entries (
+    id         SERIAL PRIMARY KEY,
+    drone_id   INTEGER NOT NULL REFERENCES drones(id) ON DELETE CASCADE,
+    logged_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    body       TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS session_videos (
     id            SERIAL PRIMARY KEY,
     session_id    INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -300,6 +389,16 @@ CREATE INDEX IF NOT EXISTS idx_drones_rx       ON drones(rx_id);
 CREATE INDEX IF NOT EXISTS idx_props_drone     ON propellers(drone_id);
 CREATE INDEX IF NOT EXISTS idx_sd_drone        ON session_drones(drone_id);
 CREATE INDEX IF NOT EXISTS idx_dp_drone        ON drone_photos(drone_id);
+CREATE INDEX IF NOT EXISTS idx_dle_drone       ON drone_log_entries(drone_id);
+CREATE INDEX IF NOT EXISTS idx_fp_frame        ON frame_photos(frame_id);
+CREATE INDEX IF NOT EXISTS idx_fcp_fc          ON fc_photos(fc_id);
+CREATE INDEX IF NOT EXISTS idx_escp_esc        ON esc_photos(esc_id);
+CREATE INDEX IF NOT EXISTS idx_mp_motor        ON motor_photos(motor_id);
+CREATE INDEX IF NOT EXISTS idx_vtxp_vtx        ON vtx_photos(vtx_id);
+CREATE INDEX IF NOT EXISTS idx_gpsp_gps        ON gps_photos(gps_id);
+CREATE INDEX IF NOT EXISTS idx_rxp_rx          ON rx_photos(rx_id);
+CREATE INDEX IF NOT EXISTS idx_bp_battery      ON battery_photos(battery_id);
+CREATE INDEX IF NOT EXISTS idx_pp_prop         ON prop_photos(prop_id);
 CREATE INDEX IF NOT EXISTS idx_sv_session      ON session_videos(session_id);
 CREATE INDEX IF NOT EXISTS idx_sp_session      ON session_photos(session_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_date   ON sessions(session_date DESC);
@@ -322,8 +421,12 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("/drones", a.handleDrones)
 	mux.HandleFunc("/drones/new", a.handleDroneNew)
+	mux.HandleFunc("/drones/{id}", a.handleDroneDetail)
 	mux.HandleFunc("/drones/{id}/edit", a.handleDroneEdit)
 	mux.HandleFunc("POST /drones/{id}/delete", a.handleDroneDelete)
+	mux.HandleFunc("POST /drones/{id}/log", a.handleDroneLogAdd)
+	mux.HandleFunc("POST /drone-log/{id}/delete", a.handleDroneLogDelete)
+	mux.HandleFunc("POST /drone-log/{id}/edit", a.handleDroneLogEdit)
 	mux.HandleFunc("POST /drones/{id}/photos", a.handleDronePhotoUpload)
 	mux.HandleFunc("GET /drone-photos/{id}", a.handleDronePhotoServe)
 	mux.HandleFunc("POST /drone-photos/{id}/delete", a.handleDronePhotoDelete)
@@ -334,41 +437,77 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/frames/{id}/edit", a.handleFrameEdit)
 	mux.HandleFunc("POST /frames/{id}/delete", a.handleFrameDelete)
 	mux.HandleFunc("POST /frames/{id}/adjust", a.handleFrameAdjust)
+	mux.HandleFunc("POST /frames/{id}/photos", a.handleFramePhotoUpload)
+	mux.HandleFunc("GET /frame-photos/{id}", a.handleFramePhotoServe)
+	mux.HandleFunc("POST /frame-photos/{id}/delete", a.handleFramePhotoDelete)
+	mux.HandleFunc("POST /frame-photos/{id}/note", a.handleFramePhotoNote)
 	mux.HandleFunc("/fcs/new", a.handleFCNew)
 	mux.HandleFunc("/fcs/{id}/edit", a.handleFCEdit)
 	mux.HandleFunc("POST /fcs/{id}/delete", a.handleFCDelete)
 	mux.HandleFunc("POST /fcs/{id}/adjust", a.handleFCAdjust)
+	mux.HandleFunc("POST /fcs/{id}/photos", a.handleFCPhotoUpload)
+	mux.HandleFunc("GET /fc-photos/{id}", a.handleFCPhotoServe)
+	mux.HandleFunc("POST /fc-photos/{id}/delete", a.handleFCPhotoDelete)
+	mux.HandleFunc("POST /fc-photos/{id}/note", a.handleFCPhotoNote)
 	mux.HandleFunc("/escs/new", a.handleESCNew)
 	mux.HandleFunc("/escs/{id}/edit", a.handleESCEdit)
 	mux.HandleFunc("POST /escs/{id}/delete", a.handleESCDelete)
 	mux.HandleFunc("POST /escs/{id}/adjust", a.handleESCAdjust)
+	mux.HandleFunc("POST /escs/{id}/photos", a.handleESCPhotoUpload)
+	mux.HandleFunc("GET /esc-photos/{id}", a.handleESCPhotoServe)
+	mux.HandleFunc("POST /esc-photos/{id}/delete", a.handleESCPhotoDelete)
+	mux.HandleFunc("POST /esc-photos/{id}/note", a.handleESCPhotoNote)
 	mux.HandleFunc("/motors/new", a.handleMotorNew)
 	mux.HandleFunc("/motors/{id}/edit", a.handleMotorEdit)
 	mux.HandleFunc("POST /motors/{id}/delete", a.handleMotorDelete)
 	mux.HandleFunc("POST /motors/{id}/adjust", a.handleMotorAdjust)
+	mux.HandleFunc("POST /motors/{id}/photos", a.handleMotorPhotoUpload)
+	mux.HandleFunc("GET /motor-photos/{id}", a.handleMotorPhotoServe)
+	mux.HandleFunc("POST /motor-photos/{id}/delete", a.handleMotorPhotoDelete)
+	mux.HandleFunc("POST /motor-photos/{id}/note", a.handleMotorPhotoNote)
 	mux.HandleFunc("/vtx/new", a.handleVTXNew)
 	mux.HandleFunc("/vtx/{id}/edit", a.handleVTXEdit)
 	mux.HandleFunc("POST /vtx/{id}/delete", a.handleVTXDelete)
 	mux.HandleFunc("POST /vtx/{id}/adjust", a.handleVTXAdjust)
+	mux.HandleFunc("POST /vtx/{id}/photos", a.handleVTXPhotoUpload)
+	mux.HandleFunc("GET /vtx-photos/{id}", a.handleVTXPhotoServe)
+	mux.HandleFunc("POST /vtx-photos/{id}/delete", a.handleVTXPhotoDelete)
+	mux.HandleFunc("POST /vtx-photos/{id}/note", a.handleVTXPhotoNote)
 	mux.HandleFunc("/gps/new", a.handleGPSNew)
 	mux.HandleFunc("/gps/{id}/edit", a.handleGPSEdit)
 	mux.HandleFunc("POST /gps/{id}/delete", a.handleGPSDelete)
 	mux.HandleFunc("POST /gps/{id}/adjust", a.handleGPSAdjust)
+	mux.HandleFunc("POST /gps/{id}/photos", a.handleGPSPhotoUpload)
+	mux.HandleFunc("GET /gps-photos/{id}", a.handleGPSPhotoServe)
+	mux.HandleFunc("POST /gps-photos/{id}/delete", a.handleGPSPhotoDelete)
+	mux.HandleFunc("POST /gps-photos/{id}/note", a.handleGPSPhotoNote)
 	mux.HandleFunc("/rx/new", a.handleRXNew)
 	mux.HandleFunc("/rx/{id}/edit", a.handleRXEdit)
 	mux.HandleFunc("POST /rx/{id}/delete", a.handleRXDelete)
 	mux.HandleFunc("POST /rx/{id}/adjust", a.handleRXAdjust)
+	mux.HandleFunc("POST /rx/{id}/photos", a.handleRXPhotoUpload)
+	mux.HandleFunc("GET /rx-photos/{id}", a.handleRXPhotoServe)
+	mux.HandleFunc("POST /rx-photos/{id}/delete", a.handleRXPhotoDelete)
+	mux.HandleFunc("POST /rx-photos/{id}/note", a.handleRXPhotoNote)
 
 	mux.HandleFunc("/props", a.handleProps)
 	mux.HandleFunc("/props/new", a.handlePropNew)
 	mux.HandleFunc("/props/{id}/edit", a.handlePropEdit)
 	mux.HandleFunc("POST /props/{id}/delete", a.handlePropDelete)
+	mux.HandleFunc("POST /props/{id}/photos", a.handlePropPhotoUpload)
+	mux.HandleFunc("GET /prop-photos/{id}", a.handlePropPhotoServe)
+	mux.HandleFunc("POST /prop-photos/{id}/delete", a.handlePropPhotoDelete)
+	mux.HandleFunc("POST /prop-photos/{id}/note", a.handlePropPhotoNote)
 
 	mux.HandleFunc("/batteries", a.handleBatteries)
 	mux.HandleFunc("/batteries/new", a.handleBatteryNew)
 	mux.HandleFunc("/batteries/{id}/edit", a.handleBatteryEdit)
 	mux.HandleFunc("POST /batteries/{id}/delete", a.handleBatteryDelete)
 	mux.HandleFunc("POST /batteries/{id}/adjust", a.handleBatteryAdjust)
+	mux.HandleFunc("POST /batteries/{id}/photos", a.handleBatteryPhotoUpload)
+	mux.HandleFunc("GET /battery-photos/{id}", a.handleBatteryPhotoServe)
+	mux.HandleFunc("POST /battery-photos/{id}/delete", a.handleBatteryPhotoDelete)
+	mux.HandleFunc("POST /battery-photos/{id}/note", a.handleBatteryPhotoNote)
 
 	mux.HandleFunc("/log", a.handleLog)
 	mux.HandleFunc("/log/new", a.handleSessionNew)

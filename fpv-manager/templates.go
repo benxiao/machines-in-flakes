@@ -43,6 +43,20 @@ type DronePhotoRow struct {
 	Notes        string
 }
 
+type DroneLogEntry struct {
+	ID           int
+	LoggedAt     string
+	LoggedAtInput string
+	Body         string
+}
+
+type DroneDetailPage struct {
+	ActiveTab string
+	ID        int
+	Name      string
+	Entries   []DroneLogEntry
+}
+
 type DroneFormPage struct {
 	ActiveTab    string
 	Error        string
@@ -83,24 +97,26 @@ type InventoryPage struct {
 }
 
 type GPSRow struct {
-	ID          int
-	Brand       string
-	Name        string
-	Total       int
-	Installed   int
-	Available   int
-	InstalledOn string
+	ID           int
+	Brand        string
+	Name         string
+	Total        int
+	Installed    int
+	Available    int
+	InstalledOn  string
+	FirstPhotoID int
 }
 
 type RXRow struct {
-	ID          int
-	Brand       string
-	Name        string
-	Protocol    string
-	Total       int
-	Installed   int
-	Available   int
-	InstalledOn string
+	ID           int
+	Brand        string
+	Name         string
+	Protocol     string
+	Total        int
+	Installed    int
+	Available    int
+	InstalledOn  string
+	FirstPhotoID int
 }
 
 type GPSFormPage struct {
@@ -111,6 +127,7 @@ type GPSFormPage struct {
 	Name      string
 	Notes     string
 	Quantity  string
+	Photos    []DronePhotoRow
 }
 
 type RXFormPage struct {
@@ -122,30 +139,33 @@ type RXFormPage struct {
 	Protocol  string
 	Notes     string
 	Quantity  string
+	Photos    []DronePhotoRow
 }
 
 type FrameRow struct {
-	ID          int
-	Brand       string
-	Name        string
-	SizeInch    string
-	WeightG     string
-	Total       int
-	Installed   int
-	Available   int
-	InstalledOn string
+	ID           int
+	Brand        string
+	Name         string
+	SizeInch     string
+	WeightG      string
+	Total        int
+	Installed    int
+	Available    int
+	InstalledOn  string
+	FirstPhotoID int
 }
 
 type FCRow struct {
-	ID          int
-	Brand       string
-	Name        string
-	MCU         string
-	Firmware    string
-	Total       int
-	Installed   int
-	Available   int
-	InstalledOn string
+	ID           int
+	Brand        string
+	Name         string
+	MCU          string
+	Firmware     string
+	Total        int
+	Installed    int
+	Available    int
+	InstalledOn  string
+	FirstPhotoID int
 }
 
 type ESCRow struct {
@@ -158,31 +178,34 @@ type ESCRow struct {
 	Installed     int
 	Available     int
 	InstalledOn   string
+	FirstPhotoID  int
 }
 
 type MotorRow struct {
-	ID          int
-	Brand       string
-	Name        string
-	StatorSize  string
-	KV          string
-	Total       int
-	Installed   int
-	Available   int
-	InstalledOn string
+	ID           int
+	Brand        string
+	Name         string
+	StatorSize   string
+	KV           string
+	Total        int
+	Installed    int
+	Available    int
+	InstalledOn  string
+	FirstPhotoID int
 }
 
 type VTXRow struct {
-	ID          int
-	Brand       string
-	Name        string
-	System      string
-	MaxPowerMW  string
-	Resolution  string
-	Total       int
-	Installed   int
-	Available   int
-	InstalledOn string
+	ID           int
+	Brand        string
+	Name         string
+	System       string
+	MaxPowerMW   string
+	Resolution   string
+	Total        int
+	Installed    int
+	Available    int
+	InstalledOn  string
+	FirstPhotoID int
 }
 
 type FrameFormPage struct {
@@ -195,6 +218,7 @@ type FrameFormPage struct {
 	WeightG   string
 	Notes     string
 	Quantity  string
+	Photos    []DronePhotoRow
 }
 
 type FCFormPage struct {
@@ -207,6 +231,7 @@ type FCFormPage struct {
 	Firmware  string
 	Notes     string
 	Quantity  string
+	Photos    []DronePhotoRow
 }
 
 type ESCFormPage struct {
@@ -219,6 +244,7 @@ type ESCFormPage struct {
 	CellMax       string
 	Notes         string
 	Quantity      string
+	Photos        []DronePhotoRow
 }
 
 type MotorFormPage struct {
@@ -231,6 +257,7 @@ type MotorFormPage struct {
 	KV         string
 	Notes      string
 	Quantity   string
+	Photos     []DronePhotoRow
 }
 
 type VTXFormPage struct {
@@ -245,6 +272,7 @@ type VTXFormPage struct {
 	WeightG    string
 	Notes      string
 	Quantity   string
+	Photos     []DronePhotoRow
 }
 
 type BatteryListPage struct {
@@ -253,14 +281,15 @@ type BatteryListPage struct {
 }
 
 type BatteryRow struct {
-	ID          int
-	Brand       string
-	Name        string
-	CellCount   int
-	CapacityMAh int
-	Total       int
-	AssignedTo  string
-	Count       int
+	ID           int
+	Brand        string
+	Name         string
+	CellCount    int
+	CapacityMAh  int
+	Total        int
+	AssignedTo   string
+	Count        int
+	FirstPhotoID int
 }
 
 type BatteryFormPage struct {
@@ -273,6 +302,7 @@ type BatteryFormPage struct {
 	CapacityMAh string
 	Quantity    string
 	Notes       string
+	Photos      []DronePhotoRow
 }
 
 type PropListPage struct {
@@ -292,6 +322,7 @@ type PropRow struct {
 	ReorderThreshold int
 	DroneName        string
 	LowStock         bool
+	FirstPhotoID     int
 }
 
 type PropFormPage struct {
@@ -309,6 +340,7 @@ type PropFormPage struct {
 	DroneID          int
 	Notes            string
 	Drones           []OptionItem
+	Photos           []DronePhotoRow
 }
 
 type LogListPage struct {
@@ -482,6 +514,7 @@ func initTemplates() {
 	}
 
 	add("drone-list", droneListTmpl)
+	add("drone-detail", droneDetailTmpl)
 	add("drone-form", droneFormTmpl)
 	add("inventory", inventoryTmpl)
 	add("frame-form", frameFormTmpl)
@@ -626,7 +659,7 @@ form.inline { display: inline; margin: 0; }
 .form-page { max-width: 580px; }
 .form-group { margin-bottom: 16px; }
 label { display: block; font-size: 13px; color: #8b949e; margin-bottom: 4px; }
-input[type=text], input[type=number], input[type=date], select, textarea {
+input[type=text], input[type=number], input[type=date], input[type=datetime-local], select, textarea {
   width: 100%;
   padding: 7px 10px;
   background: #0d1117;
@@ -676,14 +709,21 @@ hr { border: none; border-top: 1px solid #30363d; margin: 32px 0; }
 .upload-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 @media (max-width: 640px) {
   main { padding: 12px; }
-  nav { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  nav a { white-space: nowrap; padding: 10px 12px; }
+  header { padding: 10px 16px; }
+  nav { overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 0 12px; }
+  nav a { white-space: nowrap; padding: 10px 10px; font-size: 13px; }
   .page-header { flex-direction: column; align-items: flex-start; gap: 10px; }
   .section-header { flex-wrap: wrap; gap: 8px; }
   .form-row { flex-direction: column; gap: 0; }
   .form-page { max-width: 100%; }
   .form-actions { flex-wrap: wrap; }
   .form-row .form-group[style*="max-width"] { max-width: 100% !important; }
+  .btn { min-height: 44px; padding: 10px 16px; }
+  .btn-sm { min-height: 36px; padding: 6px 12px; font-size: 13px; }
+  .dle-entry-row { flex-direction: column !important; }
+  .dle-entry-btns { align-self: flex-end; }
+  .media-card-header { flex-wrap: wrap; gap: 8px; }
+  .upload-form input[type=file] { width: 100%; }
 }
 `
 
@@ -739,7 +779,7 @@ const droneListTmpl = `{{define "content"}}
     <div style="width:48px;height:48px;background:#21262d;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#8b949e;font-size:20px">✈</div>
     {{end}}
   </td>
-  <td><strong>{{.Name}}</strong></td>
+  <td><a href="/drones/{{.ID}}" style="font-weight:600;color:#c9d1d9;text-decoration:none">{{.Name}}</a></td>
   <td class="muted">{{dash .FrameName}}</td>
   <td class="muted">{{dash .FCName}}</td>
   <td class="muted">{{dash .ESCName}}</td>
@@ -773,6 +813,87 @@ function openLightbox(src){var lb=document.getElementById('lightbox');document.g
 function closeLightbox(){document.getElementById('lightbox').style.display='none';}
 document.addEventListener('keydown',function(e){if(e.key==='Escape')closeLightbox();});
 </script>
+{{end}}`
+
+const droneDetailTmpl = `{{define "content"}}
+<div class="page-header">
+  <h2>{{.Name}} — Log</h2>
+  <a href="/drones" class="btn btn-cancel">← Back to Drones</a>
+</div>
+
+<div class="section">
+  <h3 style="margin-bottom:12px">Add Entry</h3>
+  <form method="POST" action="/drones/{{.ID}}/log" style="display:flex;flex-direction:column;gap:10px;max-width:600px">
+    <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
+      <div class="form-group" style="flex:0 0 auto">
+        <label>Date &amp; Time</label>
+        <input type="datetime-local" name="logged_at" id="log_at" style="width:200px">
+      </div>
+      <div class="form-group" style="flex:1 1 300px">
+        <label>Note</label>
+        <textarea name="body" rows="3" placeholder="e.g. replaced motor, adjusted PID, tuned rates…" style="resize:vertical"></textarea>
+      </div>
+    </div>
+    <div><button class="btn btn-primary" type="submit">Add</button></div>
+  </form>
+  <script>
+    (function(){
+      var el=document.getElementById('log_at');
+      if(el&&!el.value){
+        var n=new Date();
+        n.setMinutes(n.getMinutes()-n.getTimezoneOffset());
+        el.value=n.toISOString().slice(0,16);
+      }
+    })();
+  </script>
+</div>
+
+<div class="section">
+{{if .Entries}}
+<div style="display:flex;flex-direction:column;gap:10px;max-width:700px">
+{{range .Entries}}
+<div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:14px 16px">
+  <div class="dle-entry-row" style="display:flex;gap:12px;align-items:flex-start">
+    <!-- view mode -->
+    <div class="dle-view" style="display:flex;gap:12px;align-items:flex-start;flex:1;min-width:0">
+      <div style="flex:0 0 auto;color:#8b949e;font-size:13px;padding-top:2px;white-space:nowrap">{{.LoggedAt}}</div>
+      <div style="flex:1;white-space:pre-wrap;word-break:break-word;min-width:0">{{.Body}}</div>
+    </div>
+    <!-- edit mode (hidden) -->
+    <form class="dle-form" method="POST" action="/drone-log/{{.ID}}/edit" style="display:none;flex:1;gap:10px;flex-direction:column;min-width:0">
+      <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap">
+        <input type="datetime-local" name="logged_at" value="{{.LoggedAtInput}}" style="flex:0 0 auto;font-size:13px">
+        <textarea name="body" rows="3" style="flex:1;min-width:200px;resize:vertical;font-size:14px">{{.Body}}</textarea>
+      </div>
+    </form>
+    <!-- buttons -->
+    <div class="dle-entry-btns" style="display:flex;gap:6px;flex-shrink:0">
+      <button class="btn btn-sm btn-edit dle-edit-btn" onclick="dleEdit(this)">Edit</button>
+      <form method="POST" action="/drone-log/{{.ID}}/delete" style="display:inline">
+        <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+      </form>
+    </div>
+  </div>
+</div>
+{{end}}
+<script>
+function dleEdit(btn) {
+  var card = btn.closest('div[style*="background:#161b22"]');
+  var view = card.querySelector('.dle-view');
+  var form = card.querySelector('.dle-form');
+  if (btn.textContent === 'Edit') {
+    view.style.display = 'none';
+    form.style.display = 'flex';
+    btn.textContent = 'Save';
+    btn.onclick = function(){ form.submit(); };
+  }
+}
+</script>
+</div>
+{{else}}
+<p class="muted">No log entries yet.</p>
+{{end}}
+</div>
 {{end}}`
 
 const droneFormTmpl = `{{define "content"}}
@@ -936,10 +1057,11 @@ const inventoryTmpl = `{{define "content"}}
   {{if .Frames}}
   <div class="table-wrap">
   <table>
-  <thead><tr><th>Brand</th><th>Name</th><th>Size</th><th>Weight</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
+  <thead><tr><th></th><th>Brand</th><th>Name</th><th>Size</th><th>Weight</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .Frames}}
   <tr>
+    <td style="width:40px;padding:4px 6px">{{if .FirstPhotoID}}<img src="/frame-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="openLightbox('/frame-photos/{{.FirstPhotoID}}')">{{end}}</td>
     <td class="muted">{{dash .Brand}}</td>
     <td>{{.Name}}</td>
     <td class="muted">{{if .SizeInch}}{{.SizeInch}}"{{else}}—{{end}}</td>
@@ -972,10 +1094,11 @@ const inventoryTmpl = `{{define "content"}}
   {{if .FCs}}
   <div class="table-wrap">
   <table>
-  <thead><tr><th>Brand</th><th>Name</th><th>MCU</th><th>Firmware</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
+  <thead><tr><th></th><th>Brand</th><th>Name</th><th>MCU</th><th>Firmware</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .FCs}}
   <tr>
+    <td style="width:40px;padding:4px 6px">{{if .FirstPhotoID}}<img src="/fc-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="openLightbox('/fc-photos/{{.FirstPhotoID}}')">{{end}}</td>
     <td class="muted">{{dash .Brand}}</td>
     <td>{{.Name}}</td>
     <td class="muted">{{dash .MCU}}</td>
@@ -1008,10 +1131,11 @@ const inventoryTmpl = `{{define "content"}}
   {{if .ESCs}}
   <div class="table-wrap">
   <table>
-  <thead><tr><th>Brand</th><th>Name</th><th>Current</th><th>Max Cell</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
+  <thead><tr><th></th><th>Brand</th><th>Name</th><th>Current</th><th>Max Cell</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .ESCs}}
   <tr>
+    <td style="width:40px;padding:4px 6px">{{if .FirstPhotoID}}<img src="/esc-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="openLightbox('/esc-photos/{{.FirstPhotoID}}')">{{end}}</td>
     <td class="muted">{{dash .Brand}}</td>
     <td>{{.Name}}</td>
     <td class="muted">{{if .CurrentRating}}{{.CurrentRating}}A{{else}}—{{end}}</td>
@@ -1044,10 +1168,11 @@ const inventoryTmpl = `{{define "content"}}
   {{if .Motors}}
   <div class="table-wrap">
   <table>
-  <thead><tr><th>Brand</th><th>Name</th><th>Stator</th><th>KV</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
+  <thead><tr><th></th><th>Brand</th><th>Name</th><th>Stator</th><th>KV</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .Motors}}
   <tr>
+    <td style="width:40px;padding:4px 6px">{{if .FirstPhotoID}}<img src="/motor-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="openLightbox('/motor-photos/{{.FirstPhotoID}}')">{{end}}</td>
     <td class="muted">{{dash .Brand}}</td>
     <td>{{.Name}}</td>
     <td class="muted">{{dash .StatorSize}}</td>
@@ -1080,10 +1205,11 @@ const inventoryTmpl = `{{define "content"}}
   {{if .VTXs}}
   <div class="table-wrap">
   <table>
-  <thead><tr><th>Brand</th><th>Name</th><th>System</th><th>Max Power</th><th>Resolution</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
+  <thead><tr><th></th><th>Brand</th><th>Name</th><th>System</th><th>Max Power</th><th>Resolution</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .VTXs}}
   <tr>
+    <td style="width:40px;padding:4px 6px">{{if .FirstPhotoID}}<img src="/vtx-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="openLightbox('/vtx-photos/{{.FirstPhotoID}}')">{{end}}</td>
     <td class="muted">{{dash .Brand}}</td>
     <td>{{.Name}}</td>
     <td class="muted">{{dash .System}}</td>
@@ -1117,10 +1243,11 @@ const inventoryTmpl = `{{define "content"}}
   {{if .GPSs}}
   <div class="table-wrap">
   <table>
-  <thead><tr><th>Brand</th><th>Name</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
+  <thead><tr><th></th><th>Brand</th><th>Name</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .GPSs}}
   <tr>
+    <td style="width:40px;padding:4px 6px">{{if .FirstPhotoID}}<img src="/gps-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="openLightbox('/gps-photos/{{.FirstPhotoID}}')">{{end}}</td>
     <td class="muted">{{dash .Brand}}</td>
     <td>{{.Name}}</td>
     <td class="muted">{{.Total}}</td>
@@ -1151,10 +1278,11 @@ const inventoryTmpl = `{{define "content"}}
   {{if .RXs}}
   <div class="table-wrap">
   <table>
-  <thead><tr><th>Brand</th><th>Name</th><th>Protocol</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
+  <thead><tr><th></th><th>Brand</th><th>Name</th><th>Protocol</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .RXs}}
   <tr>
+    <td style="width:40px;padding:4px 6px">{{if .FirstPhotoID}}<img src="/rx-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="openLightbox('/rx-photos/{{.FirstPhotoID}}')">{{end}}</td>
     <td class="muted">{{dash .Brand}}</td>
     <td>{{.Name}}</td>
     <td class="muted">{{dash .Protocol}}</td>
@@ -1229,6 +1357,31 @@ const frameFormTmpl = `{{define "content"}}
     <a href="/inventory" class="btn btn-cancel">Cancel</a>
   </div>
 </form>
+{{if .ID}}
+<h3 style="margin-top:32px">Photos</h3>
+{{if .Photos}}
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;max-width:700px;margin-bottom:16px">
+{{range .Photos}}
+<div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px">
+  <img src="/frame-photos/{{.ID}}" style="width:100%;border-radius:4px;display:block;max-height:200px;object-fit:cover">
+  <form method="POST" action="/frame-photos/{{.ID}}/note" style="margin-top:8px;display:flex;gap:6px;align-items:flex-start">
+    <textarea name="notes" rows="2" style="flex:1;resize:vertical;font-size:13px" placeholder="Add a note…">{{.Notes}}</textarea>
+    <button class="btn btn-sm btn-edit" type="submit">Save</button>
+  </form>
+  <form method="POST" action="/frame-photos/{{.ID}}/delete" style="margin-top:6px">
+    <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+  </form>
+</div>
+{{end}}
+</div>
+{{else}}
+<p class="muted" style="margin-bottom:8px">No photos yet.</p>
+{{end}}
+<form method="POST" action="/frames/{{.ID}}/photos" enctype="multipart/form-data" class="upload-form">
+  <input type="file" name="photo" accept="image/*" style="color:#c9d1d9;font-size:13px">
+  <button class="btn btn-primary" type="submit">Upload Photo</button>
+</form>
+{{end}}
 </div>
 {{end}}`
 
@@ -1274,6 +1427,31 @@ const fcFormTmpl = `{{define "content"}}
     <a href="/inventory" class="btn btn-cancel">Cancel</a>
   </div>
 </form>
+{{if .ID}}
+<h3 style="margin-top:32px">Photos</h3>
+{{if .Photos}}
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;max-width:700px;margin-bottom:16px">
+{{range .Photos}}
+<div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px">
+  <img src="/fc-photos/{{.ID}}" style="width:100%;border-radius:4px;display:block;max-height:200px;object-fit:cover">
+  <form method="POST" action="/fc-photos/{{.ID}}/note" style="margin-top:8px;display:flex;gap:6px;align-items:flex-start">
+    <textarea name="notes" rows="2" style="flex:1;resize:vertical;font-size:13px" placeholder="Add a note…">{{.Notes}}</textarea>
+    <button class="btn btn-sm btn-edit" type="submit">Save</button>
+  </form>
+  <form method="POST" action="/fc-photos/{{.ID}}/delete" style="margin-top:6px">
+    <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+  </form>
+</div>
+{{end}}
+</div>
+{{else}}
+<p class="muted" style="margin-bottom:8px">No photos yet.</p>
+{{end}}
+<form method="POST" action="/fcs/{{.ID}}/photos" enctype="multipart/form-data" class="upload-form">
+  <input type="file" name="photo" accept="image/*" style="color:#c9d1d9;font-size:13px">
+  <button class="btn btn-primary" type="submit">Upload Photo</button>
+</form>
+{{end}}
 </div>
 {{end}}`
 
@@ -1319,6 +1497,31 @@ const escFormTmpl = `{{define "content"}}
     <a href="/inventory" class="btn btn-cancel">Cancel</a>
   </div>
 </form>
+{{if .ID}}
+<h3 style="margin-top:32px">Photos</h3>
+{{if .Photos}}
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;max-width:700px;margin-bottom:16px">
+{{range .Photos}}
+<div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px">
+  <img src="/esc-photos/{{.ID}}" style="width:100%;border-radius:4px;display:block;max-height:200px;object-fit:cover">
+  <form method="POST" action="/esc-photos/{{.ID}}/note" style="margin-top:8px;display:flex;gap:6px;align-items:flex-start">
+    <textarea name="notes" rows="2" style="flex:1;resize:vertical;font-size:13px" placeholder="Add a note…">{{.Notes}}</textarea>
+    <button class="btn btn-sm btn-edit" type="submit">Save</button>
+  </form>
+  <form method="POST" action="/esc-photos/{{.ID}}/delete" style="margin-top:6px">
+    <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+  </form>
+</div>
+{{end}}
+</div>
+{{else}}
+<p class="muted" style="margin-bottom:8px">No photos yet.</p>
+{{end}}
+<form method="POST" action="/escs/{{.ID}}/photos" enctype="multipart/form-data" class="upload-form">
+  <input type="file" name="photo" accept="image/*" style="color:#c9d1d9;font-size:13px">
+  <button class="btn btn-primary" type="submit">Upload Photo</button>
+</form>
+{{end}}
 </div>
 {{end}}`
 
@@ -1362,6 +1565,31 @@ const motorFormTmpl = `{{define "content"}}
     <a href="/inventory" class="btn btn-cancel">Cancel</a>
   </div>
 </form>
+{{if .ID}}
+<h3 style="margin-top:32px">Photos</h3>
+{{if .Photos}}
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;max-width:700px;margin-bottom:16px">
+{{range .Photos}}
+<div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px">
+  <img src="/motor-photos/{{.ID}}" style="width:100%;border-radius:4px;display:block;max-height:200px;object-fit:cover">
+  <form method="POST" action="/motor-photos/{{.ID}}/note" style="margin-top:8px;display:flex;gap:6px;align-items:flex-start">
+    <textarea name="notes" rows="2" style="flex:1;resize:vertical;font-size:13px" placeholder="Add a note…">{{.Notes}}</textarea>
+    <button class="btn btn-sm btn-edit" type="submit">Save</button>
+  </form>
+  <form method="POST" action="/motor-photos/{{.ID}}/delete" style="margin-top:6px">
+    <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+  </form>
+</div>
+{{end}}
+</div>
+{{else}}
+<p class="muted" style="margin-bottom:8px">No photos yet.</p>
+{{end}}
+<form method="POST" action="/motors/{{.ID}}/photos" enctype="multipart/form-data" class="upload-form">
+  <input type="file" name="photo" accept="image/*" style="color:#c9d1d9;font-size:13px">
+  <button class="btn btn-primary" type="submit">Upload Photo</button>
+</form>
+{{end}}
 </div>
 {{end}}`
 
@@ -1417,6 +1645,31 @@ const vtxFormTmpl = `{{define "content"}}
     <a href="/inventory" class="btn btn-cancel">Cancel</a>
   </div>
 </form>
+{{if .ID}}
+<h3 style="margin-top:32px">Photos</h3>
+{{if .Photos}}
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;max-width:700px;margin-bottom:16px">
+{{range .Photos}}
+<div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px">
+  <img src="/vtx-photos/{{.ID}}" style="width:100%;border-radius:4px;display:block;max-height:200px;object-fit:cover">
+  <form method="POST" action="/vtx-photos/{{.ID}}/note" style="margin-top:8px;display:flex;gap:6px;align-items:flex-start">
+    <textarea name="notes" rows="2" style="flex:1;resize:vertical;font-size:13px" placeholder="Add a note…">{{.Notes}}</textarea>
+    <button class="btn btn-sm btn-edit" type="submit">Save</button>
+  </form>
+  <form method="POST" action="/vtx-photos/{{.ID}}/delete" style="margin-top:6px">
+    <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+  </form>
+</div>
+{{end}}
+</div>
+{{else}}
+<p class="muted" style="margin-bottom:8px">No photos yet.</p>
+{{end}}
+<form method="POST" action="/vtx/{{.ID}}/photos" enctype="multipart/form-data" class="upload-form">
+  <input type="file" name="photo" accept="image/*" style="color:#c9d1d9;font-size:13px">
+  <button class="btn btn-primary" type="submit">Upload Photo</button>
+</form>
+{{end}}
 </div>
 {{end}}`
 
@@ -1450,6 +1703,31 @@ const gpsFormTmpl = `{{define "content"}}
     <a href="/inventory" class="btn btn-cancel">Cancel</a>
   </div>
 </form>
+{{if .ID}}
+<h3 style="margin-top:32px">Photos</h3>
+{{if .Photos}}
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;max-width:700px;margin-bottom:16px">
+{{range .Photos}}
+<div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px">
+  <img src="/gps-photos/{{.ID}}" style="width:100%;border-radius:4px;display:block;max-height:200px;object-fit:cover">
+  <form method="POST" action="/gps-photos/{{.ID}}/note" style="margin-top:8px;display:flex;gap:6px;align-items:flex-start">
+    <textarea name="notes" rows="2" style="flex:1;resize:vertical;font-size:13px" placeholder="Add a note…">{{.Notes}}</textarea>
+    <button class="btn btn-sm btn-edit" type="submit">Save</button>
+  </form>
+  <form method="POST" action="/gps-photos/{{.ID}}/delete" style="margin-top:6px">
+    <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+  </form>
+</div>
+{{end}}
+</div>
+{{else}}
+<p class="muted" style="margin-bottom:8px">No photos yet.</p>
+{{end}}
+<form method="POST" action="/gps/{{.ID}}/photos" enctype="multipart/form-data" class="upload-form">
+  <input type="file" name="photo" accept="image/*" style="color:#c9d1d9;font-size:13px">
+  <button class="btn btn-primary" type="submit">Upload Photo</button>
+</form>
+{{end}}
 </div>
 {{end}}`
 
@@ -1489,6 +1767,31 @@ const rxFormTmpl = `{{define "content"}}
     <a href="/inventory" class="btn btn-cancel">Cancel</a>
   </div>
 </form>
+{{if .ID}}
+<h3 style="margin-top:32px">Photos</h3>
+{{if .Photos}}
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;max-width:700px;margin-bottom:16px">
+{{range .Photos}}
+<div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px">
+  <img src="/rx-photos/{{.ID}}" style="width:100%;border-radius:4px;display:block;max-height:200px;object-fit:cover">
+  <form method="POST" action="/rx-photos/{{.ID}}/note" style="margin-top:8px;display:flex;gap:6px;align-items:flex-start">
+    <textarea name="notes" rows="2" style="flex:1;resize:vertical;font-size:13px" placeholder="Add a note…">{{.Notes}}</textarea>
+    <button class="btn btn-sm btn-edit" type="submit">Save</button>
+  </form>
+  <form method="POST" action="/rx-photos/{{.ID}}/delete" style="margin-top:6px">
+    <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+  </form>
+</div>
+{{end}}
+</div>
+{{else}}
+<p class="muted" style="margin-bottom:8px">No photos yet.</p>
+{{end}}
+<form method="POST" action="/rx/{{.ID}}/photos" enctype="multipart/form-data" class="upload-form">
+  <input type="file" name="photo" accept="image/*" style="color:#c9d1d9;font-size:13px">
+  <button class="btn btn-primary" type="submit">Upload Photo</button>
+</form>
+{{end}}
 </div>
 {{end}}`
 
@@ -1501,11 +1804,12 @@ const batteryListTmpl = `{{define "content"}}
 <div class="table-wrap">
 <table>
 <thead><tr>
-  <th>Brand</th><th>Name</th><th>Cell</th><th>mAh</th><th>Owned</th><th>Assigned To</th><th></th>
+  <th></th><th>Brand</th><th>Name</th><th>Cell</th><th>mAh</th><th>Owned</th><th>Assigned To</th><th></th>
 </tr></thead>
 <tbody>
 {{range .Batteries}}
 <tr>
+  <td style="width:40px;padding:4px 6px">{{if .FirstPhotoID}}<img src="/battery-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="openLightbox('/battery-photos/{{.FirstPhotoID}}')">{{end}}</td>
   <td class="muted">{{dash .Brand}}</td>
   <td><strong>{{.Name}}</strong></td>
   <td class="muted">{{.CellCount}}S</td>
@@ -1572,6 +1876,31 @@ const batteryFormTmpl = `{{define "content"}}
     <a href="/batteries" class="btn btn-cancel">Cancel</a>
   </div>
 </form>
+{{if .ID}}
+<h3 style="margin-top:32px">Photos</h3>
+{{if .Photos}}
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;max-width:700px;margin-bottom:16px">
+{{range .Photos}}
+<div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px">
+  <img src="/battery-photos/{{.ID}}" style="width:100%;border-radius:4px;display:block;max-height:200px;object-fit:cover">
+  <form method="POST" action="/battery-photos/{{.ID}}/note" style="margin-top:8px;display:flex;gap:6px;align-items:flex-start">
+    <textarea name="notes" rows="2" style="flex:1;resize:vertical;font-size:13px" placeholder="Add a note…">{{.Notes}}</textarea>
+    <button class="btn btn-sm btn-edit" type="submit">Save</button>
+  </form>
+  <form method="POST" action="/battery-photos/{{.ID}}/delete" style="margin-top:6px">
+    <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+  </form>
+</div>
+{{end}}
+</div>
+{{else}}
+<p class="muted" style="margin-bottom:8px">No photos yet.</p>
+{{end}}
+<form method="POST" action="/batteries/{{.ID}}/photos" enctype="multipart/form-data" class="upload-form">
+  <input type="file" name="photo" accept="image/*" style="color:#c9d1d9;font-size:13px">
+  <button class="btn btn-primary" type="submit">Upload Photo</button>
+</form>
+{{end}}
 </div>
 {{end}}`
 
@@ -1584,12 +1913,13 @@ const propListTmpl = `{{define "content"}}
 <div class="table-wrap">
 <table>
 <thead><tr>
-  <th>Brand</th><th>Name</th><th>Size</th><th>Pitch</th><th>Blades</th>
+  <th></th><th>Brand</th><th>Name</th><th>Size</th><th>Pitch</th><th>Blades</th>
   <th>Material</th><th>Qty</th><th>Reorder At</th><th>Drone</th><th></th>
 </tr></thead>
 <tbody>
 {{range .Propellers}}
 <tr class="{{if .LowStock}}low-stock{{end}}">
+  <td style="width:40px;padding:4px 6px">{{if .FirstPhotoID}}<img src="/prop-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="openLightbox('/prop-photos/{{.FirstPhotoID}}')">{{end}}</td>
   <td class="muted">{{dash .Brand}}</td>
   <td>{{.Name}}</td>
   <td class="muted">{{if .SizeInch}}{{.SizeInch}}"{{else}}—{{end}}</td>
@@ -1678,6 +2008,31 @@ const propFormTmpl = `{{define "content"}}
     <a href="/props" class="btn btn-cancel">Cancel</a>
   </div>
 </form>
+{{if .ID}}
+<h3 style="margin-top:32px">Photos</h3>
+{{if .Photos}}
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;max-width:700px;margin-bottom:16px">
+{{range .Photos}}
+<div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px">
+  <img src="/prop-photos/{{.ID}}" style="width:100%;border-radius:4px;display:block;max-height:200px;object-fit:cover">
+  <form method="POST" action="/prop-photos/{{.ID}}/note" style="margin-top:8px;display:flex;gap:6px;align-items:flex-start">
+    <textarea name="notes" rows="2" style="flex:1;resize:vertical;font-size:13px" placeholder="Add a note…">{{.Notes}}</textarea>
+    <button class="btn btn-sm btn-edit" type="submit">Save</button>
+  </form>
+  <form method="POST" action="/prop-photos/{{.ID}}/delete" style="margin-top:6px">
+    <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+  </form>
+</div>
+{{end}}
+</div>
+{{else}}
+<p class="muted" style="margin-bottom:8px">No photos yet.</p>
+{{end}}
+<form method="POST" action="/props/{{.ID}}/photos" enctype="multipart/form-data" class="upload-form">
+  <input type="file" name="photo" accept="image/*" style="color:#c9d1d9;font-size:13px">
+  <button class="btn btn-primary" type="submit">Upload Photo</button>
+</form>
+{{end}}
 </div>
 {{end}}`
 
@@ -1837,8 +2192,8 @@ const sessionDetailTmpl = `{{define "content"}}
 <div style="display:flex;flex-direction:column;gap:20px;max-width:860px;margin-bottom:16px">
 {{range .Videos}}
 <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:12px">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-    <span class="muted" style="font-size:13px">{{.OriginalName}}</span>
+  <div class="media-card-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+    <span class="muted" style="font-size:13px;word-break:break-all">{{.OriginalName}}</span>
     <form class="inline" method="POST" action="/videos/{{.ID}}/delete">
       <button class="btn btn-sm btn-danger" type="submit">Delete</button>
     </form>
