@@ -43,27 +43,41 @@ CREATE TABLE IF NOT EXISTS columns (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS labels (
+    id         SERIAL PRIMARY KEY,
+    name       TEXT NOT NULL,
+    color      TEXT NOT NULL DEFAULT '#6e7681',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS cards (
     id          SERIAL PRIMARY KEY,
     column_id   INTEGER NOT NULL REFERENCES columns(id) ON DELETE CASCADE,
     title       TEXT NOT NULL DEFAULT '',
     description TEXT NOT NULL DEFAULT '',
-    label       TEXT NOT NULL DEFAULT '',
     due_date    DATE,
     position    INTEGER NOT NULL DEFAULT 0,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Migration: add created_by to existing cards tables
+-- Migrations
 DO $$ BEGIN
   ALTER TABLE cards ADD COLUMN created_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
 EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE cards ADD COLUMN label_id INTEGER REFERENCES labels(id) ON DELETE SET NULL;
+EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE cards DROP COLUMN label;
+EXCEPTION WHEN undefined_column THEN NULL; END $$;
 
 CREATE INDEX IF NOT EXISTS idx_columns_board    ON columns(board_id);
 CREATE INDEX IF NOT EXISTS idx_columns_position ON columns(board_id, position);
 CREATE INDEX IF NOT EXISTS idx_cards_column     ON cards(column_id);
 CREATE INDEX IF NOT EXISTS idx_cards_position   ON cards(column_id, position);
 CREATE INDEX IF NOT EXISTS idx_cards_created_by ON cards(created_by);
+CREATE INDEX IF NOT EXISTS idx_cards_label      ON cards(label_id);
+CREATE INDEX IF NOT EXISTS idx_labels_name      ON labels(name);
 `
 
 // ── Data types ────────────────────────────────────────────────────────────────
@@ -72,6 +86,12 @@ type User struct {
 	ID   int
 	Name string
 	Kind string // "human" | "agent"
+}
+
+type Label struct {
+	ID    int
+	Name  string
+	Color string
 }
 
 type Board struct {
@@ -93,31 +113,18 @@ type Card struct {
 	ColumnID      int
 	Title         string
 	Description   string
-	Label         string
 	DueDate       *time.Time
-	DueDateStr    string // "2006-01-02" for <input type="date">
+	DueDateStr    string
 	Position      int
 	Overdue       bool
 	CreatedByID   *int
 	CreatedByName string
 	CreatedByKind string
+	LabelID       *int
+	LabelName     string
+	LabelColor    string
 }
 
-type LabelOption struct{ Name, Color string }
-
-var labelOptions = []LabelOption{
-	{"", ""},
-	{"red", "#f85149"},
-	{"green", "#3fb950"},
-	{"blue", "#58a6ff"},
-	{"yellow", "#d29922"},
-	{"purple", "#bc8cff"},
-}
-
-var labelColorMap = map[string]string{
-	"red": "#f85149", "green": "#3fb950", "blue": "#58a6ff",
-	"yellow": "#d29922", "purple": "#bc8cff",
-}
 
 // ── Page data structs ─────────────────────────────────────────────────────────
 
@@ -132,18 +139,20 @@ type CardNewPage struct {
 	Board   Board
 	Columns []Column
 	Users   []User
+	Labels  []Label
 }
 
 type CardEditPage struct {
-	Card         Card
-	BoardID      int
-	BoardName    string
-	ColumnName   string
-	LabelOptions []LabelOption
-	Users        []User
+	Card       Card
+	BoardID    int
+	BoardName  string
+	ColumnName string
+	Labels     []Label
+	Users      []User
 }
 
 type UserListPage struct{ Users []User }
+type LabelListPage struct{ Labels []Label }
 
 // ── App ───────────────────────────────────────────────────────────────────────
 
@@ -176,6 +185,9 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/cards/{id}", a.handleCardEdit)
 	mux.HandleFunc("POST /cards/{id}/delete", a.handleCardDelete)
 	mux.HandleFunc("POST /api/move", a.handleMove)
+	mux.HandleFunc("/labels", a.handleLabels)
+	mux.HandleFunc("POST /labels", a.handleLabelCreate)
+	mux.HandleFunc("POST /labels/{id}/delete", a.handleLabelDelete)
 	mux.HandleFunc("/users", a.handleUsers)
 	mux.HandleFunc("POST /users", a.handleUserCreate)
 	mux.HandleFunc("POST /users/{id}/delete", a.handleUserDelete)
@@ -322,9 +334,12 @@ func (a *App) handleBoardView(w http.ResponseWriter, r *http.Request) {
 			colIDs[i] = c.ID
 		}
 		cardRows, err := a.db.Query(ctx,
-			`SELECT c.id, c.column_id, c.title, c.description, c.label, c.due_date,
-			        c.position, c.created_by, COALESCE(u.name,''), COALESCE(u.kind,'')
-			 FROM cards c LEFT JOIN users u ON u.id = c.created_by
+			`SELECT c.id, c.column_id, c.title, c.description, c.due_date,
+			        c.position, c.created_by, COALESCE(u.name,''), COALESCE(u.kind,''),
+			        c.label_id, COALESCE(l.name,''), COALESCE(l.color,'')
+			 FROM cards c
+			 LEFT JOIN users  u ON u.id = c.created_by
+			 LEFT JOIN labels l ON l.id = c.label_id
 			 WHERE c.column_id = ANY($1) ORDER BY c.position`, colIDs)
 		if err != nil {
 			httpErr(w, err)
@@ -334,8 +349,9 @@ func (a *App) handleBoardView(w http.ResponseWriter, r *http.Request) {
 		cardsByCol := map[int][]Card{}
 		for cardRows.Next() {
 			var c Card
-			cardRows.Scan(&c.ID, &c.ColumnID, &c.Title, &c.Description, &c.Label, &c.DueDate,
-				&c.Position, &c.CreatedByID, &c.CreatedByName, &c.CreatedByKind)
+			cardRows.Scan(&c.ID, &c.ColumnID, &c.Title, &c.Description, &c.DueDate,
+				&c.Position, &c.CreatedByID, &c.CreatedByName, &c.CreatedByKind,
+				&c.LabelID, &c.LabelName, &c.LabelColor)
 			enrichCard(&c)
 			cardsByCol[c.ColumnID] = append(cardsByCol[c.ColumnID], c)
 		}
@@ -441,7 +457,6 @@ func (a *App) handleCardEdit(w http.ResponseWriter, r *http.Request) {
 		}
 		title := strings.TrimSpace(r.FormValue("title"))
 		desc := r.FormValue("description")
-		label := r.FormValue("label")
 		dueDateStr := r.FormValue("due_date")
 		var dueDate *time.Time
 		if dueDateStr != "" {
@@ -456,9 +471,15 @@ func (a *App) handleCardEdit(w http.ResponseWriter, r *http.Request) {
 				createdBy = &uid
 			}
 		}
+		var labelID *int
+		if v := r.FormValue("label_id"); v != "" {
+			if lid, err := strconv.Atoi(v); err == nil {
+				labelID = &lid
+			}
+		}
 		a.db.Exec(ctx,
-			`UPDATE cards SET title=$1, description=$2, label=$3, due_date=$4, created_by=$5 WHERE id=$6`,
-			title, desc, label, dueDate, createdBy, id)
+			`UPDATE cards SET title=$1, description=$2, due_date=$3, created_by=$4, label_id=$5 WHERE id=$6`,
+			title, desc, dueDate, createdBy, labelID, id)
 		var colID int
 		a.db.QueryRow(ctx, `SELECT column_id FROM cards WHERE id=$1`, id).Scan(&colID)
 		var boardID int
@@ -469,11 +490,16 @@ func (a *App) handleCardEdit(w http.ResponseWriter, r *http.Request) {
 
 	var c Card
 	err := a.db.QueryRow(ctx,
-		`SELECT c.id, c.column_id, c.title, c.description, c.label, c.due_date,
-		        c.position, c.created_by, COALESCE(u.name,''), COALESCE(u.kind,'')
-		 FROM cards c LEFT JOIN users u ON u.id = c.created_by WHERE c.id=$1`, id).
-		Scan(&c.ID, &c.ColumnID, &c.Title, &c.Description, &c.Label, &c.DueDate,
-			&c.Position, &c.CreatedByID, &c.CreatedByName, &c.CreatedByKind)
+		`SELECT c.id, c.column_id, c.title, c.description, c.due_date,
+		        c.position, c.created_by, COALESCE(u.name,''), COALESCE(u.kind,''),
+		        c.label_id, COALESCE(l.name,''), COALESCE(l.color,'')
+		 FROM cards c
+		 LEFT JOIN users  u ON u.id = c.created_by
+		 LEFT JOIN labels l ON l.id = c.label_id
+		 WHERE c.id=$1`, id).
+		Scan(&c.ID, &c.ColumnID, &c.Title, &c.Description, &c.DueDate,
+			&c.Position, &c.CreatedByID, &c.CreatedByName, &c.CreatedByKind,
+			&c.LabelID, &c.LabelName, &c.LabelColor)
 	if err == pgx.ErrNoRows {
 		http.NotFound(w, r)
 		return
@@ -491,9 +517,10 @@ func (a *App) handleCardEdit(w http.ResponseWriter, r *http.Request) {
 		c.ColumnID).Scan(&boardID, &boardName, &colName)
 
 	users, _ := a.listUsers(ctx)
+	labels, _ := a.listLabels(ctx)
 	render(w, "card-edit", CardEditPage{
 		Card: c, BoardID: boardID, BoardName: boardName,
-		ColumnName: colName, LabelOptions: labelOptions, Users: users,
+		ColumnName: colName, Labels: labels, Users: users,
 	})
 }
 
@@ -613,11 +640,26 @@ func (a *App) handleCardNew(w http.ResponseWriter, r *http.Request) {
 				createdBy = &uid
 			}
 		}
+		var labelID *int
+		if v := r.FormValue("label_id"); v != "" {
+			if lid, err := strconv.Atoi(v); err == nil {
+				labelID = &lid
+			}
+		}
+		desc := r.FormValue("description")
+		dueDateStr := r.FormValue("due_date")
+		var dueDate *time.Time
+		if dueDateStr != "" {
+			if t, err := time.Parse("2006-01-02", dueDateStr); err == nil {
+				dueDate = &t
+			}
+		}
 		var maxPos int
 		a.db.QueryRow(ctx, `SELECT COALESCE(MAX(position),0) FROM cards WHERE column_id=$1`, colID).Scan(&maxPos)
 		a.db.Exec(ctx,
-			`INSERT INTO cards (column_id, title, position, created_by) VALUES ($1,$2,$3,$4)`,
-			colID, title, maxPos+1000, createdBy)
+			`INSERT INTO cards (column_id, title, description, due_date, label_id, position, created_by)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+			colID, title, desc, dueDate, labelID, maxPos+1000, createdBy)
 		seeOther(w, r, fmt.Sprintf("/boards/%d", id))
 		return
 	}
@@ -638,7 +680,62 @@ func (a *App) handleCardNew(w http.ResponseWriter, r *http.Request) {
 	colRows.Close()
 
 	users, _ := a.listUsers(ctx)
-	render(w, "card-new", CardNewPage{Board: board, Columns: columns, Users: users})
+	labels, _ := a.listLabels(ctx)
+	render(w, "card-new", CardNewPage{Board: board, Columns: columns, Users: users, Labels: labels})
+}
+
+// ── Label handlers ────────────────────────────────────────────────────────────
+
+func (a *App) listLabels(ctx context.Context) ([]Label, error) {
+	rows, err := a.db.Query(ctx, `SELECT id, name, color FROM labels ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var labels []Label
+	for rows.Next() {
+		var l Label
+		rows.Scan(&l.ID, &l.Name, &l.Color)
+		labels = append(labels, l)
+	}
+	return labels, nil
+}
+
+func (a *App) handleLabels(w http.ResponseWriter, r *http.Request) {
+	labels, err := a.listLabels(r.Context())
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	render(w, "label-list", LabelListPage{Labels: labels})
+}
+
+func (a *App) handleLabelCreate(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		httpErr(w, err)
+		return
+	}
+	name := strings.TrimSpace(r.FormValue("name"))
+	color := r.FormValue("color")
+	if name == "" {
+		seeOther(w, r, "/labels")
+		return
+	}
+	if color == "" {
+		color = "#6e7681"
+	}
+	a.db.Exec(r.Context(), `INSERT INTO labels (name, color) VALUES ($1, $2)`, name, color)
+	seeOther(w, r, "/labels")
+}
+
+func (a *App) handleLabelDelete(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	a.db.Exec(r.Context(), `DELETE FROM labels WHERE id=$1`, id)
+	seeOther(w, r, "/labels")
 }
 
 // ── User handlers ─────────────────────────────────────────────────────────────
@@ -756,6 +853,7 @@ textarea{min-height:100px;resize:vertical}
 .card-label{width:10px;height:10px;border-radius:50%;flex-shrink:0;margin-top:3px}
 .card-title{font-size:13px;color:#c9d1d9;flex:1;text-decoration:none}
 .card-title:hover{color:#f0f6fc;text-decoration:none}
+.card-label-chip{display:inline-block;font-size:11px;font-weight:600;padding:1px 7px;border-radius:10px;margin-bottom:4px}
 .card-due{font-size:11px;color:#6e7681;margin-top:4px}
 .card-due.overdue{color:#f85149;font-weight:600}
 .card-desc{font-size:11px;color:#6e7681;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
@@ -765,13 +863,6 @@ textarea{min-height:100px;resize:vertical}
 
 /* Card edit */
 .form-page{max-width:560px}
-.label-picker{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px}
-.label-picker input[type=radio]{display:none}
-.label-dot{width:24px;height:24px;border-radius:50%;cursor:pointer;display:inline-block;border:2px solid transparent;transition:border-color .1s}
-.label-dot:hover{border-color:#c9d1d9}
-.label-dot-none{background:#21262d;display:inline-flex;align-items:center;justify-content:center;font-size:12px;color:#6e7681}
-.label-picker input[type=radio]:checked+.label-dot{border-color:#f0f6fc}
-.label-picker input[type=radio]:checked+.label-dot-none{border-color:#f0f6fc;color:#c9d1d9}
 
 @media(max-width:640px){
   main{padding:12px}
@@ -793,7 +884,10 @@ const baseTmpl = `<!DOCTYPE html>
 <header>
   <span class="logo"><a href="/">Kanban</a></span>
   {{block "header-extra" .}}{{end}}
-  <a href="/users" style="margin-left:auto;font-size:13px;color:#8b949e;text-decoration:none" onmouseover="this.style.color='#c9d1d9'" onmouseout="this.style.color='#8b949e'">Users</a>
+  <div style="margin-left:auto;display:flex;gap:16px">
+    <a href="/labels" style="font-size:13px;color:#8b949e;text-decoration:none" onmouseover="this.style.color='#c9d1d9'" onmouseout="this.style.color='#8b949e'">Labels</a>
+    <a href="/users" style="font-size:13px;color:#8b949e;text-decoration:none" onmouseover="this.style.color='#c9d1d9'" onmouseout="this.style.color='#8b949e'">Users</a>
+  </div>
 </header>
 <main>
 {{block "content" .}}{{end}}
@@ -867,10 +961,10 @@ const boardViewTmpl = `{{define "header-extra"}}
       ondragover="cardDragOver(event,{{.ID}})"
       ondragleave="cardDragLeave(event)"
       ondrop="cardDrop(event,{{$colID}},{{.ID}})">
-      <div class="card-top">
-        {{if .Label}}<span class="card-label" style="background:{{labelColor .Label}}"></span>{{end}}
-        <a href="/cards/{{.ID}}" class="card-title">{{.Title}}</a>
-      </div>
+      {{if .LabelName}}
+      <span class="card-label-chip" style="background:{{.LabelColor}}22;color:{{.LabelColor}};border:1px solid {{.LabelColor}}55">{{.LabelName}}</span>
+      {{end}}
+      <a href="/cards/{{.ID}}" class="card-title">{{.Title}}</a>
       {{if .DueDateStr}}
       <div class="card-due{{if .Overdue}} overdue{{end}}">{{if .Overdue}}⚠ {{end}}Due {{.DueDateStr}}</div>
       {{end}}
@@ -979,18 +1073,16 @@ const cardEditTmpl = `{{define "header-extra"}}
     <textarea name="description">{{.Card.Description}}</textarea>
   </div>
   <div class="form-group">
-    <label>Label</label>
-    <div class="label-picker">
-      {{range .LabelOptions}}
-      {{if eq .Name ""}}
-      <input type="radio" name="label" value="" id="lbl-none" {{if eq $.Card.Label ""}}checked{{end}}>
-      <label for="lbl-none" class="label-dot label-dot-none" title="None">✕</label>
-      {{else}}
-      <input type="radio" name="label" value="{{.Name}}" id="lbl-{{.Name}}" {{if eq $.Card.Label .Name}}checked{{end}}>
-      <label for="lbl-{{.Name}}" class="label-dot" style="background:{{.Color}}" title="{{.Name}}"></label>
+    <label>Label <a href="/labels" style="font-size:12px;margin-left:6px">+ manage labels</a></label>
+    <select name="label_id">
+      <option value="">— none —</option>
+      {{range .Labels}}
+      <option value="{{.ID}}" {{if and $.Card.LabelID (eq .ID (deref $.Card.LabelID))}}selected{{end}}>{{.Name}}</option>
       {{end}}
-      {{end}}
-    </div>
+    </select>
+    {{if .Card.LabelName}}
+    <span class="card-label-chip" style="background:{{.Card.LabelColor}}22;color:{{.Card.LabelColor}};border:1px solid {{.Card.LabelColor}}55;margin-top:6px;display:inline-block">{{.Card.LabelName}}</span>
+    {{end}}
   </div>
   <div class="form-group">
     <label>Due Date</label>
@@ -1036,6 +1128,10 @@ const cardNewTmpl = `{{define "header-extra"}}
     <input type="text" name="title" autofocus required placeholder="e.g. Fix login bug">
   </div>
   <div class="form-group">
+    <label>Description</label>
+    <textarea name="description" placeholder="Optional details…"></textarea>
+  </div>
+  <div class="form-group">
     <label>Column *</label>
     <select name="column_id" required>
       <option value="">— choose a column —</option>
@@ -1043,6 +1139,19 @@ const cardNewTmpl = `{{define "header-extra"}}
       <option value="{{.ID}}">{{.Name}}</option>
       {{end}}
     </select>
+  </div>
+  <div class="form-group">
+    <label>Label <a href="/labels" style="font-size:12px;margin-left:6px">+ manage labels</a></label>
+    <select name="label_id">
+      <option value="">— none —</option>
+      {{range .Labels}}
+      <option value="{{.ID}}">{{.Name}}</option>
+      {{end}}
+    </select>
+  </div>
+  <div class="form-group">
+    <label>Due Date</label>
+    <input type="date" name="due_date">
   </div>
   <div class="form-group">
     <label>Created By</label>
@@ -1059,6 +1168,56 @@ const cardNewTmpl = `{{define "header-extra"}}
   </div>
 </form>
 </div>
+{{end}}`
+
+const labelListTmpl = `{{define "content"}}
+<div class="page-header">
+  <h2>Labels</h2>
+  <a href="/" class="btn btn-cancel btn-sm">← Boards</a>
+</div>
+{{if .Labels}}
+<table style="width:100%;max-width:560px;border-collapse:collapse;margin-bottom:28px">
+<thead><tr>
+  <th style="text-align:left;padding:8px 12px;background:#161b22;border-bottom:1px solid #30363d;color:#8b949e;font-size:12px;text-transform:uppercase">Label</th>
+  <th style="text-align:left;padding:8px 12px;background:#161b22;border-bottom:1px solid #30363d;color:#8b949e;font-size:12px;text-transform:uppercase">Color</th>
+  <th style="padding:8px 12px;background:#161b22;border-bottom:1px solid #30363d"></th>
+</tr></thead>
+<tbody>
+{{range .Labels}}
+<tr style="border-bottom:1px solid #21262d">
+  <td style="padding:9px 12px">
+    <span class="card-label-chip" style="background:{{.Color}}22;color:{{.Color}};border:1px solid {{.Color}}55">{{.Name}}</span>
+  </td>
+  <td style="padding:9px 12px">
+    <span style="display:inline-flex;align-items:center;gap:8px">
+      <span style="width:16px;height:16px;border-radius:50%;background:{{.Color}};display:inline-block"></span>
+      <code style="color:#8b949e;font-size:12px">{{.Color}}</code>
+    </span>
+  </td>
+  <td style="padding:9px 12px;text-align:right">
+    <form method="POST" action="/labels/{{.ID}}/delete" style="display:inline"
+      onsubmit="return confirm('Delete label?')">
+      <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+    </form>
+  </td>
+</tr>
+{{end}}
+</tbody>
+</table>
+{{else}}
+<p style="color:#6e7681;margin-bottom:24px">No labels yet.</p>
+{{end}}
+<form method="POST" action="/labels" style="display:flex;gap:8px;align-items:flex-end;max-width:560px;flex-wrap:wrap">
+  <div class="form-group" style="flex:1;margin:0">
+    <label>Name</label>
+    <input type="text" name="name" placeholder="e.g. Bug, Feature, Blocked" required>
+  </div>
+  <div class="form-group" style="margin:0">
+    <label>Color</label>
+    <input type="color" name="color" value="#58a6ff" style="width:48px;height:38px;padding:2px;border-radius:6px;border:1px solid #30363d;background:#0d1117;cursor:pointer">
+  </div>
+  <button class="btn btn-primary" type="submit" style="margin-bottom:16px">Add Label</button>
+</form>
 {{end}}`
 
 const userListTmpl = `{{define "content"}}
@@ -1113,12 +1272,6 @@ var pages map[string]*template.Template
 
 func initTemplates() {
 	funcMap := template.FuncMap{
-		"labelColor": func(label string) string {
-			if c, ok := labelColorMap[label]; ok {
-				return c
-			}
-			return "#6e7681"
-		},
 		"deref": func(p *int) int {
 			if p == nil {
 				return 0
@@ -1138,6 +1291,7 @@ func initTemplates() {
 	add("board-view", boardViewTmpl)
 	add("card-new", cardNewTmpl)
 	add("card-edit", cardEditTmpl)
+	add("label-list", labelListTmpl)
 	add("user-list", userListTmpl)
 }
 
