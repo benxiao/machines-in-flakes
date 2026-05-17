@@ -296,6 +296,7 @@
                         tree
                         atop
                         go
+                        gcc
                         golangci-lint
                         gopls
                         go-mockery

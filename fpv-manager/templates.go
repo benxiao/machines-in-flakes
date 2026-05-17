@@ -581,7 +581,7 @@ tr.retired td { opacity: 0.5; }
 form.inline { display: inline; margin: 0; }
 .section { margin-bottom: 40px; }
 .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-.table-wrap { border: 1px solid #30363d; border-radius: 6px; overflow: hidden; }
+.table-wrap { border: 1px solid #30363d; border-radius: 6px; overflow-x: auto; }
 .form-page { max-width: 580px; }
 .form-group { margin-bottom: 16px; }
 label { display: block; font-size: 13px; color: #8b949e; margin-bottom: 4px; }
@@ -631,6 +631,18 @@ hr { border: none; border-top: 1px solid #30363d; margin: 32px 0; }
 .installed-badge {
   font-size: 12px;
   color: #58a6ff;
+}
+.upload-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+@media (max-width: 640px) {
+  main { padding: 12px; }
+  nav { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  nav a { white-space: nowrap; padding: 10px 12px; }
+  .page-header { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .section-header { flex-wrap: wrap; gap: 8px; }
+  .form-row { flex-direction: column; gap: 0; }
+  .form-page { max-width: 100%; }
+  .form-actions { flex-wrap: wrap; }
+  .form-row .form-group[style*="max-width"] { max-width: 100% !important; }
 }
 `
 
@@ -852,7 +864,7 @@ const droneFormTmpl = `{{define "content"}}
 {{else}}
 <p class="muted" style="margin-bottom:8px">No photos yet.</p>
 {{end}}
-<form method="POST" action="/drones/{{.ID}}/photos" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center">
+<form method="POST" action="/drones/{{.ID}}/photos" enctype="multipart/form-data" class="upload-form">
   <input type="file" name="photo" accept="image/*" style="color:#c9d1d9;font-size:13px">
   <button class="btn btn-primary" type="submit">Upload Photo</button>
 </form>
@@ -1781,7 +1793,7 @@ const sessionDetailTmpl = `{{define "content"}}
 {{else}}
 <p class="muted" style="margin-bottom:8px">No videos yet.</p>
 {{end}}
-<form method="POST" action="/log/{{.ID}}/videos" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center;margin-bottom:32px">
+<form method="POST" action="/log/{{.ID}}/videos" enctype="multipart/form-data" class="upload-form" style="margin-bottom:32px">
   <input type="file" name="video" accept="video/*" style="color:#c9d1d9;font-size:13px">
   <button class="btn btn-primary" type="submit">Upload Video</button>
 </form>
@@ -1805,7 +1817,7 @@ const sessionDetailTmpl = `{{define "content"}}
 {{else}}
 <p class="muted" style="margin-bottom:8px">No photos yet.</p>
 {{end}}
-<form method="POST" action="/log/{{.ID}}/photos" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center;margin-bottom:32px">
+<form method="POST" action="/log/{{.ID}}/photos" enctype="multipart/form-data" class="upload-form" style="margin-bottom:32px">
   <input type="file" name="photo" accept="image/*" style="color:#c9d1d9;font-size:13px">
   <button class="btn btn-primary" type="submit">Upload Photo</button>
 </form>
