@@ -85,7 +85,7 @@ def get_first_attr(table: list, *names: str) -> tuple[str, int] | tuple[None, No
 
 
 def parse_drive(dev: str) -> dict:
-    raw = run("smartctl", "--json=c", "-i", "-A", "-H", dev)
+    raw = run("smartctl", "--json=c", "-i", "-A", "-H", "-l", "selftest", dev)
     if not raw:
         return {"dev": dev.replace("/dev/", ""), "error": True}
     try:
@@ -160,6 +160,47 @@ def parse_drive(dev: str) -> dict:
             )
             result["wear_attr"] = wear_name
             result["wear_val"] = wear_val
+
+    # Self-test status
+    result["test_running"] = False
+    result["test_remaining"] = None
+    result["last_test_type"] = None
+    result["last_test_ok"] = None
+    result["last_test_hours"] = None
+
+    if is_nvme:
+        nvme_log = d.get("nvme_self_test_log", {})
+        op = nvme_log.get("current_self_test_operation", {})
+        op_code = op.get("value", 0) if isinstance(op, dict) else op
+        if op_code != 0:
+            result["test_running"] = True
+            result["test_remaining"] = nvme_log.get("current_self_test_completion_percent")
+        table_entries = nvme_log.get("table", [])
+        if table_entries:
+            entry = table_entries[0]
+            result["last_test_type"] = entry.get("self_test_code", {}).get("string", "")
+            status_val = entry.get("self_test_result", {}).get("value", 0)
+            result["last_test_ok"] = (status_val == 0)
+            result["last_test_hours"] = entry.get("power_on_hours")
+    else:
+        st = d.get("ata_smart_data", {}).get("self_test", {})
+        st_status = st.get("status", {})
+        # value 15 (0x0f) means test in progress
+        if st_status.get("value") == 15:
+            result["test_running"] = True
+            result["test_remaining"] = st_status.get("remaining_percent")
+        log = d.get("ata_smart_self_test_log", {}).get("standard", {})
+        entries = log.get("table", [])
+        if entries:
+            entry = entries[0]
+            raw_type = entry.get("type", {}).get("string", "")
+            if "extended" in raw_type.lower() or "long" in raw_type.lower():
+                result["last_test_type"] = "Extended"
+            else:
+                result["last_test_type"] = "Short"
+            st_str = entry.get("status", {}).get("string", "")
+            result["last_test_ok"] = "without error" in st_str.lower()
+            result["last_test_hours"] = entry.get("lifetime_hours")
 
     return result
 
@@ -410,6 +451,38 @@ def render_drive_card(d: dict, pool_devs: set | None = None) -> str:
     card_cls = "card" + (" fail-card" if d.get("health") is False else "")
     in_pool = (pool_devs is None) or (d["dev"] in pool_devs)
     unpool_badge = '' if in_pool else '<span class="tbadge t-unpool">NO POOL</span>'
+
+    dev_js = html_mod.escape(d["dev"])
+    test_running = d.get("test_running", False)
+    if test_running:
+        rem = d.get("test_remaining")
+        rem_str = f" {rem}% left" if rem is not None else ""
+        status_html = f'<span class="test-status running">⏳ Test running…{html_mod.escape(rem_str)}</span>'
+    elif d.get("last_test_type") is not None:
+        ok = d.get("last_test_ok")
+        ltype = html_mod.escape(d["last_test_type"])
+        hrs = d.get("last_test_hours")
+        hrs_str = f" @ {hrs:,}h" if hrs is not None else ""
+        if ok is True:
+            status_html = f'<span class="test-status ok">✓ {ltype} OK{html_mod.escape(hrs_str)}</span>'
+        elif ok is False:
+            status_html = f'<span class="test-status fail">✗ {ltype} FAIL{html_mod.escape(hrs_str)}</span>'
+        else:
+            status_html = f'<span class="test-status">{ltype}{html_mod.escape(hrs_str)}</span>'
+    else:
+        status_html = ''
+
+    disabled = ' disabled' if test_running else ''
+    test_html = (
+        f'<div class="card-tests">'
+        f'{status_html}'
+        f'<div class="test-btns">'
+        f'<button class="test-btn"{disabled} onclick="startTest(this,\'{dev_js}\',\'short\')">Short</button>'
+        f'<button class="test-btn"{disabled} onclick="startTest(this,\'{dev_js}\',\'long\')">Long</button>'
+        f'</div>'
+        f'</div>'
+    )
+
     return f"""<div class="{card_cls}">
   <div class="card-head">
     <span class="dev">{html_mod.escape(d["dev"])}</span>
@@ -420,6 +493,7 @@ def render_drive_card(d: dict, pool_devs: set | None = None) -> str:
   <div class="drsize">{d["size"]}</div>
   <div class="hrow">{health_badge(d.get("health"))}</div>
   <table class="stats">{rows_html}</table>
+  {test_html}
 </div>"""
 
 
@@ -455,6 +529,14 @@ def render_pool_detail(pool_name: str) -> str:
     .win-btn:hover{{border-color:#58a6ff;color:#58a6ff}}
     .win-btn.active{{border-color:#58a6ff;background:#1a2d4a;color:#58a6ff}}
     canvas{{width:100%;height:300px;display:block}}
+    @media (max-width:640px) {{
+      header{{padding:10px 16px}}
+      section{{padding:14px 16px}}
+      .speeds{{flex-wrap:wrap;gap:12px}}
+      .speed-box{{flex:1 1 120px}}
+      .graph-toolbar{{flex-direction:column;gap:8px;align-items:flex-start}}
+      .win-btn{{min-height:36px;padding:6px 12px}}
+    }}
   </style>
 </head>
 <body>
@@ -832,6 +914,30 @@ def render_page(drives: list, pools: list) -> str:
     .io-write{{color:#f0883e;font-weight:600}}
     .io-lbl{{color:#6e7681;font-size:.7rem;margin-right:4px}}
     canvas.io-canvas{{width:100%;height:140px;display:block;border-radius:4px;background:#0d1117}}
+    .card-tests{{border-top:1px solid #21262d;margin-top:8px;padding-top:7px;display:flex;flex-direction:column;gap:5px}}
+    .test-status{{font-size:.68rem;color:#6e7681}}
+    .test-status.running{{color:#d29922}}
+    .test-status.ok{{color:#3fb950}}
+    .test-status.fail{{color:#f85149;font-weight:700}}
+    .test-btns{{display:flex;gap:5px}}
+    .test-btn{{font-size:.68rem;font-weight:700;padding:2px 8px;border-radius:5px;border:1px solid #30363d;background:#21262d;color:#8b949e;cursor:pointer;flex:1}}
+    .test-btn:hover:not(:disabled){{border-color:#58a6ff;color:#58a6ff}}
+    .test-btn:disabled{{opacity:.45;cursor:default}}
+    @media (max-width:640px) {{
+      header{{padding:10px 16px;gap:8px}}
+      .hts{{display:none}}
+      .tabbar{{padding:0 8px;overflow-x:auto;-webkit-overflow-scrolling:touch}}
+      .tab{{padding:8px 10px;font-size:.76rem;white-space:nowrap}}
+      .tabpanel{{padding:14px 16px}}
+      .card{{width:100%;max-width:100%}}
+      .pool-list{{grid-template-columns:1fr}}
+      .io-grid{{grid-template-columns:1fr}}
+      .pc-head{{flex-direction:column;align-items:flex-start;gap:4px}}
+      .io-toolbar{{flex-direction:column;gap:8px;align-items:flex-start}}
+      .io-card-head{{flex-direction:column;align-items:flex-start;gap:4px}}
+      .scrub-btn,.win-btn{{min-height:36px;padding:6px 12px}}
+      .test-btn{{min-height:36px;padding:6px 8px}}
+    }}
   </style>
 </head>
 <body>
@@ -893,6 +999,18 @@ def render_page(drives: list, pools: list) -> str:
           ? (btn.textContent = '✓ Started', setTimeout(()=>location.reload(), 1500))
           : (btn.textContent = '✗ Error',   btn.disabled = false))
         .catch(() => (btn.textContent = '✗ Error', btn.disabled = false));
+    }}
+
+    // ── SMART self-test ──────────────────────────────────────────────
+    function startTest(btn, dev, kind) {{
+      const btns = btn.parentElement.querySelectorAll('.test-btn');
+      btns.forEach(b => b.disabled = true);
+      btn.textContent = '⏳ Starting…';
+      fetch('/test/' + dev + '/' + kind, {{method:'POST'}})
+        .then(r => r.ok
+          ? (btn.textContent = '✓ Started', setTimeout(()=>location.reload(), 2000))
+          : (btn.textContent = '✗ Error',   btns.forEach(b => b.disabled = false)))
+        .catch(() => (btn.textContent = '✗ Error', btns.forEach(b => b.disabled = false)));
     }}
 
     // ── Active I/O ───────────────────────────────────────────────────
@@ -1066,11 +1184,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         m = re.match(r'^/scrub/([a-zA-Z0-9_\-]+)$', self.path)
-        if not m:
-            self._send(400, b"bad request")
+        if m:
+            run("zpool", "scrub", m.group(1))
+            self._send(200, b"ok", "text/plain")
             return
-        run("zpool", "scrub", m.group(1))
-        self._send(200, b"ok", "text/plain")
+
+        m = re.match(r'^/test/([a-zA-Z0-9_\-]+)/(short|long)$', self.path)
+        if m:
+            dev, kind = m.group(1), m.group(2)
+            run("smartctl", "-t", kind, f"/dev/{dev}")
+            self._send(200, b"ok", "text/plain")
+            return
+
+        self._send(400, b"bad request")
 
     def log_message(self, fmt: str, *args: object) -> None:
         pass
