@@ -127,6 +127,31 @@ func registerTools(s *server.MCPServer, q *Queries) {
 	)
 
 	s.AddTool(
+		mcp.NewTool("get_drone_log",
+			mcp.WithDescription("Get the maintenance/build log entries for a drone"),
+			mcp.WithNumber("drone_id", mcp.Required(), mcp.Description("Drone ID")),
+		),
+		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			id := req.GetInt("drone_id", 0)
+			if id <= 0 {
+				return mcp.NewToolResultText("drone_id must be a positive integer"), nil
+			}
+			_, err := q.GetDrone(ctx, id)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return mcp.NewToolResultText(fmt.Sprintf("drone #%d not found", id)), nil
+			}
+			if err != nil {
+				return nil, err
+			}
+			entries, err := q.ListDroneLogs(ctx, id)
+			if err != nil {
+				return nil, err
+			}
+			return mcp.NewToolResultText(formatDroneLog(id, entries)), nil
+		},
+	)
+
+	s.AddTool(
 		mcp.NewTool("list_low_stock",
 			mcp.WithDescription("List propellers and spare parts at or below their reorder threshold"),
 		),
@@ -363,6 +388,18 @@ func formatPlaceList(places []PlaceRow) string {
 		if p.Notes != "" {
 			fmt.Fprintf(&b, "  Notes:    %s\n", p.Notes)
 		}
+	}
+	return b.String()
+}
+
+func formatDroneLog(droneID int, entries []DroneLogEntry) string {
+	if len(entries) == 0 {
+		return fmt.Sprintf("No log entries for drone #%d.", droneID)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d log entry(ies) for drone #%d:\n", len(entries), droneID)
+	for _, e := range entries {
+		fmt.Fprintf(&b, "\n[%s] #%d\n%s\n", e.LoggedAt, e.ID, e.Body)
 	}
 	return b.String()
 }

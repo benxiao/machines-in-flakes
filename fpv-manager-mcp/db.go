@@ -421,6 +421,33 @@ LEFT JOIN item_counts ic ON ic.item_type='rx' AND ic.item_id=rx.id
 ORDER BY rx.brand, rx.name`)
 }
 
+// ---- Drone logs ----
+
+type DroneLogEntry struct {
+	ID       int
+	LoggedAt string
+	Body     string
+}
+
+func (q *Queries) ListDroneLogs(ctx context.Context, droneID int) ([]DroneLogEntry, error) {
+	rows, err := q.db.Query(ctx,
+		`SELECT id, TO_CHAR(logged_at, 'YYYY-MM-DD HH24:MI'), body
+		 FROM drone_log_entries WHERE drone_id=$1 ORDER BY logged_at DESC`, droneID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DroneLogEntry
+	for rows.Next() {
+		var e DroneLogEntry
+		if err := rows.Scan(&e.ID, &e.LoggedAt, &e.Body); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
 // ---- Places ----
 
 type PlaceRow struct {

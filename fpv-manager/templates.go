@@ -735,10 +735,11 @@ const baseTmpl = `<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FPV Manager</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cline x1='16' y1='16' x2='5' y2='5' stroke='%2358a6ff' stroke-width='2.5' stroke-linecap='round'/%3E%3Cline x1='16' y1='16' x2='27' y2='5' stroke='%2358a6ff' stroke-width='2.5' stroke-linecap='round'/%3E%3Cline x1='16' y1='16' x2='5' y2='27' stroke='%2358a6ff' stroke-width='2.5' stroke-linecap='round'/%3E%3Cline x1='16' y1='16' x2='27' y2='27' stroke='%2358a6ff' stroke-width='2.5' stroke-linecap='round'/%3E%3Ccircle cx='5' cy='5' r='4' fill='%2358a6ff'/%3E%3Ccircle cx='27' cy='5' r='4' fill='%2358a6ff'/%3E%3Ccircle cx='5' cy='27' r='4' fill='%2358a6ff'/%3E%3Ccircle cx='27' cy='27' r='4' fill='%2358a6ff'/%3E%3Ccircle cx='16' cy='16' r='3.5' fill='%2358a6ff'/%3E%3C/svg%3E">
 <style>` + css + `</style>
 </head>
 <body>
-<header><span class="logo">FPV Manager</span></header>
+<header><span class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="20" height="20" style="vertical-align:-4px;margin-right:6px"><line x1="16" y1="16" x2="5" y2="5" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/><line x1="16" y1="16" x2="27" y2="5" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/><line x1="16" y1="16" x2="5" y2="27" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/><line x1="16" y1="16" x2="27" y2="27" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/><circle cx="5" cy="5" r="4" fill="#58a6ff"/><circle cx="27" cy="5" r="4" fill="#58a6ff"/><circle cx="5" cy="27" r="4" fill="#58a6ff"/><circle cx="27" cy="27" r="4" fill="#58a6ff"/><circle cx="16" cy="16" r="3.5" fill="#58a6ff"/></svg>FPV Manager</span></header>
 <nav>
   <a href="/drones"    {{if eq .ActiveTab "drones"}}class="active"{{end}}>Drones</a>
   <a href="/inventory" {{if eq .ActiveTab "inventory"}}class="active"{{end}}>Inventory</a>
@@ -2201,10 +2202,13 @@ const sessionDetailTmpl = `{{define "content"}}
   <video controls style="width:100%;border-radius:4px;max-height:480px;background:#000">
     <source src="/videos/{{.ID}}">
   </video>
-  <form method="POST" action="/videos/{{.ID}}/note" style="margin-top:10px;display:flex;gap:8px;align-items:flex-start">
-    <textarea name="notes" rows="2" style="flex:1;resize:vertical" placeholder="Add a note…">{{.Notes}}</textarea>
-    <button class="btn btn-sm btn-edit" type="submit">Save</button>
-  </form>
+  <div style="margin-top:10px;display:flex;gap:8px;align-items:flex-start">
+    <div class="vnote-view" style="flex:1;font-size:13px;color:#8b949e;min-height:1.4em;white-space:pre-wrap;word-break:break-word">{{if .Notes}}{{.Notes}}{{else}}<span style="opacity:.5">No note</span>{{end}}</div>
+    <form class="vnote-form" method="POST" action="/videos/{{.ID}}/note" style="display:none;flex:1;gap:6px;align-items:flex-start">
+      <textarea name="notes" rows="2" style="flex:1;resize:vertical;width:100%">{{.Notes}}</textarea>
+    </form>
+    <button class="btn btn-sm btn-edit vnote-btn" onclick="vnoteEdit(this)">Edit</button>
+  </div>
 </div>
 {{end}}
 </div>
@@ -2241,6 +2245,20 @@ const sessionDetailTmpl = `{{define "content"}}
 </form>
 
 <p><a href="/log">&larr; Back to log</a></p>
+<script>
+function vnoteEdit(btn) {
+  var wrap = btn.parentElement;
+  var view = wrap.querySelector('.vnote-view');
+  var form = wrap.querySelector('.vnote-form');
+  if (btn.textContent === 'Edit') {
+    view.style.display = 'none';
+    form.style.display = 'flex';
+    form.querySelector('textarea').focus();
+    btn.textContent = 'Save';
+    btn.onclick = function(){ form.submit(); };
+  }
+}
+</script>
 {{end}}`
 
 const placeListTmpl = `{{define "content"}}
