@@ -2671,7 +2671,9 @@ func (a *App) handleVideoServe(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, filepath.Join(a.videoDir, filename))
 }
 
-func (a *App) handleMobileVideoServe(w http.ResponseWriter, r *http.Request) {
+const hlsSegmentSec = 6
+
+func (a *App) handleMobilePlaylist(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseID(r)
 	if !ok {
 		http.NotFound(w, r)
@@ -2688,21 +2690,96 @@ func (a *App) handleMobileVideoServe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	srcPath := filepath.Join(a.videoDir, filename)
+	ffprobePath := filepath.Join(filepath.Dir(a.ffmpegPath), "ffprobe")
+	out, err := exec.CommandContext(r.Context(), ffprobePath,
+		"-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", srcPath,
+	).Output()
+	if err != nil {
+		http.Error(w, "could not probe video", http.StatusInternalServerError)
+		return
+	}
+	duration, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
+	if err != nil || duration <= 0 {
+		http.Error(w, "invalid duration", http.StatusInternalServerError)
+		return
+	}
+
+	var b strings.Builder
+	b.WriteString("#EXTM3U\n")
+	b.WriteString("#EXT-X-VERSION:3\n")
+	fmt.Fprintf(&b, "#EXT-X-TARGETDURATION:%d\n", hlsSegmentSec)
+	b.WriteString("#EXT-X-MEDIA-SEQUENCE:0\n")
+	b.WriteString("#EXT-X-PLAYLIST-TYPE:VOD\n")
+	fullSegments := int(duration) / hlsSegmentSec
+	lastDur := duration - float64(fullSegments*hlsSegmentSec)
+	for i := range fullSegments {
+		if i > 0 {
+			b.WriteString("#EXT-X-DISCONTINUITY\n")
+		}
+		fmt.Fprintf(&b, "#EXTINF:%d.000,\nmobile/%d.ts\n", hlsSegmentSec, i)
+	}
+	if lastDur > 0.05 {
+		if fullSegments > 0 {
+			b.WriteString("#EXT-X-DISCONTINUITY\n")
+		}
+		fmt.Fprintf(&b, "#EXTINF:%.3f,\nmobile/%d.ts\n", lastDur, fullSegments)
+	}
+	b.WriteString("#EXT-X-ENDLIST\n")
+
+	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+	w.Write([]byte(b.String()))
+}
+
+func (a *App) handleMobileSegment(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if a.ffmpegPath == "" {
+		http.Error(w, "transcoding not configured", http.StatusServiceUnavailable)
+		return
+	}
+	name := r.PathValue("name")
+	if !strings.HasSuffix(name, ".ts") {
+		http.NotFound(w, r)
+		return
+	}
+	n, err := strconv.Atoi(strings.TrimSuffix(name, ".ts"))
+	if err != nil || n < 0 {
+		http.NotFound(w, r)
+		return
+	}
+	var filename string
+	err = a.db.QueryRow(r.Context(), `SELECT filename FROM session_videos WHERE id=$1`, id).Scan(&filename)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	srcPath := filepath.Join(a.videoDir, filename)
+	startSec := n * hlsSegmentSec
+
 	cmd := exec.CommandContext(r.Context(), a.ffmpegPath,
-		"-y", "-i", srcPath,
+		"-y",
+		"-ss", strconv.Itoa(startSec),
+		"-i", srcPath,
+		"-t", strconv.Itoa(hlsSegmentSec),
 		"-c:v", "libx264", "-crf", "23", "-preset", "fast",
+		"-profile:v", "main", "-level", "4.0",
+		"-pix_fmt", "yuv420p",
+		"-bf", "0",
 		"-vf", "scale='min(1280,iw)':-2",
 		"-b:v", "3000k", "-maxrate", "3000k", "-bufsize", "6000k",
 		"-c:a", "aac", "-b:a", "128k",
-		"-movflags", "frag_keyframe+empty_moov+default_base_moof",
-		"-f", "mp4", "pipe:1",
+		"-muxdelay", "0", "-muxpreload", "0",
+		"-f", "mpegts", "pipe:1",
 	)
 	var stderr bytes.Buffer
 	cmd.Stdout = w
 	cmd.Stderr = &stderr
-	w.Header().Set("Content-Type", "video/mp4")
+	w.Header().Set("Content-Type", "video/mp2t")
 	if err := cmd.Run(); err != nil {
-		log.Printf("transcode video %d: %v\n%s", id, err, stderr.String())
+		log.Printf("transcode segment %d/%d: %v\n%s", id, n, err, stderr.String())
 	}
 }
 
