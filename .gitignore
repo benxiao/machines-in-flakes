@@ -1,3 +1,7 @@
 /.vagrant/
 __pycache__/
 fpv-manager/fpv-manager
+fpv-manager-mcp/fpv-manager-mcp
+kanban/kanban
+kanban-mcp/kanban-mcp
+drive-monitor/drive-monitor
