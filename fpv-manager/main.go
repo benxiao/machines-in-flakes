@@ -13,8 +13,9 @@ import (
 )
 
 type App struct {
-	db       *pgxpool.Pool
-	videoDir string
+	db         *pgxpool.Pool
+	videoDir   string
+	ffmpegPath string
 }
 
 func main() {
@@ -37,7 +38,8 @@ func main() {
 		log.Fatalf("create video dir: %v", err)
 	}
 
-	app := &App{db: pool, videoDir: videoDir}
+	ffmpegPath := os.Getenv("FPV_FFMPEG")
+	app := &App{db: pool, videoDir: videoDir, ffmpegPath: ffmpegPath}
 	if err := app.initSchema(ctx); err != nil {
 		log.Fatalf("init schema: %v", err)
 	}
@@ -516,6 +518,7 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /log/{id}/delete", a.handleSessionDelete)
 	mux.HandleFunc("POST /log/{id}/videos", a.handleVideoUpload)
 	mux.HandleFunc("GET /videos/{id}", a.handleVideoServe)
+	mux.HandleFunc("GET /videos/{id}/mobile", a.handleMobileVideoServe)
 	mux.HandleFunc("POST /videos/{id}/delete", a.handleVideoDelete)
 	mux.HandleFunc("POST /videos/{id}/note", a.handleVideoNote)
 	mux.HandleFunc("POST /log/{id}/photos", a.handlePhotoUpload)

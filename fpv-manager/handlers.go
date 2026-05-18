@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -2666,6 +2669,41 @@ func (a *App) handleVideoServe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.ServeFile(w, r, filepath.Join(a.videoDir, filename))
+}
+
+func (a *App) handleMobileVideoServe(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if a.ffmpegPath == "" {
+		http.Error(w, "transcoding not configured", http.StatusServiceUnavailable)
+		return
+	}
+	var filename string
+	err := a.db.QueryRow(r.Context(), `SELECT filename FROM session_videos WHERE id=$1`, id).Scan(&filename)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	srcPath := filepath.Join(a.videoDir, filename)
+	cmd := exec.CommandContext(r.Context(), a.ffmpegPath,
+		"-y", "-i", srcPath,
+		"-c:v", "libx264", "-crf", "23", "-preset", "fast",
+		"-vf", "scale='min(1280,iw)':-2",
+		"-b:v", "3000k", "-maxrate", "3000k", "-bufsize", "6000k",
+		"-c:a", "aac", "-b:a", "128k",
+		"-movflags", "frag_keyframe+empty_moov+default_base_moof",
+		"-f", "mp4", "pipe:1",
+	)
+	var stderr bytes.Buffer
+	cmd.Stdout = w
+	cmd.Stderr = &stderr
+	w.Header().Set("Content-Type", "video/mp4")
+	if err := cmd.Run(); err != nil {
+		log.Printf("transcode video %d: %v\n%s", id, err, stderr.String())
+	}
 }
 
 func (a *App) handleVideoDelete(w http.ResponseWriter, r *http.Request) {

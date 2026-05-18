@@ -2195,12 +2195,14 @@ const sessionDetailTmpl = `{{define "content"}}
 <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:12px">
   <div class="media-card-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
     <span class="muted" style="font-size:13px;word-break:break-all">{{.OriginalName}}</span>
-    <form class="inline" method="POST" action="/videos/{{.ID}}/delete">
-      <button class="btn btn-sm btn-danger" type="submit">Delete</button>
-    </form>
+    <div style="display:flex;gap:6px;align-items:center">
+      <button type="button" class="btn btn-sm" onclick="toggleOriginal(this,{{.ID}})">Original</button>
+      <form class="inline" method="POST" action="/videos/{{.ID}}/delete">
+        <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+      </form>
+    </div>
   </div>
-  <video controls style="width:100%;border-radius:4px;max-height:480px;background:#000">
-    <source src="/videos/{{.ID}}">
+  <video controls style="width:100%;border-radius:4px;max-height:480px;background:#000" src="/videos/{{.ID}}/mobile" data-mobile="/videos/{{.ID}}/mobile" data-original="/videos/{{.ID}}">
   </video>
   <div style="margin-top:10px;display:flex;gap:8px;align-items:flex-start">
     <div class="vnote-view" style="flex:1;font-size:13px;color:#8b949e;min-height:1.4em;white-space:pre-wrap;word-break:break-word">{{if .Notes}}{{.Notes}}{{else}}<span style="opacity:.5">No note</span>{{end}}</div>
@@ -2246,6 +2248,14 @@ const sessionDetailTmpl = `{{define "content"}}
 
 <p><a href="/log">&larr; Back to log</a></p>
 <script>
+function toggleOriginal(btn, id) {
+  var video = btn.closest('.media-card-header').nextElementSibling;
+  var showOriginal = btn.textContent === 'Original';
+  video.src = showOriginal ? video.dataset.original : video.dataset.mobile;
+  btn.textContent = showOriginal ? 'Mobile' : 'Original';
+  video.load();
+  video.play().catch(function(){});
+}
 function vnoteEdit(btn) {
   var wrap = btn.parentElement;
   var view = wrap.querySelector('.vnote-view');

@@ -450,6 +450,7 @@
                       FPV_LISTEN = ":10091";
                       FPV_DB_DSN = "host=/run/postgresql dbname=fpv_manager user=fpv_manager sslmode=disable";
                       FPV_VIDEO_DIR = "/var/lib/fpv-manager/videos";
+                      FPV_FFMPEG = "${unstable.ffmpeg-full}/bin/ffmpeg";
                     };
                     serviceConfig = {
                       ExecStart = "${fpv-manager}/bin/fpv-manager";
