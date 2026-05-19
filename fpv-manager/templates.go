@@ -123,23 +123,25 @@ type GPSFormPage struct {
 	ActiveTab string
 	Error     string
 	ID        int
-	Brand     string
+	BrandID   int
 	Name      string
 	Notes     string
 	Quantity  string
 	Photos    []DronePhotoRow
+	Brands    []OptionItem
 }
 
 type RXFormPage struct {
 	ActiveTab string
 	Error     string
 	ID        int
-	Brand     string
+	BrandID   int
 	Name      string
 	Protocol  string
 	Notes     string
 	Quantity  string
 	Photos    []DronePhotoRow
+	Brands    []OptionItem
 }
 
 type FrameRow struct {
@@ -212,59 +214,63 @@ type FrameFormPage struct {
 	ActiveTab string
 	Error     string
 	ID        int
-	Brand     string
+	BrandID   int
 	Name      string
 	SizeInch  string
 	WeightG   string
 	Notes     string
 	Quantity  string
 	Photos    []DronePhotoRow
+	Brands    []OptionItem
 }
 
 type FCFormPage struct {
 	ActiveTab string
 	Error     string
 	ID        int
-	Brand     string
+	BrandID   int
 	Name      string
 	MCU       string
 	Firmware  string
 	Notes     string
 	Quantity  string
 	Photos    []DronePhotoRow
+	Brands    []OptionItem
 }
 
 type ESCFormPage struct {
 	ActiveTab     string
 	Error         string
 	ID            int
-	Brand         string
+	BrandID       int
 	Name          string
 	CurrentRating string
 	CellMax       string
 	Notes         string
 	Quantity      string
 	Photos        []DronePhotoRow
+	Brands        []OptionItem
 }
 
 type MotorFormPage struct {
 	ActiveTab  string
 	Error      string
 	ID         int
-	Brand      string
+	BrandID    int
 	Name       string
 	StatorSize string
 	KV         string
 	Notes      string
 	Quantity   string
 	Photos     []DronePhotoRow
+	Brands     []OptionItem
 }
 
 type VTXFormPage struct {
 	ActiveTab  string
 	Error      string
 	ID         int
-	Brand      string
+	BrandID    int
 	Name       string
 	System     string
 	MaxPowerMW string
@@ -273,6 +279,7 @@ type VTXFormPage struct {
 	Notes      string
 	Quantity   string
 	Photos     []DronePhotoRow
+	Brands     []OptionItem
 }
 
 type BatteryListPage struct {
@@ -296,13 +303,14 @@ type BatteryFormPage struct {
 	ActiveTab   string
 	Error       string
 	ID          int
-	Brand       string
+	BrandID     int
 	Name        string
 	CellCount   string
 	CapacityMAh string
 	Quantity    string
 	Notes       string
 	Photos      []DronePhotoRow
+	Brands      []OptionItem
 }
 
 type PropListPage struct {
@@ -329,7 +337,7 @@ type PropFormPage struct {
 	ActiveTab        string
 	Error            string
 	ID               int
-	Brand            string
+	BrandID          int
 	Name             string
 	SizeInch         string
 	Pitch            string
@@ -341,6 +349,7 @@ type PropFormPage struct {
 	Notes            string
 	Drones           []OptionItem
 	Photos           []DronePhotoRow
+	Brands           []OptionItem
 }
 
 type LogListPage struct {
@@ -397,6 +406,7 @@ type SessionFormPage struct {
 	Notes       string
 	Drones      []DroneCheck
 	Batteries   []BatteryCheck
+	Places      []OptionItem
 }
 
 type SessionDetailPage struct {
@@ -534,6 +544,8 @@ func initTemplates() {
 	add("place-list", placeListTmpl)
 	add("place-form", placeFormTmpl)
 	add("place-detail", placeDetailTmpl)
+	add("brand-list", brandListTmpl)
+	add("brand-form", brandFormTmpl)
 }
 
 func render(w http.ResponseWriter, name string, data any) {
@@ -734,12 +746,12 @@ const baseTmpl = `<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FPV Manager</title>
+<title>FPV Manager v0.2</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cline x1='16' y1='16' x2='5' y2='5' stroke='%2358a6ff' stroke-width='2.5' stroke-linecap='round'/%3E%3Cline x1='16' y1='16' x2='27' y2='5' stroke='%2358a6ff' stroke-width='2.5' stroke-linecap='round'/%3E%3Cline x1='16' y1='16' x2='5' y2='27' stroke='%2358a6ff' stroke-width='2.5' stroke-linecap='round'/%3E%3Cline x1='16' y1='16' x2='27' y2='27' stroke='%2358a6ff' stroke-width='2.5' stroke-linecap='round'/%3E%3Ccircle cx='5' cy='5' r='4' fill='%2358a6ff'/%3E%3Ccircle cx='27' cy='5' r='4' fill='%2358a6ff'/%3E%3Ccircle cx='5' cy='27' r='4' fill='%2358a6ff'/%3E%3Ccircle cx='27' cy='27' r='4' fill='%2358a6ff'/%3E%3Ccircle cx='16' cy='16' r='3.5' fill='%2358a6ff'/%3E%3C/svg%3E">
 <style>` + css + `</style>
 </head>
 <body>
-<header><span class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="20" height="20" style="vertical-align:-4px;margin-right:6px"><line x1="16" y1="16" x2="5" y2="5" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/><line x1="16" y1="16" x2="27" y2="5" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/><line x1="16" y1="16" x2="5" y2="27" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/><line x1="16" y1="16" x2="27" y2="27" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/><circle cx="5" cy="5" r="4" fill="#58a6ff"/><circle cx="27" cy="5" r="4" fill="#58a6ff"/><circle cx="5" cy="27" r="4" fill="#58a6ff"/><circle cx="27" cy="27" r="4" fill="#58a6ff"/><circle cx="16" cy="16" r="3.5" fill="#58a6ff"/></svg>FPV Manager</span></header>
+<header><span class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="20" height="20" style="vertical-align:-4px;margin-right:6px"><line x1="16" y1="16" x2="5" y2="5" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/><line x1="16" y1="16" x2="27" y2="5" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/><line x1="16" y1="16" x2="5" y2="27" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/><line x1="16" y1="16" x2="27" y2="27" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/><circle cx="5" cy="5" r="4" fill="#58a6ff"/><circle cx="27" cy="5" r="4" fill="#58a6ff"/><circle cx="5" cy="27" r="4" fill="#58a6ff"/><circle cx="27" cy="27" r="4" fill="#58a6ff"/><circle cx="16" cy="16" r="3.5" fill="#58a6ff"/></svg>FPV Manager <span style="font-size:0.7em;opacity:0.5;font-weight:400">v0.2</span></span></header>
 <nav>
   <a href="/drones"    {{if eq .ActiveTab "drones"}}class="active"{{end}}>Drones</a>
   <a href="/inventory" {{if eq .ActiveTab "inventory"}}class="active"{{end}}>Inventory</a>
@@ -747,6 +759,7 @@ const baseTmpl = `<!DOCTYPE html>
   <a href="/batteries" {{if eq .ActiveTab "batteries"}}class="active"{{end}}>Batteries</a>
   <a href="/log"       {{if eq .ActiveTab "log"}}class="active"{{end}}>Log</a>
   <a href="/places"    {{if eq .ActiveTab "places"}}class="active"{{end}}>Places</a>
+  <a href="/brands"    {{if eq .ActiveTab "brands"}}class="active"{{end}}>Brands</a>
 </nav>
 <main>
 {{template "content" .}}
@@ -1318,7 +1331,10 @@ const frameFormTmpl = `{{define "content"}}
   <div class="form-row">
     <div class="form-group">
       <label>Brand</label>
-      <input type="text" name="brand" value="{{.Brand}}" placeholder="e.g. iFlight">
+      <select name="brand_id">
+        <option value="0">— no brand —</option>
+        {{range .Brands}}<option value="{{.ID}}" {{if eq $.BrandID .ID}}selected{{end}}>{{.Label}}</option>{{end}}
+      </select>
     </div>
     <div class="form-group">
       <label>Name *</label>
@@ -1396,7 +1412,10 @@ const fcFormTmpl = `{{define "content"}}
   <div class="form-row">
     <div class="form-group">
       <label>Brand</label>
-      <input type="text" name="brand" value="{{.Brand}}" placeholder="e.g. SpeedyBee">
+      <select name="brand_id">
+        <option value="0">— no brand —</option>
+        {{range .Brands}}<option value="{{.ID}}" {{if eq $.BrandID .ID}}selected{{end}}>{{.Label}}</option>{{end}}
+      </select>
     </div>
     <div class="form-group">
       <label>Name *</label>
@@ -1466,7 +1485,10 @@ const escFormTmpl = `{{define "content"}}
   <div class="form-row">
     <div class="form-group">
       <label>Brand</label>
-      <input type="text" name="brand" value="{{.Brand}}" placeholder="e.g. Mamba">
+      <select name="brand_id">
+        <option value="0">— no brand —</option>
+        {{range .Brands}}<option value="{{.ID}}" {{if eq $.BrandID .ID}}selected{{end}}>{{.Label}}</option>{{end}}
+      </select>
     </div>
     <div class="form-group">
       <label>Name *</label>
@@ -1536,7 +1558,10 @@ const motorFormTmpl = `{{define "content"}}
   <div class="form-row">
     <div class="form-group">
       <label>Brand</label>
-      <input type="text" name="brand" value="{{.Brand}}" placeholder="e.g. T-Motor">
+      <select name="brand_id">
+        <option value="0">— no brand —</option>
+        {{range .Brands}}<option value="{{.ID}}" {{if eq $.BrandID .ID}}selected{{end}}>{{.Label}}</option>{{end}}
+      </select>
     </div>
     <div class="form-group">
       <label>Name *</label>
@@ -1604,7 +1629,10 @@ const vtxFormTmpl = `{{define "content"}}
   <div class="form-row">
     <div class="form-group">
       <label>Brand</label>
-      <input type="text" name="brand" value="{{.Brand}}" placeholder="e.g. DJI">
+      <select name="brand_id">
+        <option value="0">— no brand —</option>
+        {{range .Brands}}<option value="{{.ID}}" {{if eq $.BrandID .ID}}selected{{end}}>{{.Label}}</option>{{end}}
+      </select>
     </div>
     <div class="form-group">
       <label>Name *</label>
@@ -1684,7 +1712,10 @@ const gpsFormTmpl = `{{define "content"}}
   <div class="form-row">
     <div class="form-group">
       <label>Brand</label>
-      <input type="text" name="brand" value="{{.Brand}}" placeholder="e.g. Beitian">
+      <select name="brand_id">
+        <option value="0">— no brand —</option>
+        {{range .Brands}}<option value="{{.ID}}" {{if eq $.BrandID .ID}}selected{{end}}>{{.Label}}</option>{{end}}
+      </select>
     </div>
     <div class="form-group">
       <label>Name *</label>
@@ -1742,7 +1773,10 @@ const rxFormTmpl = `{{define "content"}}
   <div class="form-row">
     <div class="form-group">
       <label>Brand</label>
-      <input type="text" name="brand" value="{{.Brand}}" placeholder="e.g. ExpressLRS">
+      <select name="brand_id">
+        <option value="0">— no brand —</option>
+        {{range .Brands}}<option value="{{.ID}}" {{if eq $.BrandID .ID}}selected{{end}}>{{.Label}}</option>{{end}}
+      </select>
     </div>
     <div class="form-group">
       <label>Name *</label>
@@ -1847,7 +1881,10 @@ const batteryFormTmpl = `{{define "content"}}
   <div class="form-row">
     <div class="form-group">
       <label>Brand</label>
-      <input type="text" name="brand" value="{{.Brand}}" placeholder="e.g. CNHL">
+      <select name="brand_id">
+        <option value="0">— no brand —</option>
+        {{range .Brands}}<option value="{{.ID}}" {{if eq $.BrandID .ID}}selected{{end}}>{{.Label}}</option>{{end}}
+      </select>
     </div>
     <div class="form-group">
       <label>Name *</label>
@@ -1956,7 +1993,10 @@ const propFormTmpl = `{{define "content"}}
   <div class="form-row">
     <div class="form-group">
       <label>Brand</label>
-      <input type="text" name="brand" value="{{.Brand}}" placeholder="e.g. HQ">
+      <select name="brand_id">
+        <option value="0">— no brand —</option>
+        {{range .Brands}}<option value="{{.ID}}" {{if eq $.BrandID .ID}}selected{{end}}>{{.Label}}</option>{{end}}
+      </select>
     </div>
     <div class="form-group">
       <label>Name / Model *</label>
@@ -2115,7 +2155,33 @@ const sessionFormTmpl = `{{define "content"}}
     </div>
     <div class="form-group">
       <label>Location</label>
-      <input type="text" name="location" value="{{.Location}}" placeholder="e.g. backyard">
+      {{if .Places}}
+      <select id="loc-sel" onchange="locSelChange(this)">
+        <option value="">— none —</option>
+        {{range .Places}}<option value="{{.Label}}">{{.Label}}</option>{{end}}
+        <option value="__other__">Other…</option>
+      </select>
+      {{end}}
+      <input type="text" id="loc-txt" name="location" value="{{.Location}}" style="margin-top:6px" placeholder="Type a location…">
+      {{if .Places}}
+      <script>
+      (function(){
+        var sel=document.getElementById('loc-sel'),txt=document.getElementById('loc-txt');
+        function syncSel(){
+          var v=txt.value;
+          var found=[].some.call(sel.options,function(o){return o.value===v&&o.value!==''&&o.value!=='__other__';});
+          sel.value=found?v:'__other__';
+        }
+        syncSel();
+        txt.style.display=sel.value==='__other__'?'':'none';
+        window.locSelChange=function(s){
+          if(s.value!=='__other__'){txt.value=s.value;}
+          txt.style.display=s.value==='__other__'?'':'none';
+          if(s.value==='__other__')txt.focus();
+        };
+      })();
+      </script>
+      {{end}}
     </div>
   </div>
   {{if .Batteries}}
@@ -2426,4 +2492,52 @@ const placeDetailTmpl = `{{define "content"}}
 {{end}}
 
 <p><a href="/places">&larr; Back to places</a></p>
+{{end}}`
+
+const brandListTmpl = `{{define "content"}}
+<div class="page-header">
+  <div class="page-header-left"><h2>Brands</h2></div>
+  <a href="/brands/new" class="btn btn-primary">+ Add Brand</a>
+</div>
+{{if .Brands}}
+<div class="table-wrap">
+<table>
+<thead><tr><th>Name</th><th></th></tr></thead>
+<tbody>
+{{range .Brands}}
+<tr>
+  <td><strong>{{.Name}}</strong></td>
+  <td class="actions-cell">
+    <a href="/brands/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
+    <form class="inline" method="POST" action="/brands/{{.ID}}/delete">
+      <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+    </form>
+  </td>
+</tr>
+{{end}}
+</tbody>
+</table>
+</div>
+{{else}}
+<p class="muted">No brands yet. <a href="/brands/new">Add one.</a></p>
+{{end}}
+{{end}}`
+
+const brandFormTmpl = `{{define "content"}}
+<div class="page-header">
+  <h2>{{if .ID}}Edit Brand{{else}}New Brand{{end}}</h2>
+</div>
+<div class="form-page">
+{{if .Error}}<div class="error-box">{{.Error}}</div>{{end}}
+<form method="POST">
+  <div class="form-group">
+    <label>Name *</label>
+    <input type="text" name="name" value="{{.Name}}" required autofocus placeholder="e.g. iFlight">
+  </div>
+  <div class="form-actions">
+    <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add Brand{{end}}</button>
+    <a href="/brands" class="btn btn-cancel">Cancel</a>
+  </div>
+</form>
+</div>
 {{end}}`

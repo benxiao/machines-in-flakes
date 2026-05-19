@@ -342,6 +342,11 @@ CREATE TABLE IF NOT EXISTS places (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS brands (
+    id   SERIAL PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE
+);
+
 -- Migrations (DO blocks are idempotent; run after all tables exist):
 DO $$ BEGIN ALTER TABLE motors      DROP COLUMN drone_id; EXCEPTION WHEN undefined_column THEN NULL; END $$;
 DROP INDEX IF EXISTS idx_motors_drone;
@@ -379,6 +384,55 @@ DO $$ BEGIN ALTER TABLE session_videos ADD COLUMN notes TEXT NOT NULL DEFAULT ''
 DO $$ BEGIN ALTER TABLE session_batteries ADD COLUMN count INTEGER NOT NULL DEFAULT 1; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE frames ADD COLUMN size_inch TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE sessions ADD COLUMN title TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+
+-- Brand FK migration: seed → add brand_id → backfill → drop brand text
+DO $$ BEGIN
+  INSERT INTO brands (name)
+  SELECT DISTINCT brand FROM (
+    SELECT brand FROM frames            UNION
+    SELECT brand FROM flight_controllers UNION
+    SELECT brand FROM escs              UNION
+    SELECT brand FROM vtx_units         UNION
+    SELECT brand FROM motors            UNION
+    SELECT brand FROM gps_modules       UNION
+    SELECT brand FROM radio_receivers   UNION
+    SELECT brand FROM batteries         UNION
+    SELECT brand FROM propellers
+  ) AS t WHERE brand != ''
+  ON CONFLICT DO NOTHING;
+EXCEPTION WHEN OTHERS THEN NULL; END $$;
+
+DO $$ BEGIN ALTER TABLE frames             ADD COLUMN brand_id INT REFERENCES brands(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE flight_controllers ADD COLUMN brand_id INT REFERENCES brands(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE escs               ADD COLUMN brand_id INT REFERENCES brands(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE vtx_units          ADD COLUMN brand_id INT REFERENCES brands(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE motors             ADD COLUMN brand_id INT REFERENCES brands(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE gps_modules        ADD COLUMN brand_id INT REFERENCES brands(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE radio_receivers    ADD COLUMN brand_id INT REFERENCES brands(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE batteries          ADD COLUMN brand_id INT REFERENCES brands(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE propellers         ADD COLUMN brand_id INT REFERENCES brands(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+
+DO $$ BEGIN
+  UPDATE frames             SET brand_id=(SELECT id FROM brands b WHERE b.name=brand) WHERE brand!='' AND brand_id IS NULL;
+  UPDATE flight_controllers SET brand_id=(SELECT id FROM brands b WHERE b.name=brand) WHERE brand!='' AND brand_id IS NULL;
+  UPDATE escs               SET brand_id=(SELECT id FROM brands b WHERE b.name=brand) WHERE brand!='' AND brand_id IS NULL;
+  UPDATE vtx_units          SET brand_id=(SELECT id FROM brands b WHERE b.name=brand) WHERE brand!='' AND brand_id IS NULL;
+  UPDATE motors             SET brand_id=(SELECT id FROM brands b WHERE b.name=brand) WHERE brand!='' AND brand_id IS NULL;
+  UPDATE gps_modules        SET brand_id=(SELECT id FROM brands b WHERE b.name=brand) WHERE brand!='' AND brand_id IS NULL;
+  UPDATE radio_receivers    SET brand_id=(SELECT id FROM brands b WHERE b.name=brand) WHERE brand!='' AND brand_id IS NULL;
+  UPDATE batteries          SET brand_id=(SELECT id FROM brands b WHERE b.name=brand) WHERE brand!='' AND brand_id IS NULL;
+  UPDATE propellers         SET brand_id=(SELECT id FROM brands b WHERE b.name=brand) WHERE brand!='' AND brand_id IS NULL;
+EXCEPTION WHEN undefined_column THEN NULL; END $$;
+
+DO $$ BEGIN ALTER TABLE frames             DROP COLUMN brand; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE flight_controllers DROP COLUMN brand; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE escs               DROP COLUMN brand; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE vtx_units          DROP COLUMN brand; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE motors             DROP COLUMN brand; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE gps_modules        DROP COLUMN brand; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE radio_receivers    DROP COLUMN brand; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE batteries          DROP COLUMN brand; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE propellers         DROP COLUMN brand; EXCEPTION WHEN undefined_column THEN NULL; END $$;
 
 CREATE INDEX IF NOT EXISTS idx_drones_frame    ON drones(frame_id);
 CREATE INDEX IF NOT EXISTS idx_drones_fc       ON drones(fc_id);
@@ -532,6 +586,11 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/places/{id}", a.handlePlaceDetail)
 	mux.HandleFunc("/places/{id}/edit", a.handlePlaceEdit)
 	mux.HandleFunc("POST /places/{id}/delete", a.handlePlaceDelete)
+
+	mux.HandleFunc("/brands", a.handleBrands)
+	mux.HandleFunc("/brands/new", a.handleBrandNew)
+	mux.HandleFunc("/brands/{id}/edit", a.handleBrandEdit)
+	mux.HandleFunc("POST /brands/{id}/delete", a.handleBrandDelete)
 }
 
 func parseID(r *http.Request) (int, bool) {
