@@ -3097,3 +3097,210 @@ func (a *App) handleBrandDelete(w http.ResponseWriter, r *http.Request) {
 	a.db.Exec(r.Context(), `DELETE FROM brands WHERE id=$1`, id)
 	http.Redirect(w, r, "/brands", http.StatusSeeOther)
 }
+
+// ---- Weather ----
+
+const (
+	bomDailyURL  = "https://api.weather.bom.gov.au/v1/locations/r1r0fup/forecasts/daily"
+	bomHourlyURL = "https://api.weather.bom.gov.au/v1/locations/r1r0fu/forecasts/hourly"
+)
+
+func bomFetch(rawURL string) ([]byte, error) {
+	req, err := http.NewRequest("GET", rawURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "fpv-manager/1.0")
+	c := &http.Client{Timeout: 10 * time.Second}
+	resp, err := c.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	return io.ReadAll(resp.Body)
+}
+
+func flyRating(windKmh, gustKmh, rainChance int) string {
+	if windKmh > 35 || gustKmh > 50 || rainChance > 65 {
+		return "bad"
+	}
+	if windKmh > 20 || gustKmh > 30 || rainChance > 35 {
+		return "caution"
+	}
+	return "good"
+}
+
+func (a *App) handleWeather(w http.ResponseWriter, r *http.Request) {
+	page := WeatherPage{ActiveTab: "weather"}
+
+	// Fetch both in parallel via goroutines
+	type result struct {
+		data []byte
+		err  error
+	}
+	dailyCh := make(chan result, 1)
+	hourlyCh := make(chan result, 1)
+	go func() { b, err := bomFetch(bomDailyURL); dailyCh <- result{b, err} }()
+	go func() { b, err := bomFetch(bomHourlyURL); hourlyCh <- result{b, err} }()
+	dailyRes := <-dailyCh
+	hourlyRes := <-hourlyCh
+
+	if dailyRes.err != nil {
+		page.Error = "Could not fetch forecast: " + dailyRes.err.Error()
+		render(w, "weather", page)
+		return
+	}
+
+	// Parse daily
+	var daily struct {
+		Data []struct {
+			Date         string `json:"date"`
+			TempMax      *int   `json:"temp_max"`
+			TempMin      *int   `json:"temp_min"`
+			ShortText    string `json:"short_text"`
+			ExtendedText string `json:"extended_text"`
+			IconDesc     string `json:"icon_descriptor"`
+			Rain         struct {
+				Chance int `json:"chance"`
+				Amount struct {
+					Max *float64 `json:"max"`
+				} `json:"amount"`
+			} `json:"rain"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(dailyRes.data, &daily); err != nil {
+		page.Error = "Could not parse daily forecast"
+		render(w, "weather", page)
+		return
+	}
+
+	// Parse hourly — group by local date (AEST = UTC+10)
+	aest := time.FixedZone("AEST", 10*60*60)
+	type windAgg struct {
+		maxWind int
+		maxGust int
+		dir     string
+	}
+	dayWind := map[string]windAgg{}
+	var hours []WeatherHour
+
+	type rawHr struct{ hour, wind, rain int }
+	dayRawHours := map[string][]rawHr{}
+
+	if hourlyRes.err == nil {
+		var hourly struct {
+			Data []struct {
+				Time     string `json:"time"`
+				IsNight  bool   `json:"is_night"`
+				Temp     int    `json:"temp"`
+				Rain     struct {
+					Chance int `json:"chance"`
+				} `json:"rain"`
+				Wind struct {
+					SpeedKmh int    `json:"speed_kilometre"`
+					GustKmh  int    `json:"gust_speed_kilometre"`
+					Dir      string `json:"direction"`
+				} `json:"wind"`
+			} `json:"data"`
+		}
+		if json.Unmarshal(hourlyRes.data, &hourly) == nil {
+			for _, h := range hourly.Data {
+				t, err := time.Parse(time.RFC3339, h.Time)
+				if err != nil {
+					continue
+				}
+				tLocal := t.In(aest)
+				dateKey := tLocal.Format("2006-01-02")
+
+				agg := dayWind[dateKey]
+				if h.Wind.SpeedKmh > agg.maxWind {
+					agg.maxWind = h.Wind.SpeedKmh
+					agg.dir = h.Wind.Dir
+				}
+				if h.Wind.GustKmh > agg.maxGust {
+					agg.maxGust = h.Wind.GustKmh
+				}
+				dayWind[dateKey] = agg
+
+				if hr := tLocal.Hour(); hr >= 8 && hr <= 17 {
+					dayRawHours[dateKey] = append(dayRawHours[dateKey], rawHr{hr, h.Wind.SpeedKmh, h.Rain.Chance})
+				}
+
+				hours = append(hours, WeatherHour{
+					Time:         tLocal.Format("Mon 02 Jan 15:04"),
+					RainChance:   h.Rain.Chance,
+					WindSpeedKmh: h.Wind.SpeedKmh,
+					GustSpeedKmh: h.Wind.GustKmh,
+					WindDir:      h.Wind.Dir,
+					Temp:         h.Temp,
+					IsNight:      h.IsNight,
+					FlyRating:    flyRating(h.Wind.SpeedKmh, h.Wind.GustKmh, h.Rain.Chance),
+				})
+			}
+		}
+	}
+
+
+	for _, d := range daily.Data {
+		t, _ := time.Parse(time.RFC3339, d.Date)
+		tLocal := t.In(aest)
+		dateKey := tLocal.Format("2006-01-02")
+
+		rainMaxStr := "—"
+		if d.Rain.Amount.Max != nil {
+			rainMaxStr = fmt.Sprintf("%.0fmm", *d.Rain.Amount.Max)
+		}
+
+		tempMax, tempMin := 0, 0
+		if d.TempMax != nil {
+			tempMax = *d.TempMax
+		}
+		if d.TempMin != nil {
+			tempMin = *d.TempMin
+		}
+
+		agg := dayWind[dateKey]
+		wd := WeatherDay{
+			Date:         tLocal.Format("Mon 02 Jan"),
+			RainChance:   d.Rain.Chance,
+			RainMaxMm:    rainMaxStr,
+			WindSpeedKmh: agg.maxWind,
+			GustSpeedKmh: agg.maxGust,
+			WindDir:      agg.dir,
+			TempMax:      tempMax,
+			TempMin:      tempMin,
+			ShortText:    d.ShortText,
+			ExtendedText: d.ExtendedText,
+			IconDesc:     d.IconDesc,
+			HasWind:      agg.maxWind > 0,
+		}
+		wd.FlyRating = flyRating(wd.WindSpeedKmh, wd.GustSpeedKmh, wd.RainChance)
+		rawHrs := dayRawHours[dateKey]
+		maxWind := 1
+		for _, rh := range rawHrs {
+			if rh.wind > maxWind {
+				maxWind = rh.wind
+			}
+		}
+		for _, rh := range rawHrs {
+			wf := "#3fb950"
+			if rh.wind >= 35 {
+				wf = "#f85149"
+			} else if rh.wind >= 20 {
+				wf = "#d29922"
+			}
+			wd.DayHours = append(wd.DayHours, DayHour{
+				Label:    strconv.Itoa(rh.hour),
+				WindBarH: rh.wind * 100 / maxWind,
+				RainBarH: rh.rain,
+				WindFill: wf,
+			})
+		}
+		page.Days = append(page.Days, wd)
+	}
+
+	page.Hours = hours
+	page.FetchedAt = time.Now().In(aest).Format("02 Jan 2006 15:04 AEST")
+	render(w, "weather", page)
+}

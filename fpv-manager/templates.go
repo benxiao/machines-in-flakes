@@ -478,6 +478,49 @@ type BrandFormPage struct {
 	Name      string
 }
 
+type WeatherDay struct {
+	Date         string
+	RainChance   int
+	RainMaxMm    string
+	WindSpeedKmh int
+	GustSpeedKmh int
+	WindDir      string
+	TempMax      int
+	TempMin      int
+	ShortText    string
+	ExtendedText string
+	IconDesc     string
+	HasWind      bool
+	FlyRating    string // "good", "caution", "bad"
+	DayHours     []DayHour
+}
+
+type DayHour struct {
+	Label    string // "8" … "17"
+	WindBarH int    // 0–100 (% of chart height)
+	RainBarH int    // 0–100 (% of chart height)
+	WindFill string // hex color based on speed
+}
+
+type WeatherHour struct {
+	Time         string
+	RainChance   int
+	WindSpeedKmh int
+	GustSpeedKmh int
+	WindDir      string
+	Temp         int
+	IsNight      bool
+	FlyRating    string // "good", "caution", "bad"
+}
+
+type WeatherPage struct {
+	ActiveTab string
+	Days      []WeatherDay
+	Hours     []WeatherHour
+	FetchedAt string
+	Error     string
+}
+
 // ---- Template engine ----
 
 var pages map[string]*template.Template
@@ -565,6 +608,7 @@ func initTemplates() {
 	add("place-detail", placeDetailTmpl)
 	add("brand-list", brandListTmpl)
 	add("brand-form", brandFormTmpl)
+	add("weather", weatherTmpl)
 }
 
 func render(w http.ResponseWriter, name string, data any) {
@@ -779,6 +823,7 @@ const baseTmpl = `<!DOCTYPE html>
   <a href="/log"       {{if eq .ActiveTab "log"}}class="active"{{end}}>Log</a>
   <a href="/places"    {{if eq .ActiveTab "places"}}class="active"{{end}}>Places</a>
   <a href="/brands"    {{if eq .ActiveTab "brands"}}class="active"{{end}}>Brands</a>
+  <a href="/weather"   {{if eq .ActiveTab "weather"}}class="active"{{end}}>Weather</a>
 </nav>
 <main>
 {{template "content" .}}
@@ -2567,4 +2612,162 @@ const brandFormTmpl = `{{define "content"}}
   </div>
 </form>
 </div>
+{{end}}`
+
+const weatherTmpl = `{{define "content"}}
+<style>
+.wx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; margin-bottom: 32px; }
+.wx-card {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 16px;
+}
+.wx-card-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+.wx-date { font-size: 13px; font-weight: 600; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; }
+.wx-fly { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.wx-fly-good    { background: rgba(63,185,80,0.15);  color: #3fb950; border: 1px solid rgba(63,185,80,0.4); }
+.wx-fly-caution { background: rgba(210,153,34,0.15); color: #d29922; border: 1px solid rgba(210,153,34,0.4); }
+.wx-fly-bad     { background: rgba(248,81,73,0.15);  color: #f85149; border: 1px solid rgba(248,81,73,0.4); }
+.wx-desc { font-size: 14px; color: #c9d1d9; margin-bottom: 12px; }
+.wx-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.wx-stat { background: #0d1117; border-radius: 6px; padding: 8px 10px; }
+.wx-stat-label { font-size: 10px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 2px; }
+.wx-stat-value { font-size: 15px; font-weight: 600; color: #f0f6fc; }
+.wx-stat-sub { font-size: 11px; color: #8b949e; margin-top: 1px; }
+.rain-bar-wrap { height: 4px; background: #21262d; border-radius: 2px; margin-top: 6px; }
+.rain-bar { height: 4px; border-radius: 2px; }
+.rain-low  { background: #3fb950; }
+.rain-med  { background: #d29922; }
+.rain-high { background: #f85149; }
+.wind-ok      { color: #3fb950; }
+.wind-caution { color: #d29922; }
+.wind-bad     { color: #f85149; }
+.wx-extended { font-size: 12px; color: #8b949e; margin-top: 10px; border-top: 1px solid #21262d; padding-top: 8px; line-height: 1.5; }
+.hourly-section { margin-top: 8px; }
+.hourly-table th, .hourly-table td { padding: 7px 10px; }
+.hour-night { background: rgba(88,166,255,0.04); }
+.hour-good  { background: rgba(63,185,80,0.05); }
+.wx-chart-section { margin-top: 10px; padding-top: 10px; border-top: 1px solid #21262d; display: flex; flex-direction: column; gap: 6px; }
+.wx-chart-title { font-size: 10px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.4px; }
+.wx-chart { display: flex; align-items: flex-end; height: 40px; gap: 2px; }
+.wx-chart-col { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; flex: 1; min-width: 0; height: 100%; }
+.wx-bar { width: 100%; min-height: 2px; border-radius: 2px 2px 0 0; }
+.wx-hour { font-size: 8px; color: #8b949e; margin-top: 2px; line-height: 1; }
+</style>
+
+<div class="page-header">
+  <div>
+    <h2>Melbourne Weather</h2>
+    <div class="summary">7-day forecast · Rain &amp; wind focus · Source: Bureau of Meteorology</div>
+  </div>
+  <div style="display:flex;align-items:center;gap:12px">
+    <span class="muted" style="font-size:12px">Updated {{.FetchedAt}}</span>
+    <a href="/weather" class="btn btn-edit btn-sm">Refresh</a>
+  </div>
+</div>
+
+{{if .Error}}
+<div class="error-box">{{.Error}}</div>
+{{else}}
+
+<div style="display:flex;gap:12px;margin-bottom:16px;font-size:12px;color:#8b949e;align-items:center">
+  <span>FPV rating:</span>
+  <span class="wx-fly wx-fly-good">Fly</span> &lt;20 km/h wind, &lt;35% rain
+  <span class="wx-fly wx-fly-caution">Caution</span> 20–35 km/h or 35–65% rain
+  <span class="wx-fly wx-fly-bad">No-fly</span> &gt;35 km/h or &gt;65% rain
+</div>
+
+<div class="wx-grid">
+{{range .Days}}
+<div class="wx-card">
+  <div class="wx-card-top">
+    <div class="wx-date">{{.Date}}</div>
+    <span class="wx-fly wx-fly-{{.FlyRating}}">{{if eq .FlyRating "good"}}Fly{{else if eq .FlyRating "caution"}}Caution{{else}}No-fly{{end}}</span>
+  </div>
+  <div class="wx-desc">{{.ShortText}} <span class="muted">{{.TempMin}}–{{.TempMax}}°C</span></div>
+  <div class="wx-stats">
+    <div class="wx-stat">
+      <div class="wx-stat-label">Rain chance</div>
+      <div class="wx-stat-value {{if gt .RainChance 65}}wind-bad{{else if gt .RainChance 35}}wind-caution{{else}}wind-ok{{end}}">{{.RainChance}}%</div>
+      <div class="rain-bar-wrap"><div class="rain-bar {{if gt .RainChance 65}}rain-high{{else if gt .RainChance 35}}rain-med{{else}}rain-low{{end}}" style="width:{{.RainChance}}%"></div></div>
+    </div>
+    <div class="wx-stat">
+      <div class="wx-stat-label">Max rain</div>
+      <div class="wx-stat-value">{{.RainMaxMm}}</div>
+    </div>
+    <div class="wx-stat">
+      <div class="wx-stat-label">Wind (max)</div>
+      {{if .HasWind}}
+      <div class="wx-stat-value {{if gt .WindSpeedKmh 35}}wind-bad{{else if gt .WindSpeedKmh 20}}wind-caution{{else}}wind-ok{{end}}">{{.WindSpeedKmh}} km/h</div>
+      <div class="wx-stat-sub">{{.WindDir}}</div>
+      {{else}}
+      <div class="wx-stat-value muted">—</div>
+      {{end}}
+    </div>
+    <div class="wx-stat">
+      <div class="wx-stat-label">Gust (max)</div>
+      {{if .HasWind}}
+      <div class="wx-stat-value {{if gt .GustSpeedKmh 50}}wind-bad{{else if gt .GustSpeedKmh 30}}wind-caution{{else}}wind-ok{{end}}">{{.GustSpeedKmh}} km/h</div>
+      {{else}}
+      <div class="wx-stat-value muted">—</div>
+      {{end}}
+    </div>
+  </div>
+  {{if .ExtendedText}}
+  <div class="wx-extended">{{.ExtendedText}}</div>
+  {{end}}
+  {{if .DayHours}}
+  <div class="wx-chart-section">
+    <div class="wx-chart-title">Wind km/h</div>
+    <div class="wx-chart">
+      {{range .DayHours}}<div class="wx-chart-col"><div class="wx-bar" style="height:{{.WindBarH}}%;background:{{.WindFill}}"></div><div class="wx-hour">{{.Label}}</div></div>{{end}}
+    </div>
+    <div class="wx-chart-title">Rain %</div>
+    <div class="wx-chart">
+      {{range .DayHours}}<div class="wx-chart-col"><div class="wx-bar" style="height:{{.RainBarH}}%;background:#4d9de0"></div><div class="wx-hour">{{.Label}}</div></div>{{end}}
+    </div>
+  </div>
+  {{end}}
+</div>
+{{end}}
+</div>
+
+{{if .Hours}}
+<div class="hourly-section">
+  <h3>Hourly breakdown (next 72 hours)</h3>
+  <div class="table-wrap">
+  <table class="hourly-table">
+  <thead><tr>
+    <th>Time</th>
+    <th>Rating</th>
+    <th>Condition</th>
+    <th>Rain chance</th>
+    <th>Wind</th>
+    <th>Gust</th>
+    <th>Temp</th>
+  </tr></thead>
+  <tbody>
+  {{range .Hours}}
+  <tr class="{{if .IsNight}}hour-night{{else if eq .FlyRating "good"}}hour-good{{end}}">
+    <td style="white-space:nowrap;color:#8b949e">{{.Time}}</td>
+    <td><span class="wx-fly wx-fly-{{.FlyRating}}">{{if eq .FlyRating "good"}}Fly{{else if eq .FlyRating "caution"}}Caution{{else}}No-fly{{end}}</span></td>
+    <td>
+      <div class="rain-bar-wrap" style="width:60px;display:inline-block;vertical-align:middle;margin-right:6px"><div class="rain-bar {{if gt .RainChance 65}}rain-high{{else if gt .RainChance 35}}rain-med{{else}}rain-low{{end}}" style="width:{{.RainChance}}%"></div></div>
+    </td>
+    <td class="{{if gt .RainChance 65}}wind-bad{{else if gt .RainChance 35}}wind-caution{{else}}wind-ok{{end}}">{{.RainChance}}%</td>
+    <td class="{{if gt .WindSpeedKmh 35}}wind-bad{{else if gt .WindSpeedKmh 20}}wind-caution{{else}}wind-ok{{end}}" style="white-space:nowrap">
+      {{.WindSpeedKmh}} km/h {{.WindDir}}
+    </td>
+    <td class="{{if gt .GustSpeedKmh 50}}wind-bad{{else if gt .GustSpeedKmh 30}}wind-caution{{else}}wind-ok{{end}}">{{.GustSpeedKmh}} km/h</td>
+    <td class="muted">{{.Temp}}°C</td>
+  </tr>
+  {{end}}
+  </tbody>
+  </table>
+  </div>
+</div>
+{{end}}
+
+{{end}}
 {{end}}`

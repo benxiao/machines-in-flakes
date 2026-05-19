@@ -592,6 +592,8 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/brands/new", a.handleBrandNew)
 	mux.HandleFunc("/brands/{id}/edit", a.handleBrandEdit)
 	mux.HandleFunc("POST /brands/{id}/delete", a.handleBrandDelete)
+
+	mux.HandleFunc("/weather", a.handleWeather)
 }
 
 func parseID(r *http.Request) (int, bool) {
