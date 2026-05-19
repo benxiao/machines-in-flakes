@@ -2294,10 +2294,13 @@ const sessionDetailTmpl = `{{define "content"}}
 {{range .Photos}}
 <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px">
   <img src="/photos/{{.ID}}" style="width:100%;border-radius:4px;display:block;max-height:300px;object-fit:cover">
-  <form method="POST" action="/photos/{{.ID}}/note" style="margin-top:8px;display:flex;gap:6px;align-items:flex-start">
-    <textarea name="notes" rows="2" style="flex:1;resize:vertical;font-size:13px" placeholder="Add a note…">{{.Notes}}</textarea>
-    <button class="btn btn-sm btn-edit" type="submit">Save</button>
-  </form>
+  <div style="margin-top:8px;display:flex;gap:8px;align-items:flex-start">
+    <div class="vnote-view" style="flex:1;font-size:13px;color:#8b949e;min-height:1.4em;white-space:pre-wrap;word-break:break-word">{{if .Notes}}{{.Notes}}{{else}}<span style="opacity:.5">No note</span>{{end}}</div>
+    <form class="vnote-form" method="POST" action="/photos/{{.ID}}/note" style="display:none;flex:1;gap:6px;align-items:flex-start">
+      <textarea name="notes" rows="2" style="flex:1;resize:vertical;width:100%">{{.Notes}}</textarea>
+    </form>
+    <button class="btn btn-sm btn-edit vnote-btn" onclick="vnoteEdit(this)">Edit</button>
+  </div>
   <form method="POST" action="/photos/{{.ID}}/delete" style="margin-top:6px">
     <button class="btn btn-sm btn-danger" type="submit">Delete</button>
   </form>
