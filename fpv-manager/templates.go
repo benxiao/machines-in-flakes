@@ -493,6 +493,9 @@ type WeatherDay struct {
 	HasWind      bool
 	FlyRating    string // "good", "caution", "bad"
 	DayHours     []DayHour
+	WindMaxLabel string
+	WindGuides   []ChartGuide
+	RainGuides   []ChartGuide
 }
 
 type DayHour struct {
@@ -502,21 +505,15 @@ type DayHour struct {
 	WindFill string // hex color based on speed
 }
 
-type WeatherHour struct {
-	Time         string
-	RainChance   int
-	WindSpeedKmh int
-	GustSpeedKmh int
-	WindDir      string
-	Temp         int
-	IsNight      bool
-	FlyRating    string // "good", "caution", "bad"
+type ChartGuide struct {
+	TopPct int    // 0 = chart top, 100 = chart bottom
+	Label  string // value shown on Y-axis
+	Color  string // CSS color for the dashed guideline
 }
 
 type WeatherPage struct {
 	ActiveTab string
 	Days      []WeatherDay
-	Hours     []WeatherHour
 	FetchedAt string
 	Error     string
 }
@@ -809,12 +806,12 @@ const baseTmpl = `<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FPV Manager v0.2</title>
+<title>FPV Manager v0.3</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cline x1='16' y1='16' x2='5' y2='5' stroke='%2358a6ff' stroke-width='2.5' stroke-linecap='round'/%3E%3Cline x1='16' y1='16' x2='27' y2='5' stroke='%2358a6ff' stroke-width='2.5' stroke-linecap='round'/%3E%3Cline x1='16' y1='16' x2='5' y2='27' stroke='%2358a6ff' stroke-width='2.5' stroke-linecap='round'/%3E%3Cline x1='16' y1='16' x2='27' y2='27' stroke='%2358a6ff' stroke-width='2.5' stroke-linecap='round'/%3E%3Ccircle cx='5' cy='5' r='4' fill='%2358a6ff'/%3E%3Ccircle cx='27' cy='5' r='4' fill='%2358a6ff'/%3E%3Ccircle cx='5' cy='27' r='4' fill='%2358a6ff'/%3E%3Ccircle cx='27' cy='27' r='4' fill='%2358a6ff'/%3E%3Ccircle cx='16' cy='16' r='3.5' fill='%2358a6ff'/%3E%3C/svg%3E">
 <style>` + css + `</style>
 </head>
 <body>
-<header><span class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="20" height="20" style="vertical-align:-4px;margin-right:6px"><line x1="16" y1="16" x2="5" y2="5" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/><line x1="16" y1="16" x2="27" y2="5" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/><line x1="16" y1="16" x2="5" y2="27" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/><line x1="16" y1="16" x2="27" y2="27" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/><circle cx="5" cy="5" r="4" fill="#58a6ff"/><circle cx="27" cy="5" r="4" fill="#58a6ff"/><circle cx="5" cy="27" r="4" fill="#58a6ff"/><circle cx="27" cy="27" r="4" fill="#58a6ff"/><circle cx="16" cy="16" r="3.5" fill="#58a6ff"/></svg>FPV Manager <span style="font-size:0.7em;opacity:0.5;font-weight:400">v0.2</span></span></header>
+<header><span class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="20" height="20" style="vertical-align:-4px;margin-right:6px"><line x1="16" y1="16" x2="5" y2="5" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/><line x1="16" y1="16" x2="27" y2="5" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/><line x1="16" y1="16" x2="5" y2="27" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/><line x1="16" y1="16" x2="27" y2="27" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/><circle cx="5" cy="5" r="4" fill="#58a6ff"/><circle cx="27" cy="5" r="4" fill="#58a6ff"/><circle cx="5" cy="27" r="4" fill="#58a6ff"/><circle cx="27" cy="27" r="4" fill="#58a6ff"/><circle cx="16" cy="16" r="3.5" fill="#58a6ff"/></svg>FPV Manager <span style="font-size:0.7em;opacity:0.5;font-weight:400">v0.3</span></span></header>
 <nav>
   <a href="/drones"    {{if eq .ActiveTab "drones"}}class="active"{{end}}>Drones</a>
   <a href="/inventory" {{if eq .ActiveTab "inventory"}}class="active"{{end}}>Inventory</a>
@@ -2362,7 +2359,7 @@ const sessionDetailTmpl = `{{define "content"}}
 <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;max-width:860px;margin-bottom:16px">
 {{range .Photos}}
 <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px">
-  <img src="/photos/{{.ID}}" style="width:100%;border-radius:4px;display:block;max-height:300px;object-fit:cover">
+  <img src="/photos/{{.ID}}" style="width:100%;border-radius:4px;display:block;max-height:300px;object-fit:cover;cursor:zoom-in" onclick="openLightbox('/photos/{{.ID}}')">
   <div style="margin-top:8px;display:flex;gap:8px;align-items:flex-start">
     <div class="vnote-view" style="flex:1;font-size:13px;color:#8b949e;min-height:1.4em;white-space:pre-wrap;word-break:break-word">{{if .Notes}}{{.Notes}}{{else}}<span style="opacity:.5">No note</span>{{end}}</div>
     <form class="vnote-form" method="POST" action="/photos/{{.ID}}/note" style="display:none;flex:1;gap:6px;align-items:flex-start">
@@ -2423,7 +2420,13 @@ function vnoteEdit(btn) {
     btn.onclick = function(){ form.submit(); };
   }
 }
+function openLightbox(src){var lb=document.getElementById('lightbox');document.getElementById('lightbox-img').src=src;lb.style.display='flex';}
+function closeLightbox(){document.getElementById('lightbox').style.display='none';}
+document.addEventListener('keydown',function(e){if(e.key==='Escape')closeLightbox();});
 </script>
+<div id="lightbox" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;align-items:center;justify-content:center" onclick="closeLightbox()">
+  <img id="lightbox-img" src="" style="max-width:90vw;max-height:90vh;border-radius:8px;object-fit:contain;box-shadow:0 8px 40px rgba(0,0,0,.6)">
+</div>
 {{end}}`
 
 const placeListTmpl = `{{define "content"}}
@@ -2649,11 +2652,20 @@ const weatherTmpl = `{{define "content"}}
 .hour-night { background: rgba(88,166,255,0.04); }
 .hour-good  { background: rgba(63,185,80,0.05); }
 .wx-chart-section { margin-top: 10px; padding-top: 10px; border-top: 1px solid #21262d; display: flex; flex-direction: column; gap: 6px; }
-.wx-chart-title { font-size: 10px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.4px; }
-.wx-chart { display: flex; align-items: flex-end; height: 40px; gap: 2px; }
-.wx-chart-col { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; flex: 1; min-width: 0; height: 100%; }
+.wx-chart-title { font-size: 10px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 2px; }
+.wx-chart-wrap { display: flex; gap: 4px; }
+.wx-yaxis { width: 22px; position: relative; height: 48px; flex-shrink: 0; }
+.wx-yaxis-max, .wx-yaxis-min { position: absolute; right: 0; font-size: 8px; color: #8b949e; line-height: 1; }
+.wx-yaxis-max { top: 0; }
+.wx-yaxis-min { bottom: 0; }
+.wx-yaxis-label { position: absolute; right: 0; font-size: 8px; color: #8b949e; transform: translateY(-50%); line-height: 1; }
+.wx-bars-wrap { position: relative; height: 48px; }
+.wx-guideline { position: absolute; left: 0; right: 0; border-top: 1px dashed; z-index: 1; pointer-events: none; }
+.wx-chart { display: flex; align-items: stretch; height: 100%; gap: 2px; position: relative; z-index: 2; }
+.wx-chart-col { flex: 1; min-width: 0; display: flex; align-items: flex-end; }
 .wx-bar { width: 100%; min-height: 2px; border-radius: 2px 2px 0 0; }
-.wx-hour { font-size: 8px; color: #8b949e; margin-top: 2px; line-height: 1; }
+.wx-hours-row { display: flex; gap: 2px; margin-top: 2px; }
+.wx-hour-cell { flex: 1; font-size: 8px; color: #8b949e; text-align: center; min-width: 0; overflow: hidden; }
 </style>
 
 <div class="page-header">
@@ -2720,54 +2732,40 @@ const weatherTmpl = `{{define "content"}}
   {{if .DayHours}}
   <div class="wx-chart-section">
     <div class="wx-chart-title">Wind km/h</div>
-    <div class="wx-chart">
-      {{range .DayHours}}<div class="wx-chart-col"><div class="wx-bar" style="height:{{.WindBarH}}%;background:{{.WindFill}}"></div><div class="wx-hour">{{.Label}}</div></div>{{end}}
+    <div class="wx-chart-wrap">
+      <div class="wx-yaxis">
+        <span class="wx-yaxis-max">{{.WindMaxLabel}}</span>
+        {{range .WindGuides}}<span class="wx-yaxis-label" style="top:{{.TopPct}}%">{{.Label}}</span>{{end}}
+        <span class="wx-yaxis-min">0</span>
+      </div>
+      <div style="flex:1">
+        <div class="wx-bars-wrap">
+          {{range .WindGuides}}<div class="wx-guideline" style="top:{{.TopPct}}%;border-top-color:{{.Color}}"></div>{{end}}
+          <div class="wx-chart">{{range .DayHours}}<div class="wx-chart-col"><div class="wx-bar" style="height:{{.WindBarH}}%;background:{{.WindFill}}"></div></div>{{end}}</div>
+        </div>
+        <div class="wx-hours-row">{{range .DayHours}}<div class="wx-hour-cell">{{.Label}}</div>{{end}}</div>
+      </div>
     </div>
     <div class="wx-chart-title">Rain %</div>
-    <div class="wx-chart">
-      {{range .DayHours}}<div class="wx-chart-col"><div class="wx-bar" style="height:{{.RainBarH}}%;background:#4d9de0"></div><div class="wx-hour">{{.Label}}</div></div>{{end}}
+    <div class="wx-chart-wrap">
+      <div class="wx-yaxis">
+        <span class="wx-yaxis-max">100</span>
+        {{range .RainGuides}}<span class="wx-yaxis-label" style="top:{{.TopPct}}%">{{.Label}}</span>{{end}}
+        <span class="wx-yaxis-min">0</span>
+      </div>
+      <div style="flex:1">
+        <div class="wx-bars-wrap">
+          {{range .RainGuides}}<div class="wx-guideline" style="top:{{.TopPct}}%;border-top-color:{{.Color}}"></div>{{end}}
+          <div class="wx-chart">{{range .DayHours}}<div class="wx-chart-col"><div class="wx-bar" style="height:{{.RainBarH}}%;background:#4d9de0"></div></div>{{end}}</div>
+        </div>
+        <div class="wx-hours-row">{{range .DayHours}}<div class="wx-hour-cell">{{.Label}}</div>{{end}}</div>
+      </div>
     </div>
   </div>
   {{end}}
 </div>
 {{end}}
 </div>
-
-{{if .Hours}}
-<div class="hourly-section">
-  <h3>Hourly breakdown (next 72 hours)</h3>
-  <div class="table-wrap">
-  <table class="hourly-table">
-  <thead><tr>
-    <th>Time</th>
-    <th>Rating</th>
-    <th>Condition</th>
-    <th>Rain chance</th>
-    <th>Wind</th>
-    <th>Gust</th>
-    <th>Temp</th>
-  </tr></thead>
-  <tbody>
-  {{range .Hours}}
-  <tr class="{{if .IsNight}}hour-night{{else if eq .FlyRating "good"}}hour-good{{end}}">
-    <td style="white-space:nowrap;color:#8b949e">{{.Time}}</td>
-    <td><span class="wx-fly wx-fly-{{.FlyRating}}">{{if eq .FlyRating "good"}}Fly{{else if eq .FlyRating "caution"}}Caution{{else}}No-fly{{end}}</span></td>
-    <td>
-      <div class="rain-bar-wrap" style="width:60px;display:inline-block;vertical-align:middle;margin-right:6px"><div class="rain-bar {{if gt .RainChance 65}}rain-high{{else if gt .RainChance 35}}rain-med{{else}}rain-low{{end}}" style="width:{{.RainChance}}%"></div></div>
-    </td>
-    <td class="{{if gt .RainChance 65}}wind-bad{{else if gt .RainChance 35}}wind-caution{{else}}wind-ok{{end}}">{{.RainChance}}%</td>
-    <td class="{{if gt .WindSpeedKmh 35}}wind-bad{{else if gt .WindSpeedKmh 20}}wind-caution{{else}}wind-ok{{end}}" style="white-space:nowrap">
-      {{.WindSpeedKmh}} km/h {{.WindDir}}
-    </td>
-    <td class="{{if gt .GustSpeedKmh 50}}wind-bad{{else if gt .GustSpeedKmh 30}}wind-caution{{else}}wind-ok{{end}}">{{.GustSpeedKmh}} km/h</td>
-    <td class="muted">{{.Temp}}°C</td>
-  </tr>
-  {{end}}
-  </tbody>
-  </table>
-  </div>
-</div>
-{{end}}
 
 {{end}}
 {{end}}`
