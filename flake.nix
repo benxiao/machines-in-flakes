@@ -174,7 +174,7 @@
                       echo "Router is unreachable. Attempt $attempt of $MAX_ATTEMPTS.";
                       attempt=$((attempt + 1));
                       if [ $attempt -ge $MAX_ATTEMPTS ]; then
-                        echo 'Router has been unreachable for $MAX_ATTEMPTS attempts. Initiating shutdown.';
+                        echo "Router has been unreachable for $MAX_ATTEMPTS attempts. Initiating shutdown.";
                         poweroff
                       fi;
                     fi;
@@ -335,6 +335,7 @@
                           };
                           shellAliases = {
                             nix-generations = "nix profile history --profile /nix/var/nix/profiles/system";
+                            athena = "ssh rxiao@athena.pinto-stargazer.ts.net";
                           };
                         };
                         home.stateVersion = "25.05";
@@ -356,11 +357,6 @@
                   environment.systemPackages = with pkgs; [
                     asunder
                   ];
-                  home-manager.users.rxiao = { ... }: {
-                    programs.bash.shellAliases = {
-                      athena = "ssh rxiao@athena.pinto-stargazer.ts.net";
-                    };
-                  };
                 })
               intelCpuModule
               printerModule
@@ -385,7 +381,7 @@
                 let
                   fpv-manager = pkgs.buildGoModule {
                     pname = "fpv-manager";
-                    version = "0.1.0";
+                    version = "0.3.0";
                     src = ./fpv-manager;
                     vendorHash = "sha256-Qs23BHgrlK0P5BREEzS5Y/2G7mL1pcSd1k3z8NUw/mM=";
                   };
@@ -404,8 +400,6 @@
                 in
                 {
                   networking.hostId = "00000000"; # replace: run `head -c 8 /etc/machine-id` on athena
-                  networking.firewall.enable = false;
-                  networking.firewall.allowedTCPPorts = [ 22 ];
                   services.vscode-server.enable = true;
 
                   # Headless server — no GPU or monitor attached
@@ -536,7 +530,7 @@
               (makeStorageModule {
                 extraPools = [ "blue2t" "c7" "exos12" "exos16" "tm1t" ];
               })
-              (makeServerModule { allowPassWordAuthentication = false; })
+              (makeServerModule { })
               amdCpuModule
               vscode-server.nixosModule
               (makePython3Module { })
@@ -553,7 +547,7 @@
               desktopAppsModule
               (makePython3Module { })
               (makeServerModule { })
-              (nvidiaModule)
+              nvidiaModule
               (makeStorageModule {
                 swapDevice = "/dev/nvme2n1p2";
                 bootDevice = "/dev/disk/by-uuid/DED6-AF46";
@@ -563,7 +557,6 @@
                 networking.hostId = "00000000"; # replace: run `head -c 8 /etc/machine-id` on wotan
                 home-manager.users.rxiao = { ... }: {
                   programs.bash.shellAliases = {
-                    athena = "ssh rxiao@athena.pinto-stargazer.ts.net";
                     mendeley = "mendeley-reference-manager --no-sandbox";
                   };
                 };
@@ -599,9 +592,6 @@
                     dedicatedServer.openFirewall = true; # Open ports in the firewall for Source Dedicated Server
                   };
                   home-manager.users.rxiao = { ... }: {
-                    programs.bash.shellAliases = {
-                      athena = "ssh rxiao@athena.pinto-stargazer.ts.net";
-                    };
                     programs.bash.sessionVariables = {
                       MOZ_ENABLE_WAYLAND = "0";
                     };
@@ -614,9 +604,7 @@
               })
               amdCpuModule
               printerModule
-              (makeServerModule {
-                allowPassWordAuthentication = false;
-              })
+              (makeServerModule { })
               nvidiaModule
               (makePython3Module { })
               desktopAppsModule

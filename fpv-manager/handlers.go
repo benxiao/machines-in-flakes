@@ -3131,6 +3131,22 @@ func flyRating(windKmh, gustKmh, rainChance int) string {
 	return "good"
 }
 
+func windColor(kmh int) string {
+	if kmh >= 35 {
+		return "#f85149"
+	}
+	if kmh >= 20 {
+		return "#d29922"
+	}
+	return "#3fb950"
+}
+
+// rainGuides are fixed threshold lines for the rain chart (35% and 65% rain chance).
+var rainGuides = []ChartGuide{
+	{TopPct: 35, Label: "65", Color: "rgba(248,81,73,0.55)"},
+	{TopPct: 65, Label: "35", Color: "rgba(210,153,34,0.55)"},
+}
+
 func (a *App) handleWeather(w http.ResponseWriter, r *http.Request) {
 	page := WeatherPage{ActiveTab: "weather"}
 
@@ -3183,7 +3199,6 @@ func (a *App) handleWeather(w http.ResponseWriter, r *http.Request) {
 		dir     string
 	}
 	dayWind := map[string]windAgg{}
-	var hours []WeatherHour
 
 	type rawHr struct{ hour, wind, rain int }
 	dayRawHours := map[string][]rawHr{}
@@ -3191,10 +3206,8 @@ func (a *App) handleWeather(w http.ResponseWriter, r *http.Request) {
 	if hourlyRes.err == nil {
 		var hourly struct {
 			Data []struct {
-				Time     string `json:"time"`
-				IsNight  bool   `json:"is_night"`
-				Temp     int    `json:"temp"`
-				Rain     struct {
+				Time string `json:"time"`
+				Rain struct {
 					Chance int `json:"chance"`
 				} `json:"rain"`
 				Wind struct {
@@ -3226,17 +3239,6 @@ func (a *App) handleWeather(w http.ResponseWriter, r *http.Request) {
 				if hr := tLocal.Hour(); hr >= 8 && hr <= 17 {
 					dayRawHours[dateKey] = append(dayRawHours[dateKey], rawHr{hr, h.Wind.SpeedKmh, h.Rain.Chance})
 				}
-
-				hours = append(hours, WeatherHour{
-					Time:         tLocal.Format("Mon 02 Jan 15:04"),
-					RainChance:   h.Rain.Chance,
-					WindSpeedKmh: h.Wind.SpeedKmh,
-					GustSpeedKmh: h.Wind.GustKmh,
-					WindDir:      h.Wind.Dir,
-					Temp:         h.Temp,
-					IsNight:      h.IsNight,
-					FlyRating:    flyRating(h.Wind.SpeedKmh, h.Wind.GustKmh, h.Rain.Chance),
-				})
 			}
 		}
 	}
@@ -3277,30 +3279,47 @@ func (a *App) handleWeather(w http.ResponseWriter, r *http.Request) {
 		}
 		wd.FlyRating = flyRating(wd.WindSpeedKmh, wd.GustSpeedKmh, wd.RainChance)
 		rawHrs := dayRawHours[dateKey]
-		maxWind := 1
+		maxWind := 1 // start at 1 to avoid division by zero
 		for _, rh := range rawHrs {
-			if rh.wind > maxWind {
-				maxWind = rh.wind
-			}
+			maxWind = max(maxWind, rh.wind)
 		}
+
+		// Ceiling is 20% above peak, rounded up to nearest 5
+		ceiling := max(((maxWind*6/5)+4)/5*5, 5)
+
 		for _, rh := range rawHrs {
-			wf := "#3fb950"
-			if rh.wind >= 35 {
-				wf = "#f85149"
-			} else if rh.wind >= 20 {
-				wf = "#d29922"
-			}
 			wd.DayHours = append(wd.DayHours, DayHour{
 				Label:    strconv.Itoa(rh.hour),
-				WindBarH: rh.wind * 100 / maxWind,
+				WindBarH: rh.wind * 100 / ceiling,
 				RainBarH: rh.rain,
-				WindFill: wf,
+				WindFill: windColor(rh.wind),
 			})
 		}
+
+		wd.WindMaxLabel = strconv.Itoa(ceiling)
+		step := 10
+		if ceiling <= 15 {
+			step = 5
+		} else if ceiling > 50 {
+			step = 15
+		}
+		for v := step; v < ceiling; v += step {
+			topPct := 100 - v*100/ceiling
+			color := "rgba(255,255,255,0.07)"
+			switch v {
+			case 20:
+				color = "rgba(210,153,34,0.5)"
+			case 35:
+				color = "rgba(248,81,73,0.5)"
+			}
+			wd.WindGuides = append(wd.WindGuides, ChartGuide{TopPct: topPct, Label: strconv.Itoa(v), Color: color})
+		}
+
+		wd.RainGuides = rainGuides
+
 		page.Days = append(page.Days, wd)
 	}
 
-	page.Hours = hours
 	page.FetchedAt = time.Now().In(aest).Format("02 Jan 2006 15:04 AEST")
 	render(w, "weather", page)
 }
