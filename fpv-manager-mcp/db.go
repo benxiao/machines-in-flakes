@@ -37,6 +37,7 @@ type DroneRow struct {
 	GPSName    string
 	RXBrand    string
 	RXName     string
+	WeightG    *int
 	Notes      string
 }
 
@@ -68,7 +69,7 @@ const droneSelect = `SELECT d.id, d.name, d.status, TO_CHAR(d.build_date,'YYYY-M
   COALESCE(bb.name,''), COALESCE(b.name,''), COALESCE(b.cell_count,0), d.battery_count,
   COALESCE(bg.name,''), COALESCE(g.name,''),
   COALESCE(brx.name,''), COALESCE(rx.name,''),
-  d.notes` + droneJoin
+  d.weight_g, d.notes` + droneJoin
 
 func scanDrone(fn func(...any) error) (DroneRow, error) {
 	var d DroneRow
@@ -82,7 +83,7 @@ func scanDrone(fn func(...any) error) (DroneRow, error) {
 		&d.BattBrand, &d.BattName, &d.BattCells, &d.BattCount,
 		&d.GPSBrand, &d.GPSName,
 		&d.RXBrand, &d.RXName,
-		&d.Notes,
+		&d.WeightG, &d.Notes,
 	)
 	return d, err
 }

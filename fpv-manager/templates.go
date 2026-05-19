@@ -34,6 +34,7 @@ type DroneRow struct {
 	RXName        string
 	Status        string
 	BuildDate     string
+	WeightG       *int
 	FirstPhotoID  int
 }
 
@@ -73,6 +74,7 @@ type DroneFormPage struct {
 	RXID         int
 	Status       string
 	BuildDate    string
+	WeightG      string
 	Notes        string
 	Frames       []OptionItem
 	FCs          []OptionItem
@@ -459,6 +461,23 @@ type PlaceFormPage struct {
 	Lng       *float64
 }
 
+type BrandRow struct {
+	ID   int
+	Name string
+}
+
+type BrandListPage struct {
+	ActiveTab string
+	Brands    []BrandRow
+}
+
+type BrandFormPage struct {
+	ActiveTab string
+	Error     string
+	ID        int
+	Name      string
+}
+
 // ---- Template engine ----
 
 var pages map[string]*template.Template
@@ -781,7 +800,7 @@ const droneListTmpl = `{{define "content"}}
 <table>
 <thead><tr>
   <th></th><th>Name</th><th>Frame</th><th>FC</th><th>ESC</th><th>VTX</th>
-  <th>Motors</th><th>Batteries</th><th>GPS</th><th>RX</th><th>Status</th><th>Build Date</th><th></th>
+  <th>Motors</th><th>Batteries</th><th>GPS</th><th>RX</th><th>Weight</th><th>Status</th><th>Build Date</th><th></th>
 </tr></thead>
 <tbody>
 {{range .Drones}}
@@ -802,6 +821,7 @@ const droneListTmpl = `{{define "content"}}
   <td class="muted">{{dash .BatteryName}}</td>
   <td class="muted">{{dash .GPSName}}</td>
   <td class="muted">{{dash .RXName}}</td>
+  <td class="muted">{{if .WeightG}}{{.WeightG}}g{{else}}—{{end}}</td>
   <td><span class="badge {{badgeClass .Status}}">{{.Status}}</span></td>
   <td class="muted">{{dash .BuildDate}}</td>
   <td class="actions-cell">
@@ -934,6 +954,10 @@ const droneFormTmpl = `{{define "content"}}
     <div class="form-group">
       <label>Build Date</label>
       <input type="date" name="build_date" value="{{.BuildDate}}">
+    </div>
+    <div class="form-group" style="max-width:120px">
+      <label>Weight (g)</label>
+      <input type="number" name="weight_g" value="{{.WeightG}}" placeholder="e.g. 250" min="0">
     </div>
   </div>
   <div class="form-row">

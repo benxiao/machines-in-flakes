@@ -298,6 +298,9 @@ func formatDroneList(drones []DroneRow) string {
 		if d.BuildDate != nil && *d.BuildDate != "" {
 			fmt.Fprintf(&b, "  Built: %s\n", *d.BuildDate)
 		}
+		if d.WeightG != nil {
+			fmt.Fprintf(&b, "  Weight: %dg\n", *d.WeightG)
+		}
 	}
 	return b.String()
 }
@@ -318,6 +321,9 @@ func formatDroneDetail(d DroneRow) string {
 		buildDate = *d.BuildDate
 	}
 	fmt.Fprintf(&b, "  Build date:  %s\n", buildDate)
+	if d.WeightG != nil {
+		fmt.Fprintf(&b, "  Weight:      %dg\n", *d.WeightG)
+	}
 	if d.Notes != "" {
 		fmt.Fprintf(&b, "  Notes:       %s\n", d.Notes)
 	}

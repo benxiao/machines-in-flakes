@@ -368,6 +368,7 @@ DO $$ BEGIN ALTER TABLE batteries ADD COLUMN count INTEGER NOT NULL DEFAULT 1; E
 DO $$ BEGIN ALTER TABLE batteries ADD COLUMN notes TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE drones ADD COLUMN gps_id INTEGER REFERENCES gps_modules(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE drones ADD COLUMN rx_id  INTEGER REFERENCES radio_receivers(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE drones ADD COLUMN weight_g INTEGER; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 DO $$ BEGIN
   ALTER TABLE item_counts DROP CONSTRAINT IF EXISTS item_counts_item_type_check;
   ALTER TABLE item_counts ADD CONSTRAINT item_counts_item_type_check
@@ -638,4 +639,11 @@ func nullDate(s string) *time.Time {
 func httpErr(w http.ResponseWriter, err error) {
 	log.Printf("error: %v", err)
 	http.Error(w, "Internal server error", http.StatusInternalServerError)
+}
+
+func derefInt(p *int) int {
+	if p == nil {
+		return 0
+	}
+	return *p
 }
