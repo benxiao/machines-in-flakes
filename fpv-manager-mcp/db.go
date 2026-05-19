@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -495,6 +496,57 @@ func (q *Queries) ListPlaces(ctx context.Context) ([]PlaceRow, error) {
 		out = append(out, p)
 	}
 	return out, rows.Err()
+}
+
+// ---- Brands ----
+
+type BrandRow struct {
+	ID   int
+	Name string
+}
+
+func (q *Queries) ListBrands(ctx context.Context) ([]BrandRow, error) {
+	rows, err := q.db.Query(ctx, `SELECT id, name FROM brands ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []BrandRow
+	for rows.Next() {
+		var b BrandRow
+		if err := rows.Scan(&b.ID, &b.Name); err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
+func (q *Queries) CreateBrand(ctx context.Context, name string) (BrandRow, error) {
+	var b BrandRow
+	err := q.db.QueryRow(ctx,
+		`INSERT INTO brands (name) VALUES ($1) RETURNING id, name`, name).
+		Scan(&b.ID, &b.Name)
+	return b, err
+}
+
+func (q *Queries) UpdateBrand(ctx context.Context, id int, name string) (BrandRow, error) {
+	var b BrandRow
+	err := q.db.QueryRow(ctx,
+		`UPDATE brands SET name=$1 WHERE id=$2 RETURNING id, name`, name, id).
+		Scan(&b.ID, &b.Name)
+	return b, err
+}
+
+func (q *Queries) DeleteBrand(ctx context.Context, id int) error {
+	tag, err := q.db.Exec(ctx, `DELETE FROM brands WHERE id=$1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
 }
 
 // ---- Low Stock ----

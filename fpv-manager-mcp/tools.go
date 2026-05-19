@@ -152,6 +152,84 @@ func registerTools(s *server.MCPServer, q *Queries) {
 	)
 
 	s.AddTool(
+		mcp.NewTool("list_brands",
+			mcp.WithDescription("List all brands"),
+		),
+		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			brands, err := q.ListBrands(ctx)
+			if err != nil {
+				return nil, err
+			}
+			return mcp.NewToolResultText(formatBrandList(brands)), nil
+		},
+	)
+
+	s.AddTool(
+		mcp.NewTool("create_brand",
+			mcp.WithDescription("Create a new brand"),
+			mcp.WithString("name", mcp.Required(), mcp.Description("Brand name")),
+		),
+		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			name := strings.TrimSpace(req.GetString("name", ""))
+			if name == "" {
+				return mcp.NewToolResultText("name is required"), nil
+			}
+			b, err := q.CreateBrand(ctx, name)
+			if err != nil {
+				return nil, err
+			}
+			return mcp.NewToolResultText(fmt.Sprintf("Created brand #%d: %s", b.ID, b.Name)), nil
+		},
+	)
+
+	s.AddTool(
+		mcp.NewTool("update_brand",
+			mcp.WithDescription("Rename a brand"),
+			mcp.WithNumber("id", mcp.Required(), mcp.Description("Brand ID")),
+			mcp.WithString("name", mcp.Required(), mcp.Description("New brand name")),
+		),
+		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			id := req.GetInt("id", 0)
+			if id <= 0 {
+				return mcp.NewToolResultText("id must be a positive integer"), nil
+			}
+			name := strings.TrimSpace(req.GetString("name", ""))
+			if name == "" {
+				return mcp.NewToolResultText("name is required"), nil
+			}
+			b, err := q.UpdateBrand(ctx, id, name)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return mcp.NewToolResultText(fmt.Sprintf("brand #%d not found", id)), nil
+			}
+			if err != nil {
+				return nil, err
+			}
+			return mcp.NewToolResultText(fmt.Sprintf("Updated brand #%d: %s", b.ID, b.Name)), nil
+		},
+	)
+
+	s.AddTool(
+		mcp.NewTool("delete_brand",
+			mcp.WithDescription("Delete a brand (only if no components reference it)"),
+			mcp.WithNumber("id", mcp.Required(), mcp.Description("Brand ID")),
+		),
+		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			id := req.GetInt("id", 0)
+			if id <= 0 {
+				return mcp.NewToolResultText("id must be a positive integer"), nil
+			}
+			err := q.DeleteBrand(ctx, id)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return mcp.NewToolResultText(fmt.Sprintf("brand #%d not found", id)), nil
+			}
+			if err != nil {
+				return nil, err
+			}
+			return mcp.NewToolResultText(fmt.Sprintf("Deleted brand #%d", id)), nil
+		},
+	)
+
+	s.AddTool(
 		mcp.NewTool("list_low_stock",
 			mcp.WithDescription("List propellers and spare parts at or below their reorder threshold"),
 		),
@@ -166,6 +244,18 @@ func registerTools(s *server.MCPServer, q *Queries) {
 }
 
 // ---- Formatters ----
+
+func formatBrandList(brands []BrandRow) string {
+	if len(brands) == 0 {
+		return "No brands found."
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d brand(s):\n", len(brands))
+	for _, br := range brands {
+		fmt.Fprintf(&b, "  #%d: %s\n", br.ID, br.Name)
+	}
+	return b.String()
+}
 
 func compName(brand, name string) string {
 	switch {
