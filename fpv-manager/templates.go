@@ -2349,10 +2349,16 @@ const sessionDetailTmpl = `{{define "content"}}
 {{else}}
 <p class="muted" style="margin-bottom:8px">No videos yet.</p>
 {{end}}
-<form method="POST" action="/log/{{.ID}}/videos" enctype="multipart/form-data" class="upload-form" style="margin-bottom:32px">
+<form id="video-upload-form" method="POST" action="/log/{{.ID}}/videos" enctype="multipart/form-data" class="upload-form" style="margin-bottom:8px">
   <input type="file" name="video" accept="video/*" style="color:#c9d1d9;font-size:13px">
   <button class="btn btn-primary" type="submit">Upload Video</button>
 </form>
+<div id="video-upload-progress" style="display:none;margin-bottom:24px;max-width:860px">
+  <div style="background:#30363d;border-radius:4px;height:8px;overflow:hidden">
+    <div id="video-upload-bar" style="background:#58a6ff;height:100%;width:0%;transition:width .15s"></div>
+  </div>
+  <div id="video-upload-label" style="font-size:12px;color:#8b949e;margin-top:4px">Uploading…</div>
+</div>
 
 <h3>Photos</h3>
 {{if .Photos}}
@@ -2408,6 +2414,37 @@ function toggleOriginal(btn, id) {
   video.play().catch(function(){});
 }
 document.querySelectorAll('video[data-mobile]').forEach(function(v){ attachVideo(v, v.dataset.mobile); });
+document.getElementById('video-upload-form').addEventListener('submit', function(e) {
+  e.preventDefault();
+  var form = this;
+  var bar = document.getElementById('video-upload-bar');
+  var label = document.getElementById('video-upload-label');
+  var progress = document.getElementById('video-upload-progress');
+  var btn = form.querySelector('button[type=submit]');
+  var xhr = new XMLHttpRequest();
+  progress.style.display = 'block';
+  btn.disabled = true;
+  xhr.upload.onprogress = function(e) {
+    if (e.lengthComputable) {
+      var pct = Math.round(e.loaded / e.total * 100);
+      bar.style.width = pct + '%';
+      label.textContent = 'Uploading… ' + pct + '%';
+    }
+  };
+  xhr.onload = function() {
+    if (xhr.status < 400) {
+      bar.style.width = '100%';
+      label.textContent = 'Done!';
+      window.location.reload();
+    } else {
+      label.textContent = 'Upload failed.';
+      btn.disabled = false;
+    }
+  };
+  xhr.onerror = function() { label.textContent = 'Upload failed.'; btn.disabled = false; };
+  xhr.open('POST', form.action);
+  xhr.send(new FormData(form));
+});
 function vnoteEdit(btn) {
   var wrap = btn.parentElement;
   var view = wrap.querySelector('.vnote-view');
