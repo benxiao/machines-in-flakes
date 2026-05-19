@@ -42,23 +42,31 @@ type DroneRow struct {
 const droneJoin = `
 FROM drones d
 LEFT JOIN frames f ON f.id=d.frame_id
+LEFT JOIN brands bf ON bf.id=f.brand_id
 LEFT JOIN flight_controllers fc ON fc.id=d.fc_id
+LEFT JOIN brands bfc ON bfc.id=fc.brand_id
 LEFT JOIN escs e ON e.id=d.esc_id
+LEFT JOIN brands be ON be.id=e.brand_id
 LEFT JOIN vtx_units v ON v.id=d.vtx_id
+LEFT JOIN brands bv ON bv.id=v.brand_id
 LEFT JOIN motors m ON m.id=d.motor_id
+LEFT JOIN brands bm ON bm.id=m.brand_id
 LEFT JOIN batteries b ON b.id=d.battery_id
+LEFT JOIN brands bb ON bb.id=b.brand_id
 LEFT JOIN gps_modules g ON g.id=d.gps_id
-LEFT JOIN radio_receivers rx ON rx.id=d.rx_id`
+LEFT JOIN brands bg ON bg.id=g.brand_id
+LEFT JOIN radio_receivers rx ON rx.id=d.rx_id
+LEFT JOIN brands brx ON brx.id=rx.brand_id`
 
 const droneSelect = `SELECT d.id, d.name, d.status, TO_CHAR(d.build_date,'YYYY-MM-DD'),
-  COALESCE(f.brand,''), COALESCE(f.name,''),
-  COALESCE(fc.brand,''), COALESCE(fc.name,''),
-  COALESCE(e.brand,''), COALESCE(e.name,''),
-  COALESCE(v.brand,''), COALESCE(v.name,''),
-  COALESCE(m.brand,''), COALESCE(m.name,''), d.motor_count,
-  COALESCE(b.brand,''), COALESCE(b.name,''), COALESCE(b.cell_count,0), d.battery_count,
-  COALESCE(g.brand,''), COALESCE(g.name,''),
-  COALESCE(rx.brand,''), COALESCE(rx.name,''),
+  COALESCE(bf.name,''), COALESCE(f.name,''),
+  COALESCE(bfc.name,''), COALESCE(fc.name,''),
+  COALESCE(be.name,''), COALESCE(e.name,''),
+  COALESCE(bv.name,''), COALESCE(v.name,''),
+  COALESCE(bm.name,''), COALESCE(m.name,''), d.motor_count,
+  COALESCE(bb.name,''), COALESCE(b.name,''), COALESCE(b.cell_count,0), d.battery_count,
+  COALESCE(bg.name,''), COALESCE(g.name,''),
+  COALESCE(brx.name,''), COALESCE(rx.name,''),
   d.notes` + droneJoin
 
 func scanDrone(fn func(...any) error) (DroneRow, error) {
@@ -144,9 +152,10 @@ SELECT s.id, s.title, s.type, TO_CHAR(s.session_date,'YYYY-MM-DD'),
             FROM session_drones sd JOIN drones d ON d.id=sd.drone_id
             WHERE sd.session_id=s.id),''),
   COALESCE((SELECT string_agg(
-      CASE WHEN b.brand!='' THEN b.brand||' '||b.name ELSE b.name END
-      ||' '||b.cell_count||'S x'||sb.count, ', ' ORDER BY b.brand, b.name)
+      CASE WHEN bb.name IS NOT NULL AND bb.name!='' THEN bb.name||' '||b.name ELSE b.name END
+      ||' '||b.cell_count||'S x'||sb.count, ', ' ORDER BY bb.name, b.name)
             FROM session_batteries sb JOIN batteries b ON b.id=sb.battery_id
+            LEFT JOIN brands bb ON bb.id=b.brand_id
             WHERE sb.session_id=s.id),'')
 FROM sessions s
 ORDER BY s.session_date DESC, s.created_at DESC
@@ -201,9 +210,10 @@ WHERE sd.session_id=$1 ORDER BY d.name`, id)
 	}
 
 	brows, err := q.db.Query(ctx, `
-SELECT b.id, b.brand, b.name, b.cell_count, b.capacity_mah, sb.count
+SELECT b.id, COALESCE(bb.name,''), b.name, b.cell_count, b.capacity_mah, sb.count
 FROM batteries b JOIN session_batteries sb ON sb.battery_id=b.id
-WHERE sb.session_id=$1 ORDER BY b.brand, b.name`, id)
+LEFT JOIN brands bb ON bb.id=b.brand_id
+WHERE sb.session_id=$1 ORDER BY bb.name, b.name`, id)
 	if err != nil {
 		return d, err
 	}
@@ -235,11 +245,12 @@ type BatteryRow struct {
 
 func (q *Queries) ListBatteries(ctx context.Context) ([]BatteryRow, error) {
 	const stmt = `
-SELECT b.id, b.brand, b.name, b.cell_count, b.capacity_mah, b.count, b.status, b.notes,
+SELECT b.id, COALESCE(bb.name,''), b.name, b.cell_count, b.capacity_mah, b.count, b.status, b.notes,
   COALESCE((SELECT string_agg(d.name,', ' ORDER BY d.name)
             FROM drones d WHERE d.battery_id=b.id),'')
 FROM batteries b
-ORDER BY b.brand, b.name, b.cell_count, b.capacity_mah`
+LEFT JOIN brands bb ON bb.id=b.brand_id
+ORDER BY bb.name, b.name, b.cell_count, b.capacity_mah`
 	rows, err := q.db.Query(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -327,33 +338,35 @@ func (q *Queries) scanComponents(ctx context.Context, typeName, stmt string) ([]
 
 func (q *Queries) listFrames(ctx context.Context) ([]ComponentRow, error) {
 	return q.scanComponents(ctx, "frame", `
-SELECT f.id, f.brand, f.name,
+SELECT f.id, COALESCE(bf.name,''), f.name,
   TRIM(f.size_inch || CASE WHEN f.weight_g IS NOT NULL THEN ' '||f.weight_g||'g' ELSE '' END),
   COALESCE(ic.count,0),
   COALESCE((SELECT COUNT(*)::int FROM drones d WHERE d.frame_id=f.id),0),
   COALESCE(ic.count,0) - COALESCE((SELECT COUNT(*)::int FROM drones d WHERE d.frame_id=f.id),0),
   COALESCE((SELECT string_agg(d.name,', ' ORDER BY d.name) FROM drones d WHERE d.frame_id=f.id),'')
 FROM frames f
+LEFT JOIN brands bf ON bf.id=f.brand_id
 LEFT JOIN item_counts ic ON ic.item_type='frame' AND ic.item_id=f.id
-ORDER BY f.brand, f.name`)
+ORDER BY bf.name, f.name`)
 }
 
 func (q *Queries) listFCs(ctx context.Context) ([]ComponentRow, error) {
 	return q.scanComponents(ctx, "fc", `
-SELECT fc.id, fc.brand, fc.name,
+SELECT fc.id, COALESCE(bfc.name,''), fc.name,
   TRIM(fc.mcu || CASE WHEN fc.firmware!='' THEN ' '||fc.firmware ELSE '' END),
   COALESCE(ic.count,0),
   COALESCE((SELECT COUNT(*)::int FROM drones d WHERE d.fc_id=fc.id),0),
   COALESCE(ic.count,0) - COALESCE((SELECT COUNT(*)::int FROM drones d WHERE d.fc_id=fc.id),0),
   COALESCE((SELECT string_agg(d.name,', ' ORDER BY d.name) FROM drones d WHERE d.fc_id=fc.id),'')
 FROM flight_controllers fc
+LEFT JOIN brands bfc ON bfc.id=fc.brand_id
 LEFT JOIN item_counts ic ON ic.item_type='fc' AND ic.item_id=fc.id
-ORDER BY fc.brand, fc.name`)
+ORDER BY bfc.name, fc.name`)
 }
 
 func (q *Queries) listESCs(ctx context.Context) ([]ComponentRow, error) {
 	return q.scanComponents(ctx, "esc", `
-SELECT e.id, e.brand, e.name,
+SELECT e.id, COALESCE(be.name,''), e.name,
   TRIM(
     CASE WHEN e.current_rating IS NOT NULL THEN e.current_rating::text||'A' ELSE '' END ||
     CASE WHEN e.cell_max IS NOT NULL THEN ' '||e.cell_max::text||'S max' ELSE '' END
@@ -363,26 +376,28 @@ SELECT e.id, e.brand, e.name,
   COALESCE(ic.count,0) - COALESCE((SELECT COUNT(*)::int FROM drones d WHERE d.esc_id=e.id),0),
   COALESCE((SELECT string_agg(d.name,', ' ORDER BY d.name) FROM drones d WHERE d.esc_id=e.id),'')
 FROM escs e
+LEFT JOIN brands be ON be.id=e.brand_id
 LEFT JOIN item_counts ic ON ic.item_type='esc' AND ic.item_id=e.id
-ORDER BY e.brand, e.name`)
+ORDER BY be.name, e.name`)
 }
 
 func (q *Queries) listMotors(ctx context.Context) ([]ComponentRow, error) {
 	return q.scanComponents(ctx, "motor", `
-SELECT m.id, m.brand, m.name,
+SELECT m.id, COALESCE(bm.name,''), m.name,
   TRIM(m.stator_size || CASE WHEN m.kv IS NOT NULL THEN ' '||m.kv::text||'KV' ELSE '' END),
   COALESCE(ic.count,0),
   COALESCE((SELECT SUM(d.motor_count)::int FROM drones d WHERE d.motor_id=m.id),0),
   COALESCE(ic.count,0) - COALESCE((SELECT SUM(d.motor_count)::int FROM drones d WHERE d.motor_id=m.id),0),
   COALESCE((SELECT string_agg(d.name,', ' ORDER BY d.name) FROM drones d WHERE d.motor_id=m.id),'')
 FROM motors m
+LEFT JOIN brands bm ON bm.id=m.brand_id
 LEFT JOIN item_counts ic ON ic.item_type='motor' AND ic.item_id=m.id
-ORDER BY m.brand, m.name`)
+ORDER BY bm.name, m.name`)
 }
 
 func (q *Queries) listVTXs(ctx context.Context) ([]ComponentRow, error) {
 	return q.scanComponents(ctx, "vtx", `
-SELECT v.id, v.brand, v.name,
+SELECT v.id, COALESCE(bv.name,''), v.name,
   TRIM(
     v.system ||
     CASE WHEN v.max_power_mw IS NOT NULL THEN ' '||v.max_power_mw::text||'mW' ELSE '' END ||
@@ -393,32 +408,35 @@ SELECT v.id, v.brand, v.name,
   COALESCE(ic.count,0) - COALESCE((SELECT COUNT(*)::int FROM drones d WHERE d.vtx_id=v.id),0),
   COALESCE((SELECT string_agg(d.name,', ' ORDER BY d.name) FROM drones d WHERE d.vtx_id=v.id),'')
 FROM vtx_units v
+LEFT JOIN brands bv ON bv.id=v.brand_id
 LEFT JOIN item_counts ic ON ic.item_type='vtx' AND ic.item_id=v.id
-ORDER BY v.brand, v.name`)
+ORDER BY bv.name, v.name`)
 }
 
 func (q *Queries) listGPS(ctx context.Context) ([]ComponentRow, error) {
 	return q.scanComponents(ctx, "gps", `
-SELECT g.id, g.brand, g.name, '',
+SELECT g.id, COALESCE(bg.name,''), g.name, '',
   COALESCE(ic.count,0),
   COALESCE((SELECT COUNT(*)::int FROM drones d WHERE d.gps_id=g.id),0),
   COALESCE(ic.count,0) - COALESCE((SELECT COUNT(*)::int FROM drones d WHERE d.gps_id=g.id),0),
   COALESCE((SELECT string_agg(d.name,', ' ORDER BY d.name) FROM drones d WHERE d.gps_id=g.id),'')
 FROM gps_modules g
+LEFT JOIN brands bg ON bg.id=g.brand_id
 LEFT JOIN item_counts ic ON ic.item_type='gps' AND ic.item_id=g.id
-ORDER BY g.brand, g.name`)
+ORDER BY bg.name, g.name`)
 }
 
 func (q *Queries) listRX(ctx context.Context) ([]ComponentRow, error) {
 	return q.scanComponents(ctx, "rx", `
-SELECT rx.id, rx.brand, rx.name, rx.protocol,
+SELECT rx.id, COALESCE(brx.name,''), rx.name, rx.protocol,
   COALESCE(ic.count,0),
   COALESCE((SELECT COUNT(*)::int FROM drones d WHERE d.rx_id=rx.id),0),
   COALESCE(ic.count,0) - COALESCE((SELECT COUNT(*)::int FROM drones d WHERE d.rx_id=rx.id),0),
   COALESCE((SELECT string_agg(d.name,', ' ORDER BY d.name) FROM drones d WHERE d.rx_id=rx.id),'')
 FROM radio_receivers rx
+LEFT JOIN brands brx ON brx.id=rx.brand_id
 LEFT JOIN item_counts ic ON ic.item_type='rx' AND ic.item_id=rx.id
-ORDER BY rx.brand, rx.name`)
+ORDER BY brx.name, rx.name`)
 }
 
 // ---- Drone logs ----
@@ -502,12 +520,13 @@ type LowSpareRow struct {
 
 func (q *Queries) ListLowStock(ctx context.Context) ([]LowPropRow, []LowSpareRow, error) {
 	prows, err := q.db.Query(ctx, `
-SELECT p.id, p.brand, p.name, CAST(p.size_inch AS FLOAT8), p.blade_count,
+SELECT p.id, COALESCE(bp.name,''), p.name, CAST(p.size_inch AS FLOAT8), p.blade_count,
   p.quantity, p.reorder_threshold, COALESCE(d.name,'')
 FROM propellers p
+LEFT JOIN brands bp ON bp.id=p.brand_id
 LEFT JOIN drones d ON d.id=p.drone_id
 WHERE p.reorder_threshold > 0 AND p.quantity <= p.reorder_threshold
-ORDER BY p.brand, p.name`)
+ORDER BY bp.name, p.name`)
 	if err != nil {
 		return nil, nil, err
 	}
