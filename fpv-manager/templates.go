@@ -21,21 +21,13 @@ type DroneListPage struct {
 }
 
 type DroneRow struct {
-	ID            int
-	Name          string
-	FrameName     string
-	FCName        string
-	ESCName       string
-	VTXName       string
-	MotorName     string
-	MotorCount    int
-	BatteryName   string
-	GPSName       string
-	RXName        string
-	Status        string
-	BuildDate     string
-	WeightG       *int
-	FirstPhotoID  int
+	ID           int
+	Name         string
+	SizeInch     string
+	CellLabel    string
+	Status       string
+	WeightG      *int
+	FirstPhotoID int
 }
 
 type DronePhotoRow struct {
@@ -52,10 +44,27 @@ type DroneLogEntry struct {
 }
 
 type DroneDetailPage struct {
-	ActiveTab string
-	ID        int
-	Name      string
-	Entries   []DroneLogEntry
+	ActiveTab    string
+	ID           int
+	Name         string
+	Status       string
+	SizeInch     string
+	CellLabel    string
+	WeightG      *int
+	BuildDate    string
+	Notes        string
+	FrameName    string
+	FCName       string
+	ESCName      string
+	VTXName      string
+	MotorName    string
+	MotorCount   int
+	BatteryNames string
+	GPSName      string
+	RXName       string
+	PropNames    string
+	Photos       []DronePhotoRow
+	Entries      []DroneLogEntry
 }
 
 type DroneFormPage struct {
@@ -69,21 +78,25 @@ type DroneFormPage struct {
 	VTXID        int
 	MotorID      int
 	MotorCount   string
-	BatteryID    int
 	GPSID        int
 	RXID         int
 	Status       string
 	BuildDate    string
+	SizeID       int
+	CellID       int
 	WeightG      string
 	Notes        string
+	Sizes        []OptionItem
+	Cells        []OptionItem
 	Frames       []OptionItem
 	FCs          []OptionItem
 	ESCs         []OptionItem
 	VTXs         []OptionItem
 	Motors       []OptionItem
-	Batteries    []OptionItem
 	GPSs         []OptionItem
 	RXs          []OptionItem
+	Batteries    []BatteryCheck
+	Props        []PropCheck
 	Photos       []DronePhotoRow
 }
 
@@ -217,13 +230,14 @@ type FrameFormPage struct {
 	Error     string
 	ID        int
 	BrandID   int
+	SizeID    int
 	Name      string
-	SizeInch  string
 	WeightG   string
 	Notes     string
 	Quantity  string
 	Photos    []DronePhotoRow
 	Brands    []OptionItem
+	Sizes     []OptionItem
 }
 
 type FCFormPage struct {
@@ -293,7 +307,7 @@ type BatteryRow struct {
 	ID           int
 	Brand        string
 	Name         string
-	CellCount    int
+	CellLabel    string
 	CapacityMAh  int
 	Total        int
 	AssignedTo   string
@@ -306,13 +320,14 @@ type BatteryFormPage struct {
 	Error       string
 	ID          int
 	BrandID     int
+	CellID      int
 	Name        string
-	CellCount   string
 	CapacityMAh string
 	Quantity    string
 	Notes       string
 	Photos      []DronePhotoRow
 	Brands      []OptionItem
+	Cells       []OptionItem
 }
 
 type PropListPage struct {
@@ -330,9 +345,15 @@ type PropRow struct {
 	Material         string
 	Quantity         int
 	ReorderThreshold int
-	DroneName        string
+	DroneNames       string
 	LowStock         bool
 	FirstPhotoID     int
+}
+
+type PropCheck struct {
+	ID      int
+	Label   string
+	Checked bool
 }
 
 type PropFormPage struct {
@@ -340,18 +361,17 @@ type PropFormPage struct {
 	Error            string
 	ID               int
 	BrandID          int
+	SizeID           int
 	Name             string
-	SizeInch         string
 	Pitch            string
 	BladeCount       string
 	Material         string
 	Quantity         string
 	ReorderThreshold string
-	DroneID          int
 	Notes            string
-	Drones           []OptionItem
 	Photos           []DronePhotoRow
 	Brands           []OptionItem
+	Sizes            []OptionItem
 }
 
 type LogListPage struct {
@@ -459,6 +479,40 @@ type PlaceFormPage struct {
 	Notes     string
 	Lat       *float64
 	Lng       *float64
+}
+
+type CellRow struct {
+	ID    int
+	Label string
+}
+
+type CellListPage struct {
+	ActiveTab string
+	Cells     []CellRow
+}
+
+type CellFormPage struct {
+	ActiveTab string
+	Error     string
+	ID        int
+	Label     string
+}
+
+type SizeRow struct {
+	ID    int
+	Label string
+}
+
+type SizeListPage struct {
+	ActiveTab string
+	Sizes     []SizeRow
+}
+
+type SizeFormPage struct {
+	ActiveTab string
+	Error     string
+	ID        int
+	Label     string
 }
 
 type BrandRow struct {
@@ -605,6 +659,10 @@ func initTemplates() {
 	add("place-detail", placeDetailTmpl)
 	add("brand-list", brandListTmpl)
 	add("brand-form", brandFormTmpl)
+	add("size-list", sizeListTmpl)
+	add("size-form", sizeFormTmpl)
+	add("cell-list", cellListTmpl)
+	add("cell-form", cellFormTmpl)
 	add("weather", weatherTmpl)
 }
 
@@ -820,6 +878,8 @@ const baseTmpl = `<!DOCTYPE html>
   <a href="/log"       {{if eq .ActiveTab "log"}}class="active"{{end}}>Log</a>
   <a href="/places"    {{if eq .ActiveTab "places"}}class="active"{{end}}>Places</a>
   <a href="/brands"    {{if eq .ActiveTab "brands"}}class="active"{{end}}>Brands</a>
+  <a href="/sizes"     {{if eq .ActiveTab "sizes"}}class="active"{{end}}>Sizes</a>
+  <a href="/cells"     {{if eq .ActiveTab "cells"}}class="active"{{end}}>Cells</a>
   <a href="/weather"   {{if eq .ActiveTab "weather"}}class="active"{{end}}>Weather</a>
 </nav>
 <main>
@@ -841,8 +901,7 @@ const droneListTmpl = `{{define "content"}}
 <div class="table-wrap">
 <table>
 <thead><tr>
-  <th></th><th>Name</th><th>Frame</th><th>FC</th><th>ESC</th><th>VTX</th>
-  <th>Motors</th><th>Batteries</th><th>GPS</th><th>RX</th><th>Weight</th><th>Status</th><th>Build Date</th><th></th>
+  <th></th><th>Name</th><th>Size</th><th>Cell</th><th>Status</th><th>Weight</th><th></th>
 </tr></thead>
 <tbody>
 {{range .Drones}}
@@ -855,17 +914,10 @@ const droneListTmpl = `{{define "content"}}
     {{end}}
   </td>
   <td><a href="/drones/{{.ID}}" style="font-weight:600;color:#c9d1d9;text-decoration:none">{{.Name}}</a></td>
-  <td class="muted">{{dash .FrameName}}</td>
-  <td class="muted">{{dash .FCName}}</td>
-  <td class="muted">{{dash .ESCName}}</td>
-  <td class="muted">{{dash .VTXName}}</td>
-  <td class="muted">{{if .MotorName}}{{.MotorName}} ×{{.MotorCount}}{{else}}—{{end}}</td>
-  <td class="muted">{{dash .BatteryName}}</td>
-  <td class="muted">{{dash .GPSName}}</td>
-  <td class="muted">{{dash .RXName}}</td>
-  <td class="muted">{{if .WeightG}}{{.WeightG}}g{{else}}—{{end}}</td>
+  <td class="muted">{{if .SizeInch}}{{.SizeInch}}"{{else}}—{{end}}</td>
+  <td class="muted">{{dash .CellLabel}}</td>
   <td><span class="badge {{badgeClass .Status}}">{{.Status}}</span></td>
-  <td class="muted">{{dash .BuildDate}}</td>
+  <td class="muted">{{if .WeightG}}{{.WeightG}}g{{else}}—{{end}}</td>
   <td class="actions-cell">
     <a href="/drones/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
     <form class="inline" method="POST" action="/drones/{{.ID}}/delete">
@@ -893,9 +945,64 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')closeLightbo
 
 const droneDetailTmpl = `{{define "content"}}
 <div class="page-header">
-  <h2>{{.Name}} — Log</h2>
-  <a href="/drones" class="btn btn-cancel">← Back to Drones</a>
+  <div class="page-header-left">
+    <h2>{{.Name}}</h2>
+    <span class="badge {{badgeClass .Status}}" style="margin-left:10px">{{.Status}}</span>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <a href="/drones/{{.ID}}/edit" class="btn btn-edit">Edit</a>
+    <form class="inline" method="POST" action="/drones/{{.ID}}/delete">
+      <button class="btn btn-danger" type="submit">Delete</button>
+    </form>
+    <a href="/drones" class="btn btn-cancel">← Back</a>
+  </div>
 </div>
+
+<div class="section">
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;max-width:900px">
+    <div>
+      {{if .Photos}}
+      <img src="/drone-photos/{{(index .Photos 0).ID}}" style="width:100%;border-radius:6px;object-fit:cover;max-height:260px;display:block;cursor:zoom-in;margin-bottom:16px" onclick="openLightbox('/drone-photos/{{(index .Photos 0).ID}}')">
+      {{end}}
+      <table style="border-collapse:collapse;width:100%">
+        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">Size</td><td>{{if .SizeInch}}{{.SizeInch}}"{{else}}<span class="muted">—</span>{{end}}</td></tr>
+        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">Cell Count</td><td>{{if .CellLabel}}{{.CellLabel}}{{else}}<span class="muted">—</span>{{end}}</td></tr>
+        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">Weight</td><td>{{if .WeightG}}{{.WeightG}}g{{else}}<span class="muted">—</span>{{end}}</td></tr>
+        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">Build Date</td><td>{{if .BuildDate}}{{.BuildDate}}{{else}}<span class="muted">—</span>{{end}}</td></tr>
+        {{if .Notes}}<tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap;vertical-align:top">Notes</td><td style="white-space:pre-wrap">{{.Notes}}</td></tr>{{end}}
+      </table>
+      {{if gt (len .Photos) 1}}
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:8px;margin-top:12px">
+        {{range $i,$p := .Photos}}{{if gt $i 0}}
+        <img src="/drone-photos/{{$p.ID}}" style="width:100%;height:80px;object-fit:cover;border-radius:4px;cursor:zoom-in" onclick="openLightbox('/drone-photos/{{$p.ID}}')">
+        {{end}}{{end}}
+      </div>
+      {{end}}
+    </div>
+    <div>
+      <table style="border-collapse:collapse;width:100%">
+        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">Frame</td><td>{{dash .FrameName}}</td></tr>
+        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">FC</td><td>{{dash .FCName}}</td></tr>
+        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">ESC</td><td>{{dash .ESCName}}</td></tr>
+        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">VTX</td><td>{{dash .VTXName}}</td></tr>
+        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">Motors</td><td>{{if .MotorName}}{{.MotorName}} ×{{.MotorCount}}{{else}}<span class="muted">—</span>{{end}}</td></tr>
+        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">Batteries</td><td>{{dash .BatteryNames}}</td></tr>
+        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">GPS</td><td>{{dash .GPSName}}</td></tr>
+        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">RX</td><td>{{dash .RXName}}</td></tr>
+        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">Props</td><td>{{dash .PropNames}}</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div id="lightbox" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;align-items:center;justify-content:center" onclick="closeLightbox()">
+  <img id="lightbox-img" src="" style="max-width:90vw;max-height:90vh;border-radius:8px;object-fit:contain;box-shadow:0 8px 40px rgba(0,0,0,.6)">
+</div>
+<script>
+function openLightbox(src){var lb=document.getElementById('lightbox');document.getElementById('lightbox-img').src=src;lb.style.display='flex';}
+function closeLightbox(){document.getElementById('lightbox').style.display='none';}
+document.addEventListener('keydown',function(e){if(e.key==='Escape')closeLightbox();});
+</script>
 
 <div class="section">
   <h3 style="margin-bottom:12px">Add Entry</h3>
@@ -997,6 +1104,20 @@ const droneFormTmpl = `{{define "content"}}
       <label>Build Date</label>
       <input type="date" name="build_date" value="{{.BuildDate}}">
     </div>
+    <div class="form-group">
+      <label>Size (in)</label>
+      <select name="size_id">
+        <option value="">—</option>
+        {{range .Sizes}}<option value="{{.ID}}" {{if eq $.SizeID .ID}}selected{{end}}>{{.Label}}"</option>{{end}}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Cell Count</label>
+      <select name="cell_id">
+        <option value="">—</option>
+        {{range .Cells}}<option value="{{.ID}}" {{if eq $.CellID .ID}}selected{{end}}>{{.Label}}</option>{{end}}
+      </select>
+    </div>
     <div class="form-group" style="max-width:120px">
       <label>Weight (g)</label>
       <input type="number" name="weight_g" value="{{.WeightG}}" placeholder="e.g. 250" min="0">
@@ -1057,15 +1178,6 @@ const droneFormTmpl = `{{define "content"}}
       <input type="number" name="motor_count" value="{{if .MotorCount}}{{.MotorCount}}{{else}}4{{end}}" min="1">
     </div>
   </div>
-  <div class="form-group">
-    <label>Batteries</label>
-    <select name="battery_id">
-      <option value="">— none —</option>
-      {{range .Batteries}}
-      <option value="{{.ID}}" {{if eq $.BatteryID .ID}}selected{{end}}>{{.Label}}</option>
-      {{end}}
-    </select>
-  </div>
   <div class="form-row">
     <div class="form-group">
       <label>GPS Module</label>
@@ -1086,6 +1198,32 @@ const droneFormTmpl = `{{define "content"}}
       </select>
     </div>
   </div>
+  {{if .Batteries}}
+  <div class="form-group">
+    <label>Batteries</label>
+    <div class="battery-checks">
+      {{range .Batteries}}
+      <label class="battery-check">
+        <input type="checkbox" name="battery_ids" value="{{.ID}}" {{if .Checked}}checked{{end}}>
+        {{.Label}}
+      </label>
+      {{end}}
+    </div>
+  </div>
+  {{end}}
+  {{if .Props}}
+  <div class="form-group">
+    <label>Props</label>
+    <div class="battery-checks">
+      {{range .Props}}
+      <label class="battery-check">
+        <input type="checkbox" name="prop_ids" value="{{.ID}}" {{if .Checked}}checked{{end}}>
+        {{.Label}}
+      </label>
+      {{end}}
+    </div>
+  </div>
+  {{end}}
   <div class="form-group">
     <label>Notes</label>
     <textarea name="notes">{{.Notes}}</textarea>
@@ -1137,7 +1275,7 @@ const inventoryTmpl = `{{define "content"}}
   {{if .Frames}}
   <div class="table-wrap">
   <table>
-  <thead><tr><th></th><th>Brand</th><th>Name</th><th>Size</th><th>Weight</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
+  <thead><tr><th></th><th>Brand</th><th>Name</th><th>Size</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .Frames}}
   <tr>
@@ -1145,7 +1283,6 @@ const inventoryTmpl = `{{define "content"}}
     <td class="muted">{{dash .Brand}}</td>
     <td>{{.Name}}</td>
     <td class="muted">{{if .SizeInch}}{{.SizeInch}}"{{else}}—{{end}}</td>
-    <td class="muted">{{if .WeightG}}{{.WeightG}}g{{else}}—{{end}}</td>
     <td class="muted">{{.Total}}</td>
     <td class="muted">{{.Installed}}</td>
     <td>{{if gt .Available 0}}<span style="color:#3fb950;font-weight:500">{{.Available}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
@@ -1410,14 +1547,9 @@ const frameFormTmpl = `{{define "content"}}
   <div class="form-row">
     <div class="form-group">
       <label>Size (in)</label>
-      <select name="size_inch">
+      <select name="size_id">
         <option value="">—</option>
-        <option value="under 2" {{if eq .SizeInch "under 2"}}selected{{end}}>under 2"</option>
-        <option value="2"       {{if eq .SizeInch "2"}}selected{{end}}>2"</option>
-        <option value="2.5"     {{if eq .SizeInch "2.5"}}selected{{end}}>2.5"</option>
-        <option value="3"       {{if eq .SizeInch "3"}}selected{{end}}>3"</option>
-        <option value="3.5"     {{if eq .SizeInch "3.5"}}selected{{end}}>3.5"</option>
-        <option value="5"       {{if eq .SizeInch "5"}}selected{{end}}>5"</option>
+        {{range .Sizes}}<option value="{{.ID}}" {{if eq $.SizeID .ID}}selected{{end}}>{{.Label}}"</option>{{end}}
       </select>
     </div>
     <div class="form-group">
@@ -1913,7 +2045,7 @@ const batteryListTmpl = `{{define "content"}}
   <td style="width:40px;padding:4px 6px">{{if .FirstPhotoID}}<img src="/battery-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="openLightbox('/battery-photos/{{.FirstPhotoID}}')">{{end}}</td>
   <td class="muted">{{dash .Brand}}</td>
   <td><strong>{{.Name}}</strong></td>
-  <td class="muted">{{.CellCount}}S</td>
+  <td class="muted">{{dash .CellLabel}}</td>
   <td class="muted">{{.CapacityMAh}}</td>
   <td class="muted">{{.Total}}</td>
   <td>{{if .AssignedTo}}<span class="installed-badge">{{.AssignedTo}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
@@ -1959,8 +2091,11 @@ const batteryFormTmpl = `{{define "content"}}
   </div>
   <div class="form-row">
     <div class="form-group">
-      <label>Cell Count (S) *</label>
-      <input type="number" name="cell_count" value="{{.CellCount}}" required min="1" max="8" placeholder="e.g. 4">
+      <label>Cell Count *</label>
+      <select name="cell_id" required>
+        <option value="">—</option>
+        {{range .Cells}}<option value="{{.ID}}" {{if eq $.CellID .ID}}selected{{end}}>{{.Label}}</option>{{end}}
+      </select>
     </div>
     <div class="form-group">
       <label>Capacity (mAh) *</label>
@@ -2032,7 +2167,7 @@ const propListTmpl = `{{define "content"}}
   <td class="muted">{{dash .Material}}</td>
   <td>{{.Quantity}}{{if .LowStock}} <span class="muted" title="low stock">&#9888;</span>{{end}}</td>
   <td class="muted">{{.ReorderThreshold}}</td>
-  <td class="muted">{{dash .DroneName}}</td>
+  <td class="muted">{{dash .DroneNames}}</td>
   <td class="actions-cell">
     <a href="/props/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
     <form class="inline" method="POST" action="/props/{{.ID}}/delete">
@@ -2071,8 +2206,11 @@ const propFormTmpl = `{{define "content"}}
   </div>
   <div class="form-row">
     <div class="form-group">
-      <label>Size (inch)</label>
-      <input type="number" name="size_inch" step="0.1" value="{{.SizeInch}}" placeholder="e.g. 5.1">
+      <label>Size (in)</label>
+      <select name="size_id">
+        <option value="">—</option>
+        {{range .Sizes}}<option value="{{.ID}}" {{if eq $.SizeID .ID}}selected{{end}}>{{.Label}}"</option>{{end}}
+      </select>
     </div>
     <div class="form-group">
       <label>Pitch</label>
@@ -2096,15 +2234,6 @@ const propFormTmpl = `{{define "content"}}
       <label>Reorder At</label>
       <input type="number" name="reorder_threshold" value="{{.ReorderThreshold}}" min="0">
     </div>
-  </div>
-  <div class="form-group">
-    <label>Primary Drone</label>
-    <select name="drone_id">
-      <option value="">— unassigned —</option>
-      {{range .Drones}}
-      <option value="{{.ID}}" {{if eq $.DroneID .ID}}selected{{end}}>{{.Label}}</option>
-      {{end}}
-    </select>
   </div>
   <div class="form-group">
     <label>Notes</label>
@@ -2310,7 +2439,7 @@ const sessionDetailTmpl = `{{define "content"}}
 <tr>
   <td class="muted">{{dash .Brand}}</td>
   <td>{{.Name}}</td>
-  <td class="muted">{{.CellCount}}S</td>
+  <td class="muted">{{dash .CellLabel}}</td>
   <td class="muted">{{.CapacityMAh}}</td>
   <td><strong>{{.Count}}</strong></td>
 </tr>
@@ -2649,6 +2778,102 @@ const brandFormTmpl = `{{define "content"}}
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add Brand{{end}}</button>
     <a href="/brands" class="btn btn-cancel">Cancel</a>
+  </div>
+</form>
+</div>
+{{end}}`
+
+const cellListTmpl = `{{define "content"}}
+<div class="page-header">
+  <div class="page-header-left"><h2>Cells</h2></div>
+  <a href="/cells/new" class="btn btn-primary">+ Add</a>
+</div>
+{{if .Cells}}
+<div class="table-wrap">
+<table>
+<thead><tr><th>Label</th><th></th></tr></thead>
+<tbody>
+{{range .Cells}}
+<tr>
+  <td><strong>{{.Label}}</strong></td>
+  <td class="actions-cell">
+    <a href="/cells/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
+    <form class="inline" method="POST" action="/cells/{{.ID}}/delete">
+      <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+    </form>
+  </td>
+</tr>
+{{end}}
+</tbody>
+</table>
+</div>
+{{else}}
+<p class="muted">No cells yet. <a href="/cells/new">Add one.</a></p>
+{{end}}
+{{end}}`
+
+const cellFormTmpl = `{{define "content"}}
+<div class="page-header">
+  <h2>{{if .ID}}Edit Cell{{else}}New Cell{{end}}</h2>
+</div>
+<div class="form-page">
+{{if .Error}}<div class="error-box">{{.Error}}</div>{{end}}
+<form method="POST">
+  <div class="form-group">
+    <label>Label *</label>
+    <input type="text" name="label" value="{{.Label}}" required autofocus placeholder="e.g. 4S">
+  </div>
+  <div class="form-actions">
+    <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add{{end}}</button>
+    <a href="/cells" class="btn btn-cancel">Cancel</a>
+  </div>
+</form>
+</div>
+{{end}}`
+
+const sizeListTmpl = `{{define "content"}}
+<div class="page-header">
+  <div class="page-header-left"><h2>Sizes</h2></div>
+  <a href="/sizes/new" class="btn btn-primary">+ Add Size</a>
+</div>
+{{if .Sizes}}
+<div class="table-wrap">
+<table>
+<thead><tr><th>Label</th><th></th></tr></thead>
+<tbody>
+{{range .Sizes}}
+<tr>
+  <td><strong>{{.Label}}"</strong></td>
+  <td class="actions-cell">
+    <a href="/sizes/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
+    <form class="inline" method="POST" action="/sizes/{{.ID}}/delete">
+      <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+    </form>
+  </td>
+</tr>
+{{end}}
+</tbody>
+</table>
+</div>
+{{else}}
+<p class="muted">No sizes yet. <a href="/sizes/new">Add one.</a></p>
+{{end}}
+{{end}}`
+
+const sizeFormTmpl = `{{define "content"}}
+<div class="page-header">
+  <h2>{{if .ID}}Edit Size{{else}}New Size{{end}}</h2>
+</div>
+<div class="form-page">
+{{if .Error}}<div class="error-box">{{.Error}}</div>{{end}}
+<form method="POST">
+  <div class="form-group">
+    <label>Label (inches) *</label>
+    <input type="text" name="label" value="{{.Label}}" required autofocus placeholder="e.g. 5">
+  </div>
+  <div class="form-actions">
+    <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add Size{{end}}</button>
+    <a href="/sizes" class="btn btn-cancel">Cancel</a>
   </div>
 </form>
 </div>

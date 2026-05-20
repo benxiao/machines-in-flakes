@@ -56,11 +56,17 @@ func main() {
 }
 
 const schema = `
+CREATE TABLE IF NOT EXISTS sizes (
+    id    SERIAL PRIMARY KEY,
+    label TEXT NOT NULL UNIQUE
+);
+
 CREATE TABLE IF NOT EXISTS frames (
     id         SERIAL PRIMARY KEY,
     brand      TEXT NOT NULL DEFAULT '',
     name       TEXT NOT NULL,
     size_mm    INTEGER,
+    size_id    INTEGER REFERENCES sizes(id) ON DELETE SET NULL,
     weight_g   INTEGER,
     notes      TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -125,11 +131,16 @@ CREATE TABLE IF NOT EXISTS radio_receivers (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS cells (
+    id    SERIAL PRIMARY KEY,
+    label TEXT NOT NULL UNIQUE
+);
+
 CREATE TABLE IF NOT EXISTS batteries (
     id           SERIAL PRIMARY KEY,
     brand        TEXT NOT NULL DEFAULT '',
     name         TEXT NOT NULL,
-    cell_count   INTEGER NOT NULL,
+    cell_id      INTEGER REFERENCES cells(id) ON DELETE SET NULL,
     capacity_mah INTEGER NOT NULL,
     count        INTEGER NOT NULL DEFAULT 1,
     status       TEXT NOT NULL DEFAULT 'good'
@@ -147,8 +158,8 @@ CREATE TABLE IF NOT EXISTS drones (
     vtx_id        INTEGER REFERENCES vtx_units(id) ON DELETE SET NULL,
     motor_id      INTEGER REFERENCES motors(id) ON DELETE SET NULL,
     motor_count   INTEGER NOT NULL DEFAULT 4,
-    battery_id    INTEGER REFERENCES batteries(id) ON DELETE SET NULL,
-    battery_count INTEGER NOT NULL DEFAULT 1,
+    size_id       INTEGER REFERENCES sizes(id) ON DELETE SET NULL,
+    cell_id       INTEGER REFERENCES cells(id) ON DELETE SET NULL,
     gps_id        INTEGER REFERENCES gps_modules(id) ON DELETE SET NULL,
     rx_id         INTEGER REFERENCES radio_receivers(id) ON DELETE SET NULL,
     status        TEXT NOT NULL DEFAULT 'build'
@@ -169,13 +180,12 @@ CREATE TABLE IF NOT EXISTS propellers (
     id                INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     brand             TEXT NOT NULL DEFAULT '',
     name              TEXT NOT NULL,
-    size_inch         NUMERIC(4,1),
+    size_id           INTEGER REFERENCES sizes(id) ON DELETE SET NULL,
     pitch             NUMERIC(4,1),
     blade_count       INTEGER NOT NULL DEFAULT 3,
     material          TEXT NOT NULL DEFAULT '',
     quantity          INTEGER NOT NULL DEFAULT 0,
     reorder_threshold INTEGER NOT NULL DEFAULT 0,
-    drone_id          INTEGER REFERENCES drones(id) ON DELETE SET NULL,
     notes             TEXT NOT NULL DEFAULT '',
     created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -205,6 +215,18 @@ CREATE TABLE IF NOT EXISTS session_drones (
     session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     drone_id   INTEGER NOT NULL REFERENCES drones(id) ON DELETE CASCADE,
     PRIMARY KEY (session_id, drone_id)
+);
+
+CREATE TABLE IF NOT EXISTS drone_batteries (
+    drone_id   INTEGER NOT NULL REFERENCES drones(id) ON DELETE CASCADE,
+    battery_id INTEGER NOT NULL REFERENCES batteries(id) ON DELETE CASCADE,
+    PRIMARY KEY (drone_id, battery_id)
+);
+
+CREATE TABLE IF NOT EXISTS drone_props (
+    drone_id INTEGER NOT NULL REFERENCES drones(id) ON DELETE CASCADE,
+    prop_id  INTEGER NOT NULL REFERENCES propellers(id) ON DELETE CASCADE,
+    PRIMARY KEY (drone_id, prop_id)
 );
 
 CREATE TABLE IF NOT EXISTS session_batteries (
@@ -358,7 +380,11 @@ DO $$ BEGIN ALTER TABLE vtx_units   DROP COLUMN status;   EXCEPTION WHEN undefin
 DO $$ BEGIN ALTER TABLE drones ADD COLUMN motor_id INTEGER REFERENCES motors(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE drones ADD COLUMN motor_count INTEGER NOT NULL DEFAULT 4; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE drones ADD COLUMN battery_id INTEGER REFERENCES batteries(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
-DO $$ BEGIN ALTER TABLE drones ADD COLUMN battery_count INTEGER NOT NULL DEFAULT 1; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE drones DROP COLUMN battery_count; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE batteries ADD COLUMN drone_id INTEGER REFERENCES drones(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN UPDATE batteries b SET drone_id=d.id FROM drones d WHERE d.battery_id=b.id AND b.drone_id IS NULL; EXCEPTION WHEN others THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE drones DROP COLUMN battery_id; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN INSERT INTO drone_batteries (drone_id, battery_id) SELECT drone_id, id FROM batteries WHERE drone_id IS NOT NULL ON CONFLICT DO NOTHING; EXCEPTION WHEN undefined_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE batteries DROP COLUMN cycle_count; EXCEPTION WHEN undefined_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE batteries DROP COLUMN internal_resistance; EXCEPTION WHEN undefined_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE batteries DROP COLUMN purchase_date; EXCEPTION WHEN undefined_column THEN NULL; END $$;
@@ -369,6 +395,16 @@ DO $$ BEGIN ALTER TABLE batteries ADD COLUMN notes TEXT NOT NULL DEFAULT ''; EXC
 DO $$ BEGIN ALTER TABLE drones ADD COLUMN gps_id INTEGER REFERENCES gps_modules(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE drones ADD COLUMN rx_id  INTEGER REFERENCES radio_receivers(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE drones ADD COLUMN weight_g INTEGER; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE drones ADD COLUMN size_inch NUMERIC(4,1); EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+INSERT INTO sizes (label) VALUES ('2'),('2.5'),('3'),('3.5'),('4'),('5'),('7') ON CONFLICT DO NOTHING;
+INSERT INTO cells (label) VALUES ('1S'),('2S'),('3S'),('4S'),('5S'),('6S') ON CONFLICT DO NOTHING;
+DO $$ BEGIN ALTER TABLE batteries ADD COLUMN cell_id INTEGER REFERENCES cells(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN UPDATE batteries SET cell_id=c.id FROM cells c WHERE c.label=CAST(batteries.cell_count AS TEXT)||'S' AND batteries.cell_id IS NULL; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE batteries DROP COLUMN cell_count; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE drones ADD COLUMN cell_id INTEGER REFERENCES cells(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE drones ADD COLUMN size_id INTEGER REFERENCES sizes(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN UPDATE drones SET size_id=s.id FROM sizes s WHERE CAST(drones.size_inch AS TEXT)=s.label AND drones.size_id IS NULL; EXCEPTION WHEN others THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE drones DROP COLUMN size_inch; EXCEPTION WHEN undefined_column THEN NULL; END $$;
 DO $$ BEGIN
   ALTER TABLE item_counts DROP CONSTRAINT IF EXISTS item_counts_item_type_check;
   ALTER TABLE item_counts ADD CONSTRAINT item_counts_item_type_check
@@ -434,16 +470,26 @@ DO $$ BEGIN ALTER TABLE gps_modules        DROP COLUMN brand; EXCEPTION WHEN und
 DO $$ BEGIN ALTER TABLE radio_receivers    DROP COLUMN brand; EXCEPTION WHEN undefined_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE batteries          DROP COLUMN brand; EXCEPTION WHEN undefined_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE propellers         DROP COLUMN brand; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN INSERT INTO drone_props (drone_id, prop_id) SELECT drone_id, id FROM propellers WHERE drone_id IS NOT NULL ON CONFLICT DO NOTHING; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE propellers DROP COLUMN drone_id; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE frames      ADD COLUMN size_id INTEGER REFERENCES sizes(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE propellers  ADD COLUMN size_id INTEGER REFERENCES sizes(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN UPDATE frames     SET size_id=s.id FROM sizes s WHERE frames.size_inch=s.label     AND frames.size_id IS NULL; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN UPDATE propellers SET size_id=s.id FROM sizes s WHERE CAST(propellers.size_inch AS TEXT)=s.label AND propellers.size_id IS NULL; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE frames      DROP COLUMN size_inch; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE propellers  DROP COLUMN size_inch; EXCEPTION WHEN undefined_column THEN NULL; END $$;
 
 CREATE INDEX IF NOT EXISTS idx_drones_frame    ON drones(frame_id);
 CREATE INDEX IF NOT EXISTS idx_drones_fc       ON drones(fc_id);
 CREATE INDEX IF NOT EXISTS idx_drones_esc      ON drones(esc_id);
 CREATE INDEX IF NOT EXISTS idx_drones_vtx      ON drones(vtx_id);
 CREATE INDEX IF NOT EXISTS idx_drones_motor    ON drones(motor_id);
-CREATE INDEX IF NOT EXISTS idx_drones_battery  ON drones(battery_id);
+CREATE INDEX IF NOT EXISTS idx_db_drone        ON drone_batteries(drone_id);
+CREATE INDEX IF NOT EXISTS idx_db_battery      ON drone_batteries(battery_id);
 CREATE INDEX IF NOT EXISTS idx_drones_gps      ON drones(gps_id);
 CREATE INDEX IF NOT EXISTS idx_drones_rx       ON drones(rx_id);
-CREATE INDEX IF NOT EXISTS idx_props_drone     ON propellers(drone_id);
+CREATE INDEX IF NOT EXISTS idx_dp_drone2       ON drone_props(drone_id);
+CREATE INDEX IF NOT EXISTS idx_dp_prop         ON drone_props(prop_id);
 CREATE INDEX IF NOT EXISTS idx_sd_drone        ON session_drones(drone_id);
 CREATE INDEX IF NOT EXISTS idx_dp_drone        ON drone_photos(drone_id);
 CREATE INDEX IF NOT EXISTS idx_dle_drone       ON drone_log_entries(drone_id);
@@ -592,6 +638,14 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/brands/new", a.handleBrandNew)
 	mux.HandleFunc("/brands/{id}/edit", a.handleBrandEdit)
 	mux.HandleFunc("POST /brands/{id}/delete", a.handleBrandDelete)
+	mux.HandleFunc("/sizes", a.handleSizes)
+	mux.HandleFunc("/sizes/new", a.handleSizeNew)
+	mux.HandleFunc("/sizes/{id}/edit", a.handleSizeEdit)
+	mux.HandleFunc("POST /sizes/{id}/delete", a.handleSizeDelete)
+	mux.HandleFunc("/cells", a.handleCells)
+	mux.HandleFunc("/cells/new", a.handleCellNew)
+	mux.HandleFunc("/cells/{id}/edit", a.handleCellEdit)
+	mux.HandleFunc("POST /cells/{id}/delete", a.handleCellDelete)
 
 	mux.HandleFunc("/weather", a.handleWeather)
 }
