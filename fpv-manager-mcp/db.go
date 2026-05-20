@@ -18,6 +18,8 @@ type DroneRow struct {
 	Name       string
 	Status     string
 	BuildDate  *string
+	SizeLabel  string
+	CellLabel  string
 	FrameBrand string
 	FrameName  string
 	FCBrand    string
@@ -29,10 +31,7 @@ type DroneRow struct {
 	MotorBrand string
 	MotorName  string
 	MotorCount int
-	BattBrand  string
-	BattName   string
-	BattCells  int
-	BattCount  int
+	BattNames  string
 	GPSBrand   string
 	GPSName    string
 	RXBrand    string
@@ -41,8 +40,28 @@ type DroneRow struct {
 	Notes      string
 }
 
-const droneJoin = `
+const droneSelect = `
+SELECT d.id, d.name, d.status, TO_CHAR(d.build_date,'YYYY-MM-DD'),
+  COALESCE(sz.label,''), COALESCE(c.label,''),
+  COALESCE(bf.name,''), COALESCE(f.name,''),
+  COALESCE(bfc.name,''), COALESCE(fc.name,''),
+  COALESCE(be.name,''), COALESCE(e.name,''),
+  COALESCE(bv.name,''), COALESCE(v.name,''),
+  COALESCE(bm.name,''), COALESCE(m.name,''), d.motor_count,
+  COALESCE((SELECT string_agg(
+      COALESCE(bb2.name||' ','')||b2.name||' ('||COALESCE(c2.label,'?')||' '||b2.capacity_mah||'mAh)',
+      ', ' ORDER BY b2.name)
+    FROM drone_batteries db2
+    JOIN batteries b2 ON b2.id=db2.battery_id
+    LEFT JOIN brands bb2 ON bb2.id=b2.brand_id
+    LEFT JOIN cells c2 ON c2.id=b2.cell_id
+    WHERE db2.drone_id=d.id),''),
+  COALESCE(bg.name,''), COALESCE(g.name,''),
+  COALESCE(brx.name,''), COALESCE(rx.name,''),
+  d.weight_g, d.notes
 FROM drones d
+LEFT JOIN sizes sz ON sz.id=d.size_id
+LEFT JOIN cells c ON c.id=d.cell_id
 LEFT JOIN frames f ON f.id=d.frame_id
 LEFT JOIN brands bf ON bf.id=f.brand_id
 LEFT JOIN flight_controllers fc ON fc.id=d.fc_id
@@ -53,34 +72,22 @@ LEFT JOIN vtx_units v ON v.id=d.vtx_id
 LEFT JOIN brands bv ON bv.id=v.brand_id
 LEFT JOIN motors m ON m.id=d.motor_id
 LEFT JOIN brands bm ON bm.id=m.brand_id
-LEFT JOIN batteries b ON b.id=d.battery_id
-LEFT JOIN brands bb ON bb.id=b.brand_id
 LEFT JOIN gps_modules g ON g.id=d.gps_id
 LEFT JOIN brands bg ON bg.id=g.brand_id
 LEFT JOIN radio_receivers rx ON rx.id=d.rx_id
 LEFT JOIN brands brx ON brx.id=rx.brand_id`
 
-const droneSelect = `SELECT d.id, d.name, d.status, TO_CHAR(d.build_date,'YYYY-MM-DD'),
-  COALESCE(bf.name,''), COALESCE(f.name,''),
-  COALESCE(bfc.name,''), COALESCE(fc.name,''),
-  COALESCE(be.name,''), COALESCE(e.name,''),
-  COALESCE(bv.name,''), COALESCE(v.name,''),
-  COALESCE(bm.name,''), COALESCE(m.name,''), d.motor_count,
-  COALESCE(bb.name,''), COALESCE(b.name,''), COALESCE(b.cell_count,0), d.battery_count,
-  COALESCE(bg.name,''), COALESCE(g.name,''),
-  COALESCE(brx.name,''), COALESCE(rx.name,''),
-  d.weight_g, d.notes` + droneJoin
-
 func scanDrone(fn func(...any) error) (DroneRow, error) {
 	var d DroneRow
 	err := fn(
 		&d.ID, &d.Name, &d.Status, &d.BuildDate,
+		&d.SizeLabel, &d.CellLabel,
 		&d.FrameBrand, &d.FrameName,
 		&d.FCBrand, &d.FCName,
 		&d.ESCBrand, &d.ESCName,
 		&d.VTXBrand, &d.VTXName,
 		&d.MotorBrand, &d.MotorName, &d.MotorCount,
-		&d.BattBrand, &d.BattName, &d.BattCells, &d.BattCount,
+		&d.BattNames,
 		&d.GPSBrand, &d.GPSName,
 		&d.RXBrand, &d.RXName,
 		&d.WeightG, &d.Notes,
@@ -132,7 +139,7 @@ type SessionBattery struct {
 	ID          int
 	Brand       string
 	Name        string
-	CellCount   int
+	CellLabel   string
 	CapacityMAh int
 	Count       int
 }
@@ -154,10 +161,11 @@ SELECT s.id, s.title, s.type, TO_CHAR(s.session_date,'YYYY-MM-DD'),
             FROM session_drones sd JOIN drones d ON d.id=sd.drone_id
             WHERE sd.session_id=s.id),''),
   COALESCE((SELECT string_agg(
-      CASE WHEN bb.name IS NOT NULL AND bb.name!='' THEN bb.name||' '||b.name ELSE b.name END
-      ||' '||b.cell_count||'S x'||sb.count, ', ' ORDER BY bb.name, b.name)
+      COALESCE(bb.name||' ','')||b.name||' ('||COALESCE(c.label,'?')||')',
+      ', ' ORDER BY bb.name, b.name)
             FROM session_batteries sb JOIN batteries b ON b.id=sb.battery_id
             LEFT JOIN brands bb ON bb.id=b.brand_id
+            LEFT JOIN cells c ON c.id=b.cell_id
             WHERE sb.session_id=s.id),'')
 FROM sessions s
 ORDER BY s.session_date DESC, s.created_at DESC
@@ -212,16 +220,17 @@ WHERE sd.session_id=$1 ORDER BY d.name`, id)
 	}
 
 	brows, err := q.db.Query(ctx, `
-SELECT b.id, COALESCE(bb.name,''), b.name, b.cell_count, b.capacity_mah, sb.count
+SELECT b.id, COALESCE(bb.name,''), b.name, COALESCE(c.label,''), b.capacity_mah, sb.count
 FROM batteries b JOIN session_batteries sb ON sb.battery_id=b.id
 LEFT JOIN brands bb ON bb.id=b.brand_id
+LEFT JOIN cells c ON c.id=b.cell_id
 WHERE sb.session_id=$1 ORDER BY bb.name, b.name`, id)
 	if err != nil {
 		return d, err
 	}
 	for brows.Next() {
 		var sb SessionBattery
-		if err := brows.Scan(&sb.ID, &sb.Brand, &sb.Name, &sb.CellCount, &sb.CapacityMAh, &sb.Count); err != nil {
+		if err := brows.Scan(&sb.ID, &sb.Brand, &sb.Name, &sb.CellLabel, &sb.CapacityMAh, &sb.Count); err != nil {
 			brows.Close()
 			return d, err
 		}
@@ -237,8 +246,9 @@ type BatteryRow struct {
 	ID          int
 	Brand       string
 	Name        string
-	CellCount   int
+	CellLabel   string
 	CapacityMAh int
+	WeightG     *int
 	Count       int
 	Status      string
 	Notes       string
@@ -247,12 +257,15 @@ type BatteryRow struct {
 
 func (q *Queries) ListBatteries(ctx context.Context) ([]BatteryRow, error) {
 	const stmt = `
-SELECT b.id, COALESCE(bb.name,''), b.name, b.cell_count, b.capacity_mah, b.count, b.status, b.notes,
+SELECT b.id, COALESCE(bb.name,''), b.name, COALESCE(c.label,''), b.capacity_mah, b.weight_g,
+  b.count, b.status, b.notes,
   COALESCE((SELECT string_agg(d.name,', ' ORDER BY d.name)
-            FROM drones d WHERE d.battery_id=b.id),'')
+            FROM drone_batteries db2 JOIN drones d ON d.id=db2.drone_id
+            WHERE db2.battery_id=b.id),'')
 FROM batteries b
 LEFT JOIN brands bb ON bb.id=b.brand_id
-ORDER BY bb.name, b.name, b.cell_count, b.capacity_mah`
+LEFT JOIN cells c ON c.id=b.cell_id
+ORDER BY bb.name, b.name, c.label, b.capacity_mah`
 	rows, err := q.db.Query(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -261,7 +274,7 @@ ORDER BY bb.name, b.name, b.cell_count, b.capacity_mah`
 	var out []BatteryRow
 	for rows.Next() {
 		var b BatteryRow
-		if err := rows.Scan(&b.ID, &b.Brand, &b.Name, &b.CellCount, &b.CapacityMAh,
+		if err := rows.Scan(&b.ID, &b.Brand, &b.Name, &b.CellLabel, &b.CapacityMAh, &b.WeightG,
 			&b.Count, &b.Status, &b.Notes, &b.AssignedTo); err != nil {
 			return nil, err
 		}
@@ -341,13 +354,14 @@ func (q *Queries) scanComponents(ctx context.Context, typeName, stmt string) ([]
 func (q *Queries) listFrames(ctx context.Context) ([]ComponentRow, error) {
 	return q.scanComponents(ctx, "frame", `
 SELECT f.id, COALESCE(bf.name,''), f.name,
-  TRIM(f.size_inch || CASE WHEN f.weight_g IS NOT NULL THEN ' '||f.weight_g||'g' ELSE '' END),
+  TRIM(COALESCE(sz.label||'"','') || CASE WHEN f.weight_g IS NOT NULL THEN ' '||f.weight_g||'g' ELSE '' END),
   COALESCE(ic.count,0),
   COALESCE((SELECT COUNT(*)::int FROM drones d WHERE d.frame_id=f.id),0),
   COALESCE(ic.count,0) - COALESCE((SELECT COUNT(*)::int FROM drones d WHERE d.frame_id=f.id),0),
   COALESCE((SELECT string_agg(d.name,', ' ORDER BY d.name) FROM drones d WHERE d.frame_id=f.id),'')
 FROM frames f
 LEFT JOIN brands bf ON bf.id=f.brand_id
+LEFT JOIN sizes sz ON sz.id=f.size_id
 LEFT JOIN item_counts ic ON ic.item_type='frame' AND ic.item_id=f.id
 ORDER BY bf.name, f.name`)
 }
@@ -556,11 +570,11 @@ type LowPropRow struct {
 	ID               int
 	Brand            string
 	Name             string
-	SizeInch         *float64
+	SizeLabel        string
 	BladeCount       int
 	Quantity         int
 	ReorderThreshold int
-	DroneName        string
+	DroneNames       string
 }
 
 type LowSpareRow struct {
@@ -573,11 +587,14 @@ type LowSpareRow struct {
 
 func (q *Queries) ListLowStock(ctx context.Context) ([]LowPropRow, []LowSpareRow, error) {
 	prows, err := q.db.Query(ctx, `
-SELECT p.id, COALESCE(bp.name,''), p.name, CAST(p.size_inch AS FLOAT8), p.blade_count,
-  p.quantity, p.reorder_threshold, COALESCE(d.name,'')
+SELECT p.id, COALESCE(bp.name,''), p.name, COALESCE(sz.label,''), p.blade_count,
+  p.quantity, p.reorder_threshold,
+  COALESCE((SELECT string_agg(d.name,', ' ORDER BY d.name)
+            FROM drone_props dp2 JOIN drones d ON d.id=dp2.drone_id
+            WHERE dp2.prop_id=p.id),'')
 FROM propellers p
 LEFT JOIN brands bp ON bp.id=p.brand_id
-LEFT JOIN drones d ON d.id=p.drone_id
+LEFT JOIN sizes sz ON sz.id=p.size_id
 WHERE p.reorder_threshold > 0 AND p.quantity <= p.reorder_threshold
 ORDER BY bp.name, p.name`)
 	if err != nil {
@@ -586,8 +603,8 @@ ORDER BY bp.name, p.name`)
 	var props []LowPropRow
 	for prows.Next() {
 		var p LowPropRow
-		if err := prows.Scan(&p.ID, &p.Brand, &p.Name, &p.SizeInch, &p.BladeCount,
-			&p.Quantity, &p.ReorderThreshold, &p.DroneName); err != nil {
+		if err := prows.Scan(&p.ID, &p.Brand, &p.Name, &p.SizeLabel, &p.BladeCount,
+			&p.Quantity, &p.ReorderThreshold, &p.DroneNames); err != nil {
 			prows.Close()
 			return nil, nil, err
 		}

@@ -284,17 +284,26 @@ func formatDroneList(drones []DroneRow) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%d drone(s):\n", len(drones))
 	for _, d := range drones {
-		fmt.Fprintf(&b, "\n#%d: %s  [%s]\n", d.ID, d.Name, d.Status)
+		fmt.Fprintf(&b, "\n#%d: %s  [%s]", d.ID, d.Name, d.Status)
+		if d.SizeLabel != "" {
+			fmt.Fprintf(&b, "  %s\"", d.SizeLabel)
+		}
+		if d.CellLabel != "" {
+			fmt.Fprintf(&b, "  %s", d.CellLabel)
+		}
+		fmt.Fprintln(&b)
 		fmt.Fprintf(&b, "  Frame: %s  FC: %s  ESC: %s  VTX: %s\n",
 			compName(d.FrameBrand, d.FrameName),
 			compName(d.FCBrand, d.FCName),
 			compName(d.ESCBrand, d.ESCName),
 			compName(d.VTXBrand, d.VTXName))
-		fmt.Fprintf(&b, "  Motors: %s  Battery: %s  GPS: %s  RX: %s\n",
+		fmt.Fprintf(&b, "  Motors: %s  GPS: %s  RX: %s\n",
 			formatMotors(d.MotorBrand, d.MotorName, d.MotorCount),
-			formatBattery(d.BattBrand, d.BattName, d.BattCells, d.BattCount),
 			compName(d.GPSBrand, d.GPSName),
 			compName(d.RXBrand, d.RXName))
+		if d.BattNames != "" {
+			fmt.Fprintf(&b, "  Batteries: %s\n", d.BattNames)
+		}
 		if d.BuildDate != nil && *d.BuildDate != "" {
 			fmt.Fprintf(&b, "  Built: %s\n", *d.BuildDate)
 		}
@@ -308,12 +317,18 @@ func formatDroneList(drones []DroneRow) string {
 func formatDroneDetail(d DroneRow) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Drone #%d: %s  [%s]\n\n", d.ID, d.Name, d.Status)
+	if d.SizeLabel != "" {
+		fmt.Fprintf(&b, "  Size:        %s\"\n", d.SizeLabel)
+	}
+	if d.CellLabel != "" {
+		fmt.Fprintf(&b, "  Cell count:  %s\n", d.CellLabel)
+	}
 	fmt.Fprintf(&b, "  Frame:       %s\n", compName(d.FrameBrand, d.FrameName))
 	fmt.Fprintf(&b, "  FC:          %s\n", compName(d.FCBrand, d.FCName))
 	fmt.Fprintf(&b, "  ESC:         %s\n", compName(d.ESCBrand, d.ESCName))
 	fmt.Fprintf(&b, "  VTX:         %s\n", compName(d.VTXBrand, d.VTXName))
 	fmt.Fprintf(&b, "  Motors:      %s\n", formatMotors(d.MotorBrand, d.MotorName, d.MotorCount))
-	fmt.Fprintf(&b, "  Battery:     %s\n", formatBattery(d.BattBrand, d.BattName, d.BattCells, d.BattCount))
+	fmt.Fprintf(&b, "  Batteries:   %s\n", dash(d.BattNames))
 	fmt.Fprintf(&b, "  GPS:         %s\n", compName(d.GPSBrand, d.GPSName))
 	fmt.Fprintf(&b, "  RX:          %s\n", compName(d.RXBrand, d.RXName))
 	buildDate := "—"
@@ -334,17 +349,6 @@ func formatMotors(brand, name string, count int) string {
 	n := compName(brand, name)
 	if n == "—" {
 		return "—"
-	}
-	return fmt.Sprintf("%s x%d", n, count)
-}
-
-func formatBattery(brand, name string, cells, count int) string {
-	n := compName(brand, name)
-	if n == "—" {
-		return "—"
-	}
-	if cells > 0 {
-		return fmt.Sprintf("%s %dS x%d", n, cells, count)
 	}
 	return fmt.Sprintf("%s x%d", n, count)
 }
@@ -406,8 +410,8 @@ func formatSessionDetail(d SessionDetail) string {
 	if len(d.Batteries) > 0 {
 		parts := make([]string, len(d.Batteries))
 		for i, bt := range d.Batteries {
-			parts[i] = fmt.Sprintf("%s %dS %dmAh x%d",
-				compName(bt.Brand, bt.Name), bt.CellCount, bt.CapacityMAh, bt.Count)
+			parts[i] = fmt.Sprintf("%s %s %dmAh x%d",
+				compName(bt.Brand, bt.Name), bt.CellLabel, bt.CapacityMAh, bt.Count)
 		}
 		fmt.Fprintf(&b, "  Batteries: %s\n", strings.Join(parts, ", "))
 	} else {
@@ -426,8 +430,12 @@ func formatBatteryList(bats []BatteryRow) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%d battery pack(s):\n", len(bats))
 	for _, bt := range bats {
-		fmt.Fprintf(&b, "\n#%d: %s  %dS %dmAh  qty:%d  [%s]\n",
-			bt.ID, compName(bt.Brand, bt.Name), bt.CellCount, bt.CapacityMAh, bt.Count, bt.Status)
+		weight := ""
+		if bt.WeightG != nil {
+			weight = fmt.Sprintf("  %dg", *bt.WeightG)
+		}
+		fmt.Fprintf(&b, "\n#%d: %s  %s %dmAh%s  qty:%d  [%s]\n",
+			bt.ID, compName(bt.Brand, bt.Name), bt.CellLabel, bt.CapacityMAh, weight, bt.Count, bt.Status)
 		if bt.AssignedTo != "" {
 			fmt.Fprintf(&b, "  Assigned to: %s\n", bt.AssignedTo)
 		}
@@ -511,12 +519,12 @@ func formatLowStock(props []LowPropRow, spares []LowSpareRow) string {
 		fmt.Fprintf(&b, "\nPropellers:\n")
 		for _, p := range props {
 			size := ""
-			if p.SizeInch != nil {
-				size = fmt.Sprintf(" %.1f\"", *p.SizeInch)
+			if p.SizeLabel != "" {
+				size = fmt.Sprintf(" %s\"", p.SizeLabel)
 			}
 			drone := ""
-			if p.DroneName != "" {
-				drone = fmt.Sprintf(" (for: %s)", p.DroneName)
+			if p.DroneNames != "" {
+				drone = fmt.Sprintf(" (for: %s)", p.DroneNames)
 			}
 			fmt.Fprintf(&b, "  %s%s %dx blades%s  qty:%d  threshold:%d\n",
 				compName(p.Brand, p.Name), size, p.BladeCount, drone, p.Quantity, p.ReorderThreshold)
