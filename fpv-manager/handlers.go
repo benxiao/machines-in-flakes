@@ -89,8 +89,7 @@ func (a *App) dronePropChecks(r *http.Request, droneID int) ([]PropCheck, error)
         FROM propellers p
         LEFT JOIN brands br ON br.id=p.brand_id
         LEFT JOIN sizes sz ON sz.id=p.size_id
-        WHERE p.size_id = (SELECT size_id FROM drones WHERE id=$1)
-           OR (SELECT size_id FROM drones WHERE id=$1) IS NULL
+        JOIN (SELECT size_id FROM drones WHERE id=$1) dd ON (p.size_id=dd.size_id OR dd.size_id IS NULL)
         ORDER BY br.name, p.name`, droneID)
 	if err != nil {
 		return nil, err
@@ -116,8 +115,7 @@ func (a *App) droneBatteryChecks(r *http.Request, droneID int) ([]BatteryCheck, 
         FROM batteries b
         LEFT JOIN brands br ON br.id=b.brand_id
         LEFT JOIN cells c ON c.id=b.cell_id
-        WHERE b.cell_id = (SELECT cell_id FROM drones WHERE id=$1)
-           OR (SELECT cell_id FROM drones WHERE id=$1) IS NULL
+        JOIN (SELECT cell_id FROM drones WHERE id=$1) dd ON (b.cell_id=dd.cell_id OR dd.cell_id IS NULL)
         ORDER BY br.name, b.name`, droneID)
 	if err != nil {
 		return nil, err
@@ -261,9 +259,10 @@ func (a *App) handleDroneNew(w http.ResponseWriter, r *http.Request) {
 		if mc == 0 {
 			mc = 4
 		}
-		_, err := a.db.Exec(ctx, `
+		var droneID int
+		err := a.db.QueryRow(ctx, `
             INSERT INTO drones (name,frame_id,fc_id,esc_id,vtx_id,motor_id,motor_count,size_id,cell_id,gps_id,rx_id,status,build_date,weight_g,notes)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
 			name,
 			nullIntPtr(r.FormValue("frame_id")),
 			nullIntPtr(r.FormValue("fc_id")),
@@ -278,24 +277,21 @@ func (a *App) handleDroneNew(w http.ResponseWriter, r *http.Request) {
 			r.FormValue("status"),
 			nullDate(r.FormValue("build_date")),
 			nullIntPtr(r.FormValue("weight_g")),
-			r.FormValue("notes"))
+			r.FormValue("notes")).Scan(&droneID)
 		if err != nil {
 			httpErr(w, err)
 			return
 		}
-		var droneID int
-		if err := a.db.QueryRow(ctx, `SELECT id FROM drones WHERE name=$1 ORDER BY id DESC LIMIT 1`, name).Scan(&droneID); err == nil {
-			for _, bidStr := range r.Form["battery_ids"] {
-				bid, _ := strconv.Atoi(bidStr)
-				if bid > 0 {
-					a.db.Exec(ctx, `INSERT INTO drone_batteries (drone_id,battery_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, droneID, bid)
-				}
+		for _, bidStr := range r.Form["battery_ids"] {
+			bid, _ := strconv.Atoi(bidStr)
+			if bid > 0 {
+				a.db.Exec(ctx, `INSERT INTO drone_batteries (drone_id,battery_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, droneID, bid)
 			}
-			for _, pidStr := range r.Form["prop_ids"] {
-				pid, _ := strconv.Atoi(pidStr)
-				if pid > 0 {
-					a.db.Exec(ctx, `INSERT INTO drone_props (drone_id,prop_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, droneID, pid)
-				}
+		}
+		for _, pidStr := range r.Form["prop_ids"] {
+			pid, _ := strconv.Atoi(pidStr)
+			if pid > 0 {
+				a.db.Exec(ctx, `INSERT INTO drone_props (drone_id,prop_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, droneID, pid)
 			}
 		}
 		http.Redirect(w, r, "/drones", http.StatusSeeOther)
@@ -914,8 +910,8 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.Query(ctx, `
         SELECT f.id, COALESCE(br.name,''), f.name, COALESCE(sz.label,''), f.weight_g,
                COALESCE(ic.count,0),
-               (SELECT COUNT(*) FROM drones d WHERE d.frame_id=f.id),
-               COALESCE(ic.count,0) - (SELECT COUNT(*) FROM drones d WHERE d.frame_id=f.id),
+               COUNT(d.id)::int,
+               COALESCE(ic.count,0) - COUNT(d.id)::int,
                COALESCE(string_agg(d.name,', ' ORDER BY d.name),''),
                COALESCE(fp.id,0)
         FROM frames f
@@ -953,8 +949,8 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 	rows, err = a.db.Query(ctx, `
         SELECT fc.id, COALESCE(br.name,''), fc.name, fc.mcu, fc.firmware,
                COALESCE(ic.count,0),
-               (SELECT COUNT(*) FROM drones d WHERE d.fc_id=fc.id),
-               COALESCE(ic.count,0) - (SELECT COUNT(*) FROM drones d WHERE d.fc_id=fc.id),
+               COUNT(d.id)::int,
+               COALESCE(ic.count,0) - COUNT(d.id)::int,
                COALESCE(string_agg(d.name,', ' ORDER BY d.name),''),
                COALESCE(fcp.id,0)
         FROM flight_controllers fc
@@ -987,8 +983,8 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 	rows, err = a.db.Query(ctx, `
         SELECT e.id, COALESCE(br.name,''), e.name, e.current_rating, e.cell_max,
                COALESCE(ic.count,0),
-               (SELECT COUNT(*) FROM drones d WHERE d.esc_id=e.id),
-               COALESCE(ic.count,0) - (SELECT COUNT(*) FROM drones d WHERE d.esc_id=e.id),
+               COUNT(d.id)::int,
+               COALESCE(ic.count,0) - COUNT(d.id)::int,
                COALESCE(string_agg(d.name,', ' ORDER BY d.name),''),
                COALESCE(ep.id,0)
         FROM escs e
@@ -1028,8 +1024,8 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 	rows, err = a.db.Query(ctx, `
         SELECT m.id, COALESCE(br.name,''), m.name, m.stator_size, m.kv,
                COALESCE(ic.count,0),
-               COALESCE((SELECT SUM(d.motor_count) FROM drones d WHERE d.motor_id=m.id),0),
-               COALESCE(ic.count,0) - COALESCE((SELECT SUM(d.motor_count) FROM drones d WHERE d.motor_id=m.id),0),
+               COALESCE(SUM(d.motor_count),0)::int,
+               COALESCE(ic.count,0) - COALESCE(SUM(d.motor_count),0)::int,
                COALESCE(string_agg(d.name||' (×'||d.motor_count||')',', ' ORDER BY d.name),''),
                COALESCE(mp.id,0)
         FROM motors m
@@ -1066,8 +1062,8 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 	rows, err = a.db.Query(ctx, `
         SELECT v.id, COALESCE(br.name,''), v.name, v.system, v.max_power_mw, v.resolution,
                COALESCE(ic.count,0),
-               (SELECT COUNT(*) FROM drones d WHERE d.vtx_id=v.id),
-               COALESCE(ic.count,0) - (SELECT COUNT(*) FROM drones d WHERE d.vtx_id=v.id),
+               COUNT(d.id)::int,
+               COALESCE(ic.count,0) - COUNT(d.id)::int,
                COALESCE(string_agg(d.name,', ' ORDER BY d.name),''),
                COALESCE(vp.id,0)
         FROM vtx_units v
@@ -1104,8 +1100,8 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 	rows, err = a.db.Query(ctx, `
         SELECT g.id, COALESCE(br.name,''), g.name,
                COALESCE(ic.count,0),
-               (SELECT COUNT(*) FROM drones d WHERE d.gps_id=g.id),
-               COALESCE(ic.count,0) - (SELECT COUNT(*) FROM drones d WHERE d.gps_id=g.id),
+               COUNT(d.id)::int,
+               COALESCE(ic.count,0) - COUNT(d.id)::int,
                COALESCE(string_agg(d.name,', ' ORDER BY d.name),''),
                COALESCE(gp.id,0)
         FROM gps_modules g
@@ -1138,8 +1134,8 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 	rows, err = a.db.Query(ctx, `
         SELECT rx.id, COALESCE(br.name,''), rx.name, rx.protocol,
                COALESCE(ic.count,0),
-               (SELECT COUNT(*) FROM drones d WHERE d.rx_id=rx.id),
-               COALESCE(ic.count,0) - (SELECT COUNT(*) FROM drones d WHERE d.rx_id=rx.id),
+               COUNT(d.id)::int,
+               COALESCE(ic.count,0) - COUNT(d.id)::int,
                COALESCE(string_agg(d.name,', ' ORDER BY d.name),''),
                COALESCE(rxp.id,0)
         FROM radio_receivers rx
@@ -3209,7 +3205,10 @@ func (a *App) handleBrandDelete(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	a.db.Exec(r.Context(), `DELETE FROM brands WHERE id=$1`, id)
+	if _, err := a.db.Exec(r.Context(), `DELETE FROM brands WHERE id=$1`, id); err != nil {
+		httpErr(w, err)
+		return
+	}
 	http.Redirect(w, r, "/settings", http.StatusSeeOther)
 }
 
@@ -3321,7 +3320,10 @@ func (a *App) handleSizeDelete(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	a.db.Exec(r.Context(), `DELETE FROM sizes WHERE id=$1`, id)
+	if _, err := a.db.Exec(r.Context(), `DELETE FROM sizes WHERE id=$1`, id); err != nil {
+		httpErr(w, err)
+		return
+	}
 	http.Redirect(w, r, "/settings", http.StatusSeeOther)
 }
 
@@ -3398,7 +3400,10 @@ func (a *App) handleCellDelete(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	a.db.Exec(r.Context(), `DELETE FROM cells WHERE id=$1`, id)
+	if _, err := a.db.Exec(r.Context(), `DELETE FROM cells WHERE id=$1`, id); err != nil {
+		httpErr(w, err)
+		return
+	}
 	http.Redirect(w, r, "/settings", http.StatusSeeOther)
 }
 
