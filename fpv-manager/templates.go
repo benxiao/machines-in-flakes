@@ -309,6 +309,7 @@ type BatteryRow struct {
 	Name         string
 	CellLabel    string
 	CapacityMAh  int
+	WeightG      *int
 	Total        int
 	AssignedTo   string
 	Count        int
@@ -323,6 +324,7 @@ type BatteryFormPage struct {
 	CellID      int
 	Name        string
 	CapacityMAh string
+	WeightG     string
 	Quantity    string
 	Notes       string
 	Photos      []DronePhotoRow
@@ -486,8 +488,10 @@ type CellRow struct {
 	Label string
 }
 
-type CellListPage struct {
+type SettingsPage struct {
 	ActiveTab string
+	Brands    []BrandRow
+	Sizes     []SizeRow
 	Cells     []CellRow
 }
 
@@ -503,11 +507,6 @@ type SizeRow struct {
 	Label string
 }
 
-type SizeListPage struct {
-	ActiveTab string
-	Sizes     []SizeRow
-}
-
 type SizeFormPage struct {
 	ActiveTab string
 	Error     string
@@ -518,11 +517,6 @@ type SizeFormPage struct {
 type BrandRow struct {
 	ID   int
 	Name string
-}
-
-type BrandListPage struct {
-	ActiveTab string
-	Brands    []BrandRow
 }
 
 type BrandFormPage struct {
@@ -657,11 +651,9 @@ func initTemplates() {
 	add("place-list", placeListTmpl)
 	add("place-form", placeFormTmpl)
 	add("place-detail", placeDetailTmpl)
-	add("brand-list", brandListTmpl)
+	add("settings", settingsTmpl)
 	add("brand-form", brandFormTmpl)
-	add("size-list", sizeListTmpl)
 	add("size-form", sizeFormTmpl)
-	add("cell-list", cellListTmpl)
 	add("cell-form", cellFormTmpl)
 	add("weather", weatherTmpl)
 }
@@ -877,9 +869,7 @@ const baseTmpl = `<!DOCTYPE html>
   <a href="/batteries" {{if eq .ActiveTab "batteries"}}class="active"{{end}}>Batteries</a>
   <a href="/log"       {{if eq .ActiveTab "log"}}class="active"{{end}}>Log</a>
   <a href="/places"    {{if eq .ActiveTab "places"}}class="active"{{end}}>Places</a>
-  <a href="/brands"    {{if eq .ActiveTab "brands"}}class="active"{{end}}>Brands</a>
-  <a href="/sizes"     {{if eq .ActiveTab "sizes"}}class="active"{{end}}>Sizes</a>
-  <a href="/cells"     {{if eq .ActiveTab "cells"}}class="active"{{end}}>Cells</a>
+  <a href="/settings"  {{if eq .ActiveTab "settings"}}class="active"{{end}}>Settings</a>
   <a href="/weather"   {{if eq .ActiveTab "weather"}}class="active"{{end}}>Weather</a>
 </nav>
 <main>
@@ -2037,7 +2027,7 @@ const batteryListTmpl = `{{define "content"}}
 <div class="table-wrap">
 <table>
 <thead><tr>
-  <th></th><th>Brand</th><th>Name</th><th>Cell</th><th>mAh</th><th>Owned</th><th>Assigned To</th><th></th>
+  <th></th><th>Brand</th><th>Name</th><th>Cell</th><th>mAh</th><th>Weight</th><th>Owned</th><th>Assigned To</th><th></th>
 </tr></thead>
 <tbody>
 {{range .Batteries}}
@@ -2047,6 +2037,7 @@ const batteryListTmpl = `{{define "content"}}
   <td><strong>{{.Name}}</strong></td>
   <td class="muted">{{dash .CellLabel}}</td>
   <td class="muted">{{.CapacityMAh}}</td>
+  <td class="muted">{{if .WeightG}}{{.WeightG}}g{{else}}—{{end}}</td>
   <td class="muted">{{.Total}}</td>
   <td>{{if .AssignedTo}}<span class="installed-badge">{{.AssignedTo}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
   <td class="actions-cell">
@@ -2100,6 +2091,10 @@ const batteryFormTmpl = `{{define "content"}}
     <div class="form-group">
       <label>Capacity (mAh) *</label>
       <input type="number" name="capacity_mah" value="{{.CapacityMAh}}" required placeholder="e.g. 650">
+    </div>
+    <div class="form-group" style="max-width:110px">
+      <label>Weight (g)</label>
+      <input type="number" name="weight_g" value="{{.WeightG}}" placeholder="e.g. 95" min="0">
     </div>
     <div class="form-group" style="max-width:100px">
       <label>Quantity owned</label>
@@ -2735,33 +2730,74 @@ const placeDetailTmpl = `{{define "content"}}
 <p><a href="/places">&larr; Back to places</a></p>
 {{end}}`
 
-const brandListTmpl = `{{define "content"}}
-<div class="page-header">
-  <div class="page-header-left"><h2>Brands</h2></div>
-  <a href="/brands/new" class="btn btn-primary">+ Add Brand</a>
+const settingsTmpl = `{{define "content"}}
+<div class="page-header"><h2>Settings</h2></div>
+
+<div class="section">
+  <div class="section-header">
+    <h3>Brands</h3>
+    <a href="/brands/new" class="btn btn-sm btn-primary">+ Add</a>
+  </div>
+  {{if .Brands}}
+  <div class="table-wrap"><table>
+  <thead><tr><th>Name</th><th></th></tr></thead>
+  <tbody>
+  {{range .Brands}}<tr>
+    <td><strong>{{.Name}}</strong></td>
+    <td class="actions-cell">
+      <a href="/brands/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
+      <form class="inline" method="POST" action="/brands/{{.ID}}/delete">
+        <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+      </form>
+    </td>
+  </tr>{{end}}
+  </tbody></table></div>
+  {{else}}<p class="muted">No brands yet. <a href="/brands/new">Add one.</a></p>{{end}}
 </div>
-{{if .Brands}}
-<div class="table-wrap">
-<table>
-<thead><tr><th>Name</th><th></th></tr></thead>
-<tbody>
-{{range .Brands}}
-<tr>
-  <td><strong>{{.Name}}</strong></td>
-  <td class="actions-cell">
-    <a href="/brands/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
-    <form class="inline" method="POST" action="/brands/{{.ID}}/delete">
-      <button class="btn btn-sm btn-danger" type="submit">Delete</button>
-    </form>
-  </td>
-</tr>
-{{end}}
-</tbody>
-</table>
+
+<div class="section">
+  <div class="section-header">
+    <h3>Sizes</h3>
+    <a href="/sizes/new" class="btn btn-sm btn-primary">+ Add</a>
+  </div>
+  {{if .Sizes}}
+  <div class="table-wrap"><table>
+  <thead><tr><th>Label</th><th></th></tr></thead>
+  <tbody>
+  {{range .Sizes}}<tr>
+    <td><strong>{{.Label}}"</strong></td>
+    <td class="actions-cell">
+      <a href="/sizes/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
+      <form class="inline" method="POST" action="/sizes/{{.ID}}/delete">
+        <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+      </form>
+    </td>
+  </tr>{{end}}
+  </tbody></table></div>
+  {{else}}<p class="muted">No sizes yet. <a href="/sizes/new">Add one.</a></p>{{end}}
 </div>
-{{else}}
-<p class="muted">No brands yet. <a href="/brands/new">Add one.</a></p>
-{{end}}
+
+<div class="section">
+  <div class="section-header">
+    <h3>Cells</h3>
+    <a href="/cells/new" class="btn btn-sm btn-primary">+ Add</a>
+  </div>
+  {{if .Cells}}
+  <div class="table-wrap"><table>
+  <thead><tr><th>Label</th><th></th></tr></thead>
+  <tbody>
+  {{range .Cells}}<tr>
+    <td><strong>{{.Label}}</strong></td>
+    <td class="actions-cell">
+      <a href="/cells/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
+      <form class="inline" method="POST" action="/cells/{{.ID}}/delete">
+        <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+      </form>
+    </td>
+  </tr>{{end}}
+  </tbody></table></div>
+  {{else}}<p class="muted">No cells yet. <a href="/cells/new">Add one.</a></p>{{end}}
+</div>
 {{end}}`
 
 const brandFormTmpl = `{{define "content"}}
@@ -2777,39 +2813,10 @@ const brandFormTmpl = `{{define "content"}}
   </div>
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add Brand{{end}}</button>
-    <a href="/brands" class="btn btn-cancel">Cancel</a>
+    <a href="/settings" class="btn btn-cancel">Cancel</a>
   </div>
 </form>
 </div>
-{{end}}`
-
-const cellListTmpl = `{{define "content"}}
-<div class="page-header">
-  <div class="page-header-left"><h2>Cells</h2></div>
-  <a href="/cells/new" class="btn btn-primary">+ Add</a>
-</div>
-{{if .Cells}}
-<div class="table-wrap">
-<table>
-<thead><tr><th>Label</th><th></th></tr></thead>
-<tbody>
-{{range .Cells}}
-<tr>
-  <td><strong>{{.Label}}</strong></td>
-  <td class="actions-cell">
-    <a href="/cells/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
-    <form class="inline" method="POST" action="/cells/{{.ID}}/delete">
-      <button class="btn btn-sm btn-danger" type="submit">Delete</button>
-    </form>
-  </td>
-</tr>
-{{end}}
-</tbody>
-</table>
-</div>
-{{else}}
-<p class="muted">No cells yet. <a href="/cells/new">Add one.</a></p>
-{{end}}
 {{end}}`
 
 const cellFormTmpl = `{{define "content"}}
@@ -2825,39 +2832,10 @@ const cellFormTmpl = `{{define "content"}}
   </div>
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add{{end}}</button>
-    <a href="/cells" class="btn btn-cancel">Cancel</a>
+    <a href="/settings" class="btn btn-cancel">Cancel</a>
   </div>
 </form>
 </div>
-{{end}}`
-
-const sizeListTmpl = `{{define "content"}}
-<div class="page-header">
-  <div class="page-header-left"><h2>Sizes</h2></div>
-  <a href="/sizes/new" class="btn btn-primary">+ Add Size</a>
-</div>
-{{if .Sizes}}
-<div class="table-wrap">
-<table>
-<thead><tr><th>Label</th><th></th></tr></thead>
-<tbody>
-{{range .Sizes}}
-<tr>
-  <td><strong>{{.Label}}"</strong></td>
-  <td class="actions-cell">
-    <a href="/sizes/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
-    <form class="inline" method="POST" action="/sizes/{{.ID}}/delete">
-      <button class="btn btn-sm btn-danger" type="submit">Delete</button>
-    </form>
-  </td>
-</tr>
-{{end}}
-</tbody>
-</table>
-</div>
-{{else}}
-<p class="muted">No sizes yet. <a href="/sizes/new">Add one.</a></p>
-{{end}}
 {{end}}`
 
 const sizeFormTmpl = `{{define "content"}}
@@ -2873,7 +2851,7 @@ const sizeFormTmpl = `{{define "content"}}
   </div>
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add Size{{end}}</button>
-    <a href="/sizes" class="btn btn-cancel">Cancel</a>
+    <a href="/settings" class="btn btn-cancel">Cancel</a>
   </div>
 </form>
 </div>

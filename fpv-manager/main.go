@@ -142,6 +142,7 @@ CREATE TABLE IF NOT EXISTS batteries (
     name         TEXT NOT NULL,
     cell_id      INTEGER REFERENCES cells(id) ON DELETE SET NULL,
     capacity_mah INTEGER NOT NULL,
+    weight_g     INTEGER,
     count        INTEGER NOT NULL DEFAULT 1,
     status       TEXT NOT NULL DEFAULT 'good'
                      CHECK (status IN ('good','degraded','dead','storage')),
@@ -399,6 +400,7 @@ DO $$ BEGIN ALTER TABLE drones ADD COLUMN size_inch NUMERIC(4,1); EXCEPTION WHEN
 INSERT INTO sizes (label) VALUES ('2'),('2.5'),('3'),('3.5'),('4'),('5'),('7') ON CONFLICT DO NOTHING;
 INSERT INTO cells (label) VALUES ('1S'),('2S'),('3S'),('4S'),('5S'),('6S') ON CONFLICT DO NOTHING;
 DO $$ BEGIN ALTER TABLE batteries ADD COLUMN cell_id INTEGER REFERENCES cells(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE batteries ADD COLUMN weight_g INTEGER; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 DO $$ BEGIN UPDATE batteries SET cell_id=c.id FROM cells c WHERE c.label=CAST(batteries.cell_count AS TEXT)||'S' AND batteries.cell_id IS NULL; EXCEPTION WHEN undefined_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE batteries DROP COLUMN cell_count; EXCEPTION WHEN undefined_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE drones ADD COLUMN cell_id INTEGER REFERENCES cells(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
@@ -634,15 +636,13 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/places/{id}/edit", a.handlePlaceEdit)
 	mux.HandleFunc("POST /places/{id}/delete", a.handlePlaceDelete)
 
-	mux.HandleFunc("/brands", a.handleBrands)
+	mux.HandleFunc("/settings", a.handleSettings)
 	mux.HandleFunc("/brands/new", a.handleBrandNew)
 	mux.HandleFunc("/brands/{id}/edit", a.handleBrandEdit)
 	mux.HandleFunc("POST /brands/{id}/delete", a.handleBrandDelete)
-	mux.HandleFunc("/sizes", a.handleSizes)
 	mux.HandleFunc("/sizes/new", a.handleSizeNew)
 	mux.HandleFunc("/sizes/{id}/edit", a.handleSizeEdit)
 	mux.HandleFunc("POST /sizes/{id}/delete", a.handleSizeDelete)
-	mux.HandleFunc("/cells", a.handleCells)
 	mux.HandleFunc("/cells/new", a.handleCellNew)
 	mux.HandleFunc("/cells/{id}/edit", a.handleCellEdit)
 	mux.HandleFunc("POST /cells/{id}/delete", a.handleCellDelete)

@@ -1897,7 +1897,7 @@ func (a *App) handlePropDelete(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleBatteries(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	rows, err := a.db.Query(ctx, `
-        SELECT b.id, COALESCE(br.name,''), b.name, COALESCE(c.label,''), b.capacity_mah,
+        SELECT b.id, COALESCE(br.name,''), b.name, COALESCE(c.label,''), b.capacity_mah, b.weight_g,
                b.count,
                COALESCE(string_agg(d.name, ', ' ORDER BY d.name), ''),
                COALESCE(bp.id,0)
@@ -1907,7 +1907,7 @@ func (a *App) handleBatteries(w http.ResponseWriter, r *http.Request) {
         LEFT JOIN drone_batteries db ON db.battery_id=b.id
         LEFT JOIN drones d ON d.id=db.drone_id
         LEFT JOIN LATERAL (SELECT id FROM battery_photos WHERE battery_id=b.id ORDER BY created_at LIMIT 1) bp ON true
-        GROUP BY b.id, br.name, b.name, c.label, b.capacity_mah, b.count, bp.id
+        GROUP BY b.id, br.name, b.name, c.label, b.capacity_mah, b.weight_g, b.count, bp.id
         ORDER BY br.name, b.name, c.label, b.capacity_mah`)
 	if err != nil {
 		httpErr(w, err)
@@ -1917,7 +1917,7 @@ func (a *App) handleBatteries(w http.ResponseWriter, r *http.Request) {
 	var bats []BatteryRow
 	for rows.Next() {
 		var b BatteryRow
-		if err := rows.Scan(&b.ID, &b.Brand, &b.Name, &b.CellLabel, &b.CapacityMAh,
+		if err := rows.Scan(&b.ID, &b.Brand, &b.Name, &b.CellLabel, &b.CapacityMAh, &b.WeightG,
 			&b.Total, &b.AssignedTo, &b.FirstPhotoID); err != nil {
 			httpErr(w, err)
 			return
@@ -1952,10 +1952,11 @@ func (a *App) handleBatteryNew(w http.ResponseWriter, r *http.Request) {
 			qty = 1
 		}
 		_, err := a.db.Exec(ctx,
-			`INSERT INTO batteries (brand_id,name,cell_id,capacity_mah,count,notes)
-             VALUES ($1,$2,$3,$4,$5,$6)`,
+			`INSERT INTO batteries (brand_id,name,cell_id,capacity_mah,weight_g,count,notes)
+             VALUES ($1,$2,$3,$4,$5,$6,$7)`,
 			nullIntPtr(r.FormValue("brand_id")), name,
-			nullIntPtr(r.FormValue("cell_id")), cap, qty, r.FormValue("notes"))
+			nullIntPtr(r.FormValue("cell_id")), cap,
+			nullIntPtr(r.FormValue("weight_g")), qty, r.FormValue("notes"))
 		if err != nil {
 			httpErr(w, err)
 			return
@@ -1995,9 +1996,10 @@ func (a *App) handleBatteryEdit(w http.ResponseWriter, r *http.Request) {
 			qty = 1
 		}
 		_, err := a.db.Exec(ctx,
-			`UPDATE batteries SET brand_id=$1,name=$2,cell_id=$3,capacity_mah=$4,count=$5,notes=$6 WHERE id=$7`,
+			`UPDATE batteries SET brand_id=$1,name=$2,cell_id=$3,capacity_mah=$4,weight_g=$5,count=$6,notes=$7 WHERE id=$8`,
 			nullIntPtr(r.FormValue("brand_id")), name,
-			nullIntPtr(r.FormValue("cell_id")), cap, qty, r.FormValue("notes"), id)
+			nullIntPtr(r.FormValue("cell_id")), cap,
+			nullIntPtr(r.FormValue("weight_g")), qty, r.FormValue("notes"), id)
 		if err != nil {
 			httpErr(w, err)
 			return
@@ -2007,10 +2009,10 @@ func (a *App) handleBatteryEdit(w http.ResponseWriter, r *http.Request) {
 	}
 	var page BatteryFormPage
 	var capMAh, qty int
-	var brandID, cellID *int
+	var brandID, cellID, weightG *int
 	err := a.db.QueryRow(ctx,
-		`SELECT id,brand_id,name,cell_id,capacity_mah,count,notes FROM batteries WHERE id=$1`, id).
-		Scan(&page.ID, &brandID, &page.Name, &cellID, &capMAh, &qty, &page.Notes)
+		`SELECT id,brand_id,name,cell_id,capacity_mah,weight_g,count,notes FROM batteries WHERE id=$1`, id).
+		Scan(&page.ID, &brandID, &page.Name, &cellID, &capMAh, &weightG, &qty, &page.Notes)
 	if err == pgx.ErrNoRows {
 		http.NotFound(w, r)
 		return
@@ -2022,6 +2024,9 @@ func (a *App) handleBatteryEdit(w http.ResponseWriter, r *http.Request) {
 	page.BrandID = derefInt(brandID)
 	page.CellID = derefInt(cellID)
 	page.CapacityMAh = strconv.Itoa(capMAh)
+	if weightG != nil {
+		page.WeightG = strconv.Itoa(*weightG)
+	}
 	page.Quantity = strconv.Itoa(qty)
 	page.ActiveTab = "batteries"
 	page.Brands, _ = a.brandOptions(r)
@@ -3137,29 +3142,6 @@ func (a *App) handlePlaceDelete(w http.ResponseWriter, r *http.Request) {
 
 // ---- Brands ----
 
-func (a *App) handleBrands(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(r.Context(), `SELECT id, name FROM brands ORDER BY name`)
-	if err != nil {
-		httpErr(w, err)
-		return
-	}
-	defer rows.Close()
-	var brands []BrandRow
-	for rows.Next() {
-		var b BrandRow
-		if err := rows.Scan(&b.ID, &b.Name); err != nil {
-			httpErr(w, err)
-			return
-		}
-		brands = append(brands, b)
-	}
-	if err := rows.Err(); err != nil {
-		httpErr(w, err)
-		return
-	}
-	render(w, "brand-list", BrandListPage{ActiveTab: "brands", Brands: brands})
-}
-
 func (a *App) handleBrandNew(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		if err := r.ParseForm(); err != nil {
@@ -3168,18 +3150,18 @@ func (a *App) handleBrandNew(w http.ResponseWriter, r *http.Request) {
 		}
 		name := strings.TrimSpace(r.FormValue("name"))
 		if name == "" {
-			render(w, "brand-form", BrandFormPage{ActiveTab: "brands", Error: "Name is required"})
+			render(w, "brand-form", BrandFormPage{ActiveTab: "settings", Error: "Name is required"})
 			return
 		}
 		_, err := a.db.Exec(r.Context(), `INSERT INTO brands (name) VALUES ($1)`, name)
 		if err != nil {
-			render(w, "brand-form", BrandFormPage{ActiveTab: "brands", Error: "Brand name already exists"})
+			render(w, "brand-form", BrandFormPage{ActiveTab: "settings", Error: "Brand name already exists"})
 			return
 		}
-		http.Redirect(w, r, "/brands", http.StatusSeeOther)
+		http.Redirect(w, r, "/settings", http.StatusSeeOther)
 		return
 	}
-	render(w, "brand-form", BrandFormPage{ActiveTab: "brands"})
+	render(w, "brand-form", BrandFormPage{ActiveTab: "settings"})
 }
 
 func (a *App) handleBrandEdit(w http.ResponseWriter, r *http.Request) {
@@ -3195,15 +3177,15 @@ func (a *App) handleBrandEdit(w http.ResponseWriter, r *http.Request) {
 		}
 		name := strings.TrimSpace(r.FormValue("name"))
 		if name == "" {
-			render(w, "brand-form", BrandFormPage{ActiveTab: "brands", Error: "Name is required", ID: id})
+			render(w, "brand-form", BrandFormPage{ActiveTab: "settings", Error: "Name is required", ID: id})
 			return
 		}
 		_, err := a.db.Exec(r.Context(), `UPDATE brands SET name=$1 WHERE id=$2`, name, id)
 		if err != nil {
-			render(w, "brand-form", BrandFormPage{ActiveTab: "brands", Error: "Brand name already exists", ID: id, Name: name})
+			render(w, "brand-form", BrandFormPage{ActiveTab: "settings", Error: "Brand name already exists", ID: id, Name: name})
 			return
 		}
-		http.Redirect(w, r, "/brands", http.StatusSeeOther)
+		http.Redirect(w, r, "/settings", http.StatusSeeOther)
 		return
 	}
 	var page BrandFormPage
@@ -3217,7 +3199,7 @@ func (a *App) handleBrandEdit(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, err)
 		return
 	}
-	page.ActiveTab = "brands"
+	page.ActiveTab = "settings"
 	render(w, "brand-form", page)
 }
 
@@ -3228,36 +3210,48 @@ func (a *App) handleBrandDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.db.Exec(r.Context(), `DELETE FROM brands WHERE id=$1`, id)
-	http.Redirect(w, r, "/brands", http.StatusSeeOther)
+	http.Redirect(w, r, "/settings", http.StatusSeeOther)
+}
+
+// ---- Settings ----
+
+func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	page := SettingsPage{ActiveTab: "settings"}
+	brandRows, _ := a.db.Query(ctx, `SELECT id, name FROM brands ORDER BY name`)
+	if brandRows != nil {
+		for brandRows.Next() {
+			var b BrandRow
+			brandRows.Scan(&b.ID, &b.Name)
+			page.Brands = append(page.Brands, b)
+		}
+		brandRows.Close()
+	}
+	sizeRows, _ := a.db.Query(ctx, `SELECT id, label FROM sizes ORDER BY label::FLOAT`)
+	if sizeRows != nil {
+		for sizeRows.Next() {
+			var s SizeRow
+			sizeRows.Scan(&s.ID, &s.Label)
+			page.Sizes = append(page.Sizes, s)
+		}
+		sizeRows.Close()
+	}
+	cellRows, _ := a.db.Query(ctx, `SELECT id, label FROM cells ORDER BY id`)
+	if cellRows != nil {
+		for cellRows.Next() {
+			var c CellRow
+			cellRows.Scan(&c.ID, &c.Label)
+			page.Cells = append(page.Cells, c)
+		}
+		cellRows.Close()
+	}
+	render(w, "settings", page)
 }
 
 // ---- Sizes ----
 
 func (a *App) sizeOptions(r *http.Request) ([]OptionItem, error) {
 	return a.queryOptions(r, `SELECT id, label FROM sizes ORDER BY label::FLOAT`)
-}
-
-func (a *App) handleSizes(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(r.Context(), `SELECT id, label FROM sizes ORDER BY label::FLOAT`)
-	if err != nil {
-		httpErr(w, err)
-		return
-	}
-	defer rows.Close()
-	var sizes []SizeRow
-	for rows.Next() {
-		var s SizeRow
-		if err := rows.Scan(&s.ID, &s.Label); err != nil {
-			httpErr(w, err)
-			return
-		}
-		sizes = append(sizes, s)
-	}
-	if err := rows.Err(); err != nil {
-		httpErr(w, err)
-		return
-	}
-	render(w, "size-list", SizeListPage{ActiveTab: "sizes", Sizes: sizes})
 }
 
 func (a *App) handleSizeNew(w http.ResponseWriter, r *http.Request) {
@@ -3268,18 +3262,18 @@ func (a *App) handleSizeNew(w http.ResponseWriter, r *http.Request) {
 		}
 		label := strings.TrimSpace(r.FormValue("label"))
 		if label == "" {
-			render(w, "size-form", SizeFormPage{ActiveTab: "sizes", Error: "Label is required"})
+			render(w, "size-form", SizeFormPage{ActiveTab: "settings", Error: "Label is required"})
 			return
 		}
 		_, err := a.db.Exec(r.Context(), `INSERT INTO sizes (label) VALUES ($1)`, label)
 		if err != nil {
-			render(w, "size-form", SizeFormPage{ActiveTab: "sizes", Error: "Size already exists"})
+			render(w, "size-form", SizeFormPage{ActiveTab: "settings", Error: "Size already exists"})
 			return
 		}
-		http.Redirect(w, r, "/sizes", http.StatusSeeOther)
+		http.Redirect(w, r, "/settings", http.StatusSeeOther)
 		return
 	}
-	render(w, "size-form", SizeFormPage{ActiveTab: "sizes"})
+	render(w, "size-form", SizeFormPage{ActiveTab: "settings"})
 }
 
 func (a *App) handleSizeEdit(w http.ResponseWriter, r *http.Request) {
@@ -3295,15 +3289,15 @@ func (a *App) handleSizeEdit(w http.ResponseWriter, r *http.Request) {
 		}
 		label := strings.TrimSpace(r.FormValue("label"))
 		if label == "" {
-			render(w, "size-form", SizeFormPage{ActiveTab: "sizes", Error: "Label is required", ID: id})
+			render(w, "size-form", SizeFormPage{ActiveTab: "settings", Error: "Label is required", ID: id})
 			return
 		}
 		_, err := a.db.Exec(r.Context(), `UPDATE sizes SET label=$1 WHERE id=$2`, label, id)
 		if err != nil {
-			render(w, "size-form", SizeFormPage{ActiveTab: "sizes", Error: "Size already exists", ID: id, Label: label})
+			render(w, "size-form", SizeFormPage{ActiveTab: "settings", Error: "Size already exists", ID: id, Label: label})
 			return
 		}
-		http.Redirect(w, r, "/sizes", http.StatusSeeOther)
+		http.Redirect(w, r, "/settings", http.StatusSeeOther)
 		return
 	}
 	var page SizeFormPage
@@ -3317,7 +3311,7 @@ func (a *App) handleSizeEdit(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, err)
 		return
 	}
-	page.ActiveTab = "sizes"
+	page.ActiveTab = "settings"
 	render(w, "size-form", page)
 }
 
@@ -3328,36 +3322,13 @@ func (a *App) handleSizeDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.db.Exec(r.Context(), `DELETE FROM sizes WHERE id=$1`, id)
-	http.Redirect(w, r, "/sizes", http.StatusSeeOther)
+	http.Redirect(w, r, "/settings", http.StatusSeeOther)
 }
 
 // ---- Cells ----
 
 func (a *App) cellOptions(r *http.Request) ([]OptionItem, error) {
 	return a.queryOptions(r, `SELECT id, label FROM cells ORDER BY id`)
-}
-
-func (a *App) handleCells(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(r.Context(), `SELECT id, label FROM cells ORDER BY id`)
-	if err != nil {
-		httpErr(w, err)
-		return
-	}
-	defer rows.Close()
-	var cells []CellRow
-	for rows.Next() {
-		var c CellRow
-		if err := rows.Scan(&c.ID, &c.Label); err != nil {
-			httpErr(w, err)
-			return
-		}
-		cells = append(cells, c)
-	}
-	if err := rows.Err(); err != nil {
-		httpErr(w, err)
-		return
-	}
-	render(w, "cell-list", CellListPage{ActiveTab: "cells", Cells: cells})
 }
 
 func (a *App) handleCellNew(w http.ResponseWriter, r *http.Request) {
@@ -3368,18 +3339,18 @@ func (a *App) handleCellNew(w http.ResponseWriter, r *http.Request) {
 		}
 		label := strings.TrimSpace(r.FormValue("label"))
 		if label == "" {
-			render(w, "cell-form", CellFormPage{ActiveTab: "cells", Error: "Label is required"})
+			render(w, "cell-form", CellFormPage{ActiveTab: "settings", Error: "Label is required"})
 			return
 		}
 		_, err := a.db.Exec(r.Context(), `INSERT INTO cells (label) VALUES ($1)`, label)
 		if err != nil {
-			render(w, "cell-form", CellFormPage{ActiveTab: "cells", Error: "Cell already exists"})
+			render(w, "cell-form", CellFormPage{ActiveTab: "settings", Error: "Cell already exists"})
 			return
 		}
-		http.Redirect(w, r, "/cells", http.StatusSeeOther)
+		http.Redirect(w, r, "/settings", http.StatusSeeOther)
 		return
 	}
-	render(w, "cell-form", CellFormPage{ActiveTab: "cells"})
+	render(w, "cell-form", CellFormPage{ActiveTab: "settings"})
 }
 
 func (a *App) handleCellEdit(w http.ResponseWriter, r *http.Request) {
@@ -3395,15 +3366,15 @@ func (a *App) handleCellEdit(w http.ResponseWriter, r *http.Request) {
 		}
 		label := strings.TrimSpace(r.FormValue("label"))
 		if label == "" {
-			render(w, "cell-form", CellFormPage{ActiveTab: "cells", Error: "Label is required", ID: id})
+			render(w, "cell-form", CellFormPage{ActiveTab: "settings", Error: "Label is required", ID: id})
 			return
 		}
 		_, err := a.db.Exec(r.Context(), `UPDATE cells SET label=$1 WHERE id=$2`, label, id)
 		if err != nil {
-			render(w, "cell-form", CellFormPage{ActiveTab: "cells", Error: "Cell already exists", ID: id, Label: label})
+			render(w, "cell-form", CellFormPage{ActiveTab: "settings", Error: "Cell already exists", ID: id, Label: label})
 			return
 		}
-		http.Redirect(w, r, "/cells", http.StatusSeeOther)
+		http.Redirect(w, r, "/settings", http.StatusSeeOther)
 		return
 	}
 	var page CellFormPage
@@ -3417,7 +3388,7 @@ func (a *App) handleCellEdit(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, err)
 		return
 	}
-	page.ActiveTab = "cells"
+	page.ActiveTab = "settings"
 	render(w, "cell-form", page)
 }
 
@@ -3428,7 +3399,7 @@ func (a *App) handleCellDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.db.Exec(r.Context(), `DELETE FROM cells WHERE id=$1`, id)
-	http.Redirect(w, r, "/cells", http.StatusSeeOther)
+	http.Redirect(w, r, "/settings", http.StatusSeeOther)
 }
 
 // ---- Weather ----
