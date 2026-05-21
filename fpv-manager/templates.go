@@ -432,6 +432,8 @@ type VideoRow struct {
 	ID           int
 	OriginalName string
 	Notes        string
+	DroneID      int
+	DroneName    string
 }
 
 type PhotoRow struct {
@@ -468,6 +470,7 @@ type SessionDetailPage struct {
 	Batteries  []BatteryRow
 	Videos     []VideoRow
 	Photos     []PhotoRow
+	Drones     []OptionItem
 }
 
 type PlaceListPage struct {
@@ -1128,7 +1131,17 @@ function dleEdit(btn) {
     view.style.display = 'none';
     form.style.display = 'flex';
     btn.textContent = 'Save';
-    btn.onclick = function(){ form.submit(); };
+    btn.onclick = function() {
+      var body = new URLSearchParams(new FormData(form));
+      fetch(form.action, {method:'POST', body:body}).then(function() {
+        var ta = form.querySelector('textarea');
+        view.querySelector('div:last-child').textContent = ta ? ta.value : '';
+        view.style.display = 'flex';
+        form.style.display = 'none';
+        btn.textContent = 'Edit';
+        btn.onclick = null;
+      });
+    };
   }
 }
 </script>
@@ -2542,6 +2555,15 @@ const sessionDetailTmpl = `{{define "content"}}
   </div>
   <video controls style="width:100%;border-radius:4px;max-height:480px;background:#000" data-mobile="/videos/{{.ID}}/mobile.m3u8" data-original="/videos/{{.ID}}">
   </video>
+  {{if $.Drones}}
+  <div style="margin-top:8px">
+    {{$vid := .}}
+    <select name="drone_id" style="font-size:13px;max-width:260px" onchange="saveDrone({{.ID}},this.value)">
+      <option value="">— no drone —</option>
+      {{range $.Drones}}<option value="{{.ID}}" {{if eq .ID $vid.DroneID}}selected{{end}}>{{.Label}}</option>{{end}}
+    </select>
+  </div>
+  {{end}}
   <div style="margin-top:10px;display:flex;gap:8px;align-items:flex-start">
     <div class="vnote-view" style="flex:1;font-size:13px;color:#8b949e;min-height:1.4em;white-space:pre-wrap;word-break:break-word">{{if .Notes}}{{.Notes}}{{else}}<span style="opacity:.5">No note</span>{{end}}</div>
     <form class="vnote-form" method="POST" action="/videos/{{.ID}}/note" style="display:none;flex:1;gap:6px;align-items:flex-start">
@@ -2660,8 +2682,24 @@ function vnoteEdit(btn) {
     form.style.display = 'flex';
     form.querySelector('textarea').focus();
     btn.textContent = 'Save';
-    btn.onclick = function(){ form.submit(); };
+    btn.onclick = function() {
+      var body = new URLSearchParams(new FormData(form));
+      fetch(form.action, {method:'POST', body:body}).then(function() {
+        var ta = form.querySelector('textarea');
+        var newText = ta ? ta.value : '';
+        view.innerHTML = newText ? newText : '<span style="opacity:.5">No note</span>';
+        view.style.display = '';
+        form.style.display = 'none';
+        btn.textContent = 'Edit';
+        btn.onclick = null;
+      });
+    };
   }
+}
+function saveDrone(videoID, droneID) {
+  var body = new URLSearchParams();
+  body.append('drone_id', droneID);
+  fetch('/videos/'+videoID+'/drone', {method:'POST', body:body});
 }
 function openLightbox(src){var lb=document.getElementById('lightbox');document.getElementById('lightbox-img').src=src;lb.style.display='flex';}
 function closeLightbox(){document.getElementById('lightbox').style.display='none';}

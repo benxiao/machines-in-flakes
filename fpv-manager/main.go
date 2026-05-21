@@ -500,6 +500,7 @@ DO $$ BEGIN ALTER TABLE flight_controllers ADD COLUMN mcu_id INTEGER REFERENCES 
 DO $$ BEGIN UPDATE flight_controllers SET mcu_id=m.id FROM mcus m WHERE m.name=flight_controllers.mcu AND flight_controllers.mcu_id IS NULL; EXCEPTION WHEN undefined_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE flight_controllers DROP COLUMN mcu; EXCEPTION WHEN undefined_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE drones ADD COLUMN sub_250g BOOLEAN NOT NULL DEFAULT FALSE; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE session_videos ADD COLUMN drone_id INTEGER REFERENCES drones(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE vtx_units DROP COLUMN system; EXCEPTION WHEN undefined_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE vtx_units DROP COLUMN max_power_mw; EXCEPTION WHEN undefined_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE vtx_units DROP COLUMN resolution; EXCEPTION WHEN undefined_column THEN NULL; END $$;
@@ -648,6 +649,7 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /videos/{id}/mobile/{name}", a.handleMobileSegment)
 	mux.HandleFunc("POST /videos/{id}/delete", a.handleVideoDelete)
 	mux.HandleFunc("POST /videos/{id}/note", a.handleVideoNote)
+	mux.HandleFunc("POST /videos/{id}/drone", a.handleVideoDrone)
 	mux.HandleFunc("POST /log/{id}/photos", a.handlePhotoUpload)
 	mux.HandleFunc("GET /photos/{id}", a.handlePhotoServe)
 	mux.HandleFunc("POST /photos/{id}/delete", a.handlePhotoDelete)

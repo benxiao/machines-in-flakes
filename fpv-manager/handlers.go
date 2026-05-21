@@ -2259,15 +2259,30 @@ func (a *App) handleSessionDetail(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, err)
 		return
 	}
+	// session drones for video drone picker
+	droneOptRows, _ := a.db.Query(ctx,
+		`SELECT d.id, d.name FROM drones d JOIN session_drones sd ON sd.drone_id=d.id
+         WHERE sd.session_id=$1 ORDER BY d.name`, id)
+	if droneOptRows != nil {
+		for droneOptRows.Next() {
+			var o OptionItem
+			droneOptRows.Scan(&o.ID, &o.Label)
+			page.Drones = append(page.Drones, o)
+		}
+		droneOptRows.Close()
+	}
+
 	rows, err = a.db.Query(ctx,
-		`SELECT id, original_name, notes FROM session_videos WHERE session_id=$1 ORDER BY created_at`, id)
+		`SELECT sv.id, sv.original_name, sv.notes, COALESCE(sv.drone_id,0), COALESCE(d.name,'')
+         FROM session_videos sv LEFT JOIN drones d ON d.id=sv.drone_id
+         WHERE sv.session_id=$1 ORDER BY sv.created_at`, id)
 	if err != nil {
 		httpErr(w, err)
 		return
 	}
 	for rows.Next() {
 		var v VideoRow
-		if err := rows.Scan(&v.ID, &v.OriginalName, &v.Notes); err != nil {
+		if err := rows.Scan(&v.ID, &v.OriginalName, &v.Notes, &v.DroneID, &v.DroneName); err != nil {
 			rows.Close()
 			httpErr(w, err)
 			return
@@ -2720,8 +2735,8 @@ func (a *App) handleVideoUpload(w http.ResponseWriter, r *http.Request) {
 	out.Close()
 
 	_, err = a.db.Exec(ctx,
-		`INSERT INTO session_videos (session_id,filename,original_name) VALUES ($1,$2,$3)`,
-		id, filename, header.Filename)
+		`INSERT INTO session_videos (session_id,filename,original_name,drone_id) VALUES ($1,$2,$3,$4)`,
+		id, filename, header.Filename, nullIntPtr(r.FormValue("drone_id")))
 	if err != nil {
 		os.Remove(dst)
 		httpErr(w, err)
@@ -2895,6 +2910,23 @@ func (a *App) handleVideoNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.db.Exec(ctx, `UPDATE session_videos SET notes=$1 WHERE id=$2`, r.FormValue("notes"), id)
+	http.Redirect(w, r, fmt.Sprintf("/log/%d", sessionID), http.StatusSeeOther)
+}
+
+func (a *App) handleVideoDrone(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	var sessionID int
+	err := a.db.QueryRow(ctx, `SELECT session_id FROM session_videos WHERE id=$1`, id).Scan(&sessionID)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	a.db.Exec(ctx, `UPDATE session_videos SET drone_id=$1 WHERE id=$2`, nullIntPtr(r.FormValue("drone_id")), id)
 	http.Redirect(w, r, fmt.Sprintf("/log/%d", sessionID), http.StatusSeeOther)
 }
 
