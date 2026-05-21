@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -192,7 +193,11 @@ func (a *App) handleDrones(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.Query(ctx, `
         SELECT d.id, d.name, d.status,
                COALESCE(sz.label,''), COALESCE(c.label,''),
-               d.weight_g, d.sub_250g, COALESCE(dp.id,0)
+               d.sub_250g,
+               (SELECT COUNT(*)::int FROM session_drones sd
+                JOIN sessions s ON s.id=sd.session_id
+                WHERE sd.drone_id=d.id AND s.type='flight'),
+               COALESCE(dp.id,0)
         FROM drones d
         LEFT JOIN sizes sz ON sz.id=d.size_id
         LEFT JOIN cells c ON c.id=d.cell_id
@@ -209,7 +214,7 @@ func (a *App) handleDrones(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var d DroneRow
 		if err := rows.Scan(&d.ID, &d.Name, &d.Status,
-			&d.SizeInch, &d.CellLabel, &d.WeightG, &d.Sub250g, &d.FirstPhotoID); err != nil {
+			&d.SizeInch, &d.CellLabel, &d.Sub250g, &d.FlightCount, &d.FirstPhotoID); err != nil {
 			httpErr(w, err)
 			return
 		}
@@ -573,24 +578,47 @@ func (a *App) handleDroneDetail(w http.ResponseWriter, r *http.Request) {
 	// photos
 	page.Photos = a.fetchItemPhotos(ctx, "drone_photos", "drone_id", id)
 
-	// log entries
+	// unified timeline: manual log entries + sessions, sorted newest-first
 	logRows, err := a.db.Query(ctx,
-		`SELECT id, logged_at, body FROM drone_log_entries WHERE drone_id=$1 ORDER BY logged_at DESC`, id)
+		`SELECT id, logged_at, body FROM drone_log_entries WHERE drone_id=$1`, id)
 	if err != nil {
 		httpErr(w, err)
 		return
 	}
-	defer logRows.Close()
 	for logRows.Next() {
-		var e DroneLogEntry
+		var e DroneTimelineEntry
 		var t time.Time
-		if logRows.Scan(&e.ID, &t, &e.Body) == nil {
+		if logRows.Scan(&e.LogID, &t, &e.Body) == nil {
 			lt := t.Local()
+			e.Kind = "log"
+			e.SortKey = lt.Format("2006-01-02 15:04:05")
 			e.LoggedAt = lt.Format("2006-01-02 15:04")
 			e.LoggedAtInput = lt.Format("2006-01-02T15:04")
-			page.Entries = append(page.Entries, e)
+			page.Timeline = append(page.Timeline, e)
 		}
 	}
+	logRows.Close()
+
+	sessRows, _ := a.db.Query(ctx, `
+        SELECT s.id, s.title, s.type, TO_CHAR(s.session_date,'YYYY-MM-DD'),
+               s.duration_min, s.location
+        FROM sessions s
+        JOIN session_drones sd ON sd.session_id=s.id
+        WHERE sd.drone_id=$1`, id)
+	if sessRows != nil {
+		for sessRows.Next() {
+			var e DroneTimelineEntry
+			e.Kind = "session"
+			sessRows.Scan(&e.SessionID, &e.SessionTitle, &e.SessionType, &e.Date, &e.DurationMin, &e.Location)
+			e.SortKey = e.Date + " 00:00:00"
+			page.Timeline = append(page.Timeline, e)
+		}
+		sessRows.Close()
+	}
+	sort.Slice(page.Timeline, func(i, j int) bool {
+		return page.Timeline[i].SortKey > page.Timeline[j].SortKey
+	})
+
 	page.ActiveTab = "drones"
 	render(w, "drone-detail", page)
 }

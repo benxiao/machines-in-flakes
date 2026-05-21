@@ -32,8 +32,8 @@ type DroneRow struct {
 	SizeInch     string
 	CellLabel    string
 	Status       string
-	WeightG      *int
 	Sub250g      bool
+	FlightCount  int
 	FirstPhotoID int
 }
 
@@ -44,10 +44,29 @@ type DronePhotoRow struct {
 }
 
 type DroneLogEntry struct {
-	ID           int
-	LoggedAt     string
+	ID            int
+	LoggedAt      string
 	LoggedAtInput string
-	Body         string
+	Body          string
+}
+
+type DroneTimelineEntry struct {
+	Kind string // "log" or "session"
+	SortKey string
+
+	// log fields
+	LogID         int
+	LoggedAt      string
+	LoggedAtInput string
+	Body          string
+
+	// session fields
+	SessionID   int
+	SessionTitle string
+	SessionType  string
+	Date        string
+	DurationMin int
+	Location    string
 }
 
 type DroneDetailPage struct {
@@ -71,7 +90,7 @@ type DroneDetailPage struct {
 	RXName       string
 	PropNames    string
 	Photos       []DronePhotoRow
-	Entries      []DroneLogEntry
+	Timeline     []DroneTimelineEntry
 }
 
 type DroneFormPage struct {
@@ -932,7 +951,7 @@ const droneListTmpl = `{{define "content"}}
 <div class="table-wrap">
 <table>
 <thead><tr>
-  <th></th><th>Name</th><th>Size</th><th>Cell</th><th>Status</th><th>Weight</th><th>Sub 250g</th><th></th>
+  <th></th><th>Name</th><th>Size</th><th>Cell</th><th>Status</th><th>Flights</th><th>Sub 250g</th><th></th>
 </tr></thead>
 <tbody>
 {{range .Drones}}
@@ -948,7 +967,7 @@ const droneListTmpl = `{{define "content"}}
   <td class="muted">{{if .SizeInch}}{{.SizeInch}}"{{else}}—{{end}}</td>
   <td class="muted">{{dash .CellLabel}}</td>
   <td><span class="badge {{badgeClass .Status}}">{{.Status}}</span></td>
-  <td class="muted">{{if .WeightG}}{{.WeightG}}g{{else}}—{{end}}</td>
+  <td class="muted">{{if gt .FlightCount 0}}{{.FlightCount}}{{else}}—{{end}}</td>
   <td>{{if .Sub250g}}<span style="color:#3fb950;font-weight:600">✓</span>{{else}}<span class="muted">—</span>{{end}}</td>
   <td class="actions-cell">
     <a href="/drones/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
@@ -1064,32 +1083,41 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')closeLightbo
 </div>
 
 <div class="section">
-{{if .Entries}}
+{{if .Timeline}}
 <div style="display:flex;flex-direction:column;gap:10px;max-width:700px">
-{{range .Entries}}
+{{range .Timeline}}
+{{if eq .Kind "session"}}
+<div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:12px 16px;display:flex;gap:12px;align-items:baseline">
+  <div style="flex:0 0 auto;color:#8b949e;font-size:13px;white-space:nowrap">{{.Date}}</div>
+  <div style="flex:0 0 auto"><span class="badge {{if eq .SessionType "crash"}}badge-danger{{else if eq .SessionType "maintenance"}}badge-warning{{else}}badge-ok{{end}}">{{.SessionType}}</span></div>
+  <div style="flex:1;min-width:0">
+    <a href="/log/{{.SessionID}}" style="color:#c9d1d9;text-decoration:none;font-weight:500">{{if .SessionTitle}}{{.SessionTitle}}{{else}}<span class="muted">Untitled session</span>{{end}}</a>
+    {{if .Location}}<span class="muted" style="font-size:13px;margin-left:8px">@ {{.Location}}</span>{{end}}
+  </div>
+  {{if gt .DurationMin 0}}<div style="flex:0 0 auto;color:#8b949e;font-size:13px">{{.DurationMin}} min</div>{{end}}
+</div>
+{{else}}
 <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:14px 16px">
   <div class="dle-entry-row" style="display:flex;gap:12px;align-items:flex-start">
-    <!-- view mode -->
     <div class="dle-view" style="display:flex;gap:12px;align-items:flex-start;flex:1;min-width:0">
       <div style="flex:0 0 auto;color:#8b949e;font-size:13px;padding-top:2px;white-space:nowrap">{{.LoggedAt}}</div>
       <div style="flex:1;white-space:pre-wrap;word-break:break-word;min-width:0">{{.Body}}</div>
     </div>
-    <!-- edit mode (hidden) -->
-    <form class="dle-form" method="POST" action="/drone-log/{{.ID}}/edit" style="display:none;flex:1;gap:10px;flex-direction:column;min-width:0">
+    <form class="dle-form" method="POST" action="/drone-log/{{.LogID}}/edit" style="display:none;flex:1;gap:10px;flex-direction:column;min-width:0">
       <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap">
         <input type="datetime-local" name="logged_at" value="{{.LoggedAtInput}}" style="flex:0 0 auto;font-size:13px">
         <textarea name="body" rows="3" style="flex:1;min-width:200px;resize:vertical;font-size:14px">{{.Body}}</textarea>
       </div>
     </form>
-    <!-- buttons -->
     <div class="dle-entry-btns" style="display:flex;gap:6px;flex-shrink:0">
       <button class="btn btn-sm btn-edit dle-edit-btn" onclick="dleEdit(this)">Edit</button>
-      <form method="POST" action="/drone-log/{{.ID}}/delete" style="display:inline">
+      <form method="POST" action="/drone-log/{{.LogID}}/delete" style="display:inline">
         <button class="btn btn-sm btn-danger" type="submit">Delete</button>
       </form>
     </div>
   </div>
 </div>
+{{end}}
 {{end}}
 <script>
 function dleEdit(btn) {
