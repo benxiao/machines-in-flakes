@@ -59,9 +59,23 @@ func (a *App) droneChecks(r *http.Request, sessionID int) ([]DroneCheck, error) 
 	return checks, rows.Err()
 }
 
-func (a *App) frameOptions(r *http.Request) ([]OptionItem, error) {
-	return a.queryOptions(r, `SELECT f.id, COALESCE(b.name||' ','')|| f.name
+func (a *App) frameOptions(r *http.Request) ([]FrameOption, error) {
+	ctx := r.Context()
+	rows, err := a.db.Query(ctx, `SELECT f.id, COALESCE(b.name||' ','')||f.name, COALESCE(f.size_id,0)
          FROM frames f LEFT JOIN brands b ON b.id=f.brand_id ORDER BY b.name, f.name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []FrameOption
+	for rows.Next() {
+		var fo FrameOption
+		if err := rows.Scan(&fo.ID, &fo.Label, &fo.SizeID); err != nil {
+			return nil, err
+		}
+		out = append(out, fo)
+	}
+	return out, nil
 }
 
 func (a *App) fcOptions(r *http.Request) ([]OptionItem, error) {
@@ -178,7 +192,7 @@ func (a *App) handleDrones(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.Query(ctx, `
         SELECT d.id, d.name, d.status,
                COALESCE(sz.label,''), COALESCE(c.label,''),
-               d.weight_g, COALESCE(dp.id,0)
+               d.weight_g, d.sub_250g, COALESCE(dp.id,0)
         FROM drones d
         LEFT JOIN sizes sz ON sz.id=d.size_id
         LEFT JOIN cells c ON c.id=d.cell_id
@@ -195,7 +209,7 @@ func (a *App) handleDrones(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var d DroneRow
 		if err := rows.Scan(&d.ID, &d.Name, &d.Status,
-			&d.SizeInch, &d.CellLabel, &d.WeightG, &d.FirstPhotoID); err != nil {
+			&d.SizeInch, &d.CellLabel, &d.WeightG, &d.Sub250g, &d.FirstPhotoID); err != nil {
 			httpErr(w, err)
 			return
 		}
@@ -223,6 +237,14 @@ func (a *App) brandOptions(r *http.Request) ([]OptionItem, error) {
 
 func (a *App) gpsOptions(r *http.Request) ([]OptionItem, error) {
 	return a.queryOptions(r, `SELECT g.id, COALESCE(b.name||' ','')|| g.name FROM gps_modules g LEFT JOIN brands b ON b.id=g.brand_id ORDER BY b.name, g.name`)
+}
+
+func (a *App) radioProtocolOptions(r *http.Request) ([]OptionItem, error) {
+	return a.queryOptions(r, `SELECT id, name FROM radio_protocols ORDER BY name`)
+}
+
+func (a *App) mcuOptions(r *http.Request) ([]OptionItem, error) {
+	return a.queryOptions(r, `SELECT id, name FROM mcus ORDER BY name`)
 }
 
 func (a *App) rxOptions(r *http.Request) ([]OptionItem, error) {
@@ -261,8 +283,8 @@ func (a *App) handleDroneNew(w http.ResponseWriter, r *http.Request) {
 		}
 		var droneID int
 		err := a.db.QueryRow(ctx, `
-            INSERT INTO drones (name,frame_id,fc_id,esc_id,vtx_id,motor_id,motor_count,size_id,cell_id,gps_id,rx_id,status,build_date,weight_g,notes)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
+            INSERT INTO drones (name,frame_id,fc_id,esc_id,vtx_id,motor_id,motor_count,size_id,cell_id,gps_id,rx_id,status,build_date,weight_g,sub_250g,notes)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
 			name,
 			nullIntPtr(r.FormValue("frame_id")),
 			nullIntPtr(r.FormValue("fc_id")),
@@ -277,6 +299,7 @@ func (a *App) handleDroneNew(w http.ResponseWriter, r *http.Request) {
 			r.FormValue("status"),
 			nullDate(r.FormValue("build_date")),
 			nullIntPtr(r.FormValue("weight_g")),
+			r.FormValue("sub_250g") == "on",
 			r.FormValue("notes")).Scan(&droneID)
 		if err != nil {
 			httpErr(w, err)
@@ -330,7 +353,7 @@ func (a *App) handleDroneEdit(w http.ResponseWriter, r *http.Request) {
 		_, err := a.db.Exec(ctx, `
             UPDATE drones SET name=$1,frame_id=$2,fc_id=$3,esc_id=$4,vtx_id=$5,
             motor_id=$6,motor_count=$7,size_id=$8,cell_id=$9,
-            gps_id=$10,rx_id=$11,status=$12,build_date=$13,weight_g=$14,notes=$15 WHERE id=$16`,
+            gps_id=$10,rx_id=$11,status=$12,build_date=$13,weight_g=$14,sub_250g=$15,notes=$16 WHERE id=$17`,
 			name,
 			nullIntPtr(r.FormValue("frame_id")),
 			nullIntPtr(r.FormValue("fc_id")),
@@ -345,6 +368,7 @@ func (a *App) handleDroneEdit(w http.ResponseWriter, r *http.Request) {
 			r.FormValue("status"),
 			nullDate(r.FormValue("build_date")),
 			nullIntPtr(r.FormValue("weight_g")),
+			r.FormValue("sub_250g") == "on",
 			r.FormValue("notes"), id)
 		if err != nil {
 			httpErr(w, err)
@@ -371,11 +395,11 @@ func (a *App) handleDroneEdit(w http.ResponseWriter, r *http.Request) {
 	err := a.db.QueryRow(ctx, `
         SELECT id,name,frame_id,fc_id,esc_id,vtx_id,motor_id,motor_count,size_id,cell_id,
                gps_id,rx_id,
-               status,TO_CHAR(build_date,'YYYY-MM-DD'),weight_g,notes
+               status,TO_CHAR(build_date,'YYYY-MM-DD'),weight_g,sub_250g,notes
         FROM drones WHERE id=$1`, id).Scan(
 		&page.ID, &page.Name, &frameID, &fcID, &escID, &vtxID,
 		&motorID, &motorCount, &sizeID, &cellID,
-		&gpsID, &rxID, &page.Status, &bd, &weightG, &page.Notes)
+		&gpsID, &rxID, &page.Status, &bd, &weightG, &page.Sub250g, &page.Notes)
 	if err == pgx.ErrNoRows {
 		http.NotFound(w, r)
 		return
@@ -947,7 +971,7 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err = a.db.Query(ctx, `
-        SELECT fc.id, COALESCE(br.name,''), fc.name, fc.mcu, fc.firmware,
+        SELECT fc.id, COALESCE(br.name,''), fc.name, COALESCE(m.name,''), fc.firmware,
                COALESCE(ic.count,0),
                COUNT(d.id)::int,
                COALESCE(ic.count,0) - COUNT(d.id)::int,
@@ -955,10 +979,11 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
                COALESCE(fcp.id,0)
         FROM flight_controllers fc
         LEFT JOIN brands br ON br.id=fc.brand_id
+        LEFT JOIN mcus m ON m.id=fc.mcu_id
         LEFT JOIN item_counts ic ON ic.item_type='fc' AND ic.item_id=fc.id
         LEFT JOIN drones d ON d.fc_id=fc.id
         LEFT JOIN LATERAL (SELECT id FROM fc_photos WHERE fc_id=fc.id ORDER BY created_at LIMIT 1) fcp ON true
-        GROUP BY fc.id, br.name, fc.name, fc.mcu, fc.firmware, ic.count, fcp.id
+        GROUP BY fc.id, br.name, fc.name, m.name, fc.firmware, ic.count, fcp.id
         ORDER BY br.name, fc.name`)
 	if err != nil {
 		httpErr(w, err)
@@ -981,7 +1006,7 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err = a.db.Query(ctx, `
-        SELECT e.id, COALESCE(br.name,''), e.name, e.current_rating, e.cell_max,
+        SELECT e.id, COALESCE(br.name,''), e.name, e.current_rating, COALESCE(c.label,''),
                COALESCE(ic.count,0),
                COUNT(d.id)::int,
                COALESCE(ic.count,0) - COUNT(d.id)::int,
@@ -989,10 +1014,11 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
                COALESCE(ep.id,0)
         FROM escs e
         LEFT JOIN brands br ON br.id=e.brand_id
+        LEFT JOIN cells c ON c.id=e.cell_max_id
         LEFT JOIN item_counts ic ON ic.item_type='esc' AND ic.item_id=e.id
         LEFT JOIN drones d ON d.esc_id=e.id
         LEFT JOIN LATERAL (SELECT id FROM esc_photos WHERE esc_id=e.id ORDER BY created_at LIMIT 1) ep ON true
-        GROUP BY e.id, br.name, e.name, e.current_rating, e.cell_max, ic.count, ep.id
+        GROUP BY e.id, br.name, e.name, e.current_rating, c.label, ic.count, ep.id
         ORDER BY br.name, e.name`)
 	if err != nil {
 		httpErr(w, err)
@@ -1000,8 +1026,8 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 	}
 	for rows.Next() {
 		var e ESCRow
-		var cr, cm *int
-		if err := rows.Scan(&e.ID, &e.Brand, &e.Name, &cr, &cm,
+		var cr *int
+		if err := rows.Scan(&e.ID, &e.Brand, &e.Name, &cr, &e.CellMax,
 			&e.Total, &e.Installed, &e.Available, &e.InstalledOn, &e.FirstPhotoID); err != nil {
 			rows.Close()
 			httpErr(w, err)
@@ -1009,9 +1035,6 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 		}
 		if cr != nil {
 			e.CurrentRating = strconv.Itoa(*cr)
-		}
-		if cm != nil {
-			e.CellMax = strconv.Itoa(*cm)
 		}
 		page.ESCs = append(page.ESCs, e)
 	}
@@ -1060,7 +1083,7 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err = a.db.Query(ctx, `
-        SELECT v.id, COALESCE(br.name,''), v.name, v.system, v.max_power_mw, v.resolution,
+        SELECT v.id, COALESCE(br.name,''), v.name,
                COALESCE(ic.count,0),
                COUNT(d.id)::int,
                COALESCE(ic.count,0) - COUNT(d.id)::int,
@@ -1071,7 +1094,7 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
         LEFT JOIN item_counts ic ON ic.item_type='vtx' AND ic.item_id=v.id
         LEFT JOIN drones d ON d.vtx_id=v.id
         LEFT JOIN LATERAL (SELECT id FROM vtx_photos WHERE vtx_id=v.id ORDER BY created_at LIMIT 1) vp ON true
-        GROUP BY v.id, br.name, v.name, v.system, v.max_power_mw, v.resolution, ic.count, vp.id
+        GROUP BY v.id, br.name, v.name, ic.count, vp.id
         ORDER BY br.name, v.name`)
 	if err != nil {
 		httpErr(w, err)
@@ -1079,15 +1102,11 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 	}
 	for rows.Next() {
 		var v VTXRow
-		var mw *int
-		if err := rows.Scan(&v.ID, &v.Brand, &v.Name, &v.System, &mw, &v.Resolution,
+		if err := rows.Scan(&v.ID, &v.Brand, &v.Name,
 			&v.Total, &v.Installed, &v.Available, &v.InstalledOn, &v.FirstPhotoID); err != nil {
 			rows.Close()
 			httpErr(w, err)
 			return
-		}
-		if mw != nil {
-			v.MaxPowerMW = strconv.Itoa(*mw)
 		}
 		page.VTXs = append(page.VTXs, v)
 	}
@@ -1132,7 +1151,7 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err = a.db.Query(ctx, `
-        SELECT rx.id, COALESCE(br.name,''), rx.name, rx.protocol,
+        SELECT rx.id, COALESCE(br.name,''), rx.name, COALESCE(rp.name,''),
                COALESCE(ic.count,0),
                COUNT(d.id)::int,
                COALESCE(ic.count,0) - COUNT(d.id)::int,
@@ -1140,10 +1159,11 @@ func (a *App) handleInventory(w http.ResponseWriter, r *http.Request) {
                COALESCE(rxp.id,0)
         FROM radio_receivers rx
         LEFT JOIN brands br ON br.id=rx.brand_id
+        LEFT JOIN radio_protocols rp ON rp.id=rx.protocol_id
         LEFT JOIN item_counts ic ON ic.item_type='rx' AND ic.item_id=rx.id
         LEFT JOIN drones d ON d.rx_id=rx.id
         LEFT JOIN LATERAL (SELECT id FROM rx_photos WHERE rx_id=rx.id ORDER BY created_at LIMIT 1) rxp ON true
-        GROUP BY rx.id, br.name, rx.name, rx.protocol, ic.count, rxp.id
+        GROUP BY rx.id, br.name, rx.name, rp.name, ic.count, rxp.id
         ORDER BY br.name, rx.name`)
 	if err != nil {
 		httpErr(w, err)
@@ -1301,8 +1321,8 @@ func (a *App) handleFCNew(w http.ResponseWriter, r *http.Request) {
 		qty, _ := strconv.Atoi(r.FormValue("quantity"))
 		var id int
 		err := a.db.QueryRow(ctx,
-			`INSERT INTO flight_controllers (brand_id,name,mcu,firmware,notes) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
-			nullIntPtr(r.FormValue("brand_id")), name, r.FormValue("mcu"), r.FormValue("firmware"),
+			`INSERT INTO flight_controllers (brand_id,name,mcu_id,firmware,notes) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+			nullIntPtr(r.FormValue("brand_id")), name, nullIntPtr(r.FormValue("mcu_id")), r.FormValue("firmware"),
 			r.FormValue("notes")).Scan(&id)
 		if err != nil {
 			httpErr(w, err)
@@ -1314,6 +1334,7 @@ func (a *App) handleFCNew(w http.ResponseWriter, r *http.Request) {
 	}
 	page := FCFormPage{ActiveTab: "inventory"}
 	page.Brands, _ = a.brandOptions(r)
+	page.MCUs, _ = a.mcuOptions(r)
 	render(w, "fc-form", page)
 }
 
@@ -1338,8 +1359,8 @@ func (a *App) handleFCEdit(w http.ResponseWriter, r *http.Request) {
 		}
 		qty, _ := strconv.Atoi(r.FormValue("quantity"))
 		_, err := a.db.Exec(ctx,
-			`UPDATE flight_controllers SET brand_id=$1,name=$2,mcu=$3,firmware=$4,notes=$5 WHERE id=$6`,
-			nullIntPtr(r.FormValue("brand_id")), name, r.FormValue("mcu"), r.FormValue("firmware"),
+			`UPDATE flight_controllers SET brand_id=$1,name=$2,mcu_id=$3,firmware=$4,notes=$5 WHERE id=$6`,
+			nullIntPtr(r.FormValue("brand_id")), name, nullIntPtr(r.FormValue("mcu_id")), r.FormValue("firmware"),
 			r.FormValue("notes"), id)
 		if err != nil {
 			httpErr(w, err)
@@ -1352,13 +1373,13 @@ func (a *App) handleFCEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var page FCFormPage
-	var brandID *int
+	var brandID, mcuID *int
 	var qty int
 	err := a.db.QueryRow(ctx,
-		`SELECT fc.id,fc.brand_id,fc.name,fc.mcu,fc.firmware,fc.notes,COALESCE(ic.count,0)
+		`SELECT fc.id,fc.brand_id,fc.name,fc.mcu_id,fc.firmware,fc.notes,COALESCE(ic.count,0)
          FROM flight_controllers fc LEFT JOIN item_counts ic ON ic.item_type='fc' AND ic.item_id=fc.id
          WHERE fc.id=$1`, id).
-		Scan(&page.ID, &brandID, &page.Name, &page.MCU, &page.Firmware, &page.Notes, &qty)
+		Scan(&page.ID, &brandID, &page.Name, &mcuID, &page.Firmware, &page.Notes, &qty)
 	if err == pgx.ErrNoRows {
 		http.NotFound(w, r)
 		return
@@ -1368,9 +1389,11 @@ func (a *App) handleFCEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page.BrandID = derefInt(brandID)
+	page.MCUID = derefInt(mcuID)
 	page.Quantity = strconv.Itoa(qty)
 	page.ActiveTab = "inventory"
 	page.Brands, _ = a.brandOptions(r)
+	page.MCUs, _ = a.mcuOptions(r)
 	page.Photos = a.fetchItemPhotos(ctx, "fc_photos", "fc_id", id)
 	render(w, "fc-form", page)
 }
@@ -1406,9 +1429,9 @@ func (a *App) handleESCNew(w http.ResponseWriter, r *http.Request) {
 		qty, _ := strconv.Atoi(r.FormValue("quantity"))
 		var id int
 		err := a.db.QueryRow(ctx,
-			`INSERT INTO escs (brand_id,name,current_rating,cell_max,notes) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+			`INSERT INTO escs (brand_id,name,current_rating,cell_max_id,notes) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
 			nullIntPtr(r.FormValue("brand_id")), name,
-			nullIntPtr(r.FormValue("current_rating")), nullIntPtr(r.FormValue("cell_max")),
+			nullIntPtr(r.FormValue("current_rating")), nullIntPtr(r.FormValue("cell_max_id")),
 			r.FormValue("notes")).Scan(&id)
 		if err != nil {
 			httpErr(w, err)
@@ -1420,6 +1443,7 @@ func (a *App) handleESCNew(w http.ResponseWriter, r *http.Request) {
 	}
 	page := ESCFormPage{ActiveTab: "inventory"}
 	page.Brands, _ = a.brandOptions(r)
+	page.Cells, _ = a.cellOptions(r)
 	render(w, "esc-form", page)
 }
 
@@ -1444,9 +1468,9 @@ func (a *App) handleESCEdit(w http.ResponseWriter, r *http.Request) {
 		}
 		qty, _ := strconv.Atoi(r.FormValue("quantity"))
 		_, err := a.db.Exec(ctx,
-			`UPDATE escs SET brand_id=$1,name=$2,current_rating=$3,cell_max=$4,notes=$5 WHERE id=$6`,
+			`UPDATE escs SET brand_id=$1,name=$2,current_rating=$3,cell_max_id=$4,notes=$5 WHERE id=$6`,
 			nullIntPtr(r.FormValue("brand_id")), name,
-			nullIntPtr(r.FormValue("current_rating")), nullIntPtr(r.FormValue("cell_max")),
+			nullIntPtr(r.FormValue("current_rating")), nullIntPtr(r.FormValue("cell_max_id")),
 			r.FormValue("notes"), id)
 		if err != nil {
 			httpErr(w, err)
@@ -1459,14 +1483,14 @@ func (a *App) handleESCEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var page ESCFormPage
-	var brandID *int
-	var cr, cm *int
+	var brandID, cellMaxID *int
+	var cr *int
 	var qty int
 	err := a.db.QueryRow(ctx,
-		`SELECT e.id,e.brand_id,e.name,e.current_rating,e.cell_max,e.notes,COALESCE(ic.count,0)
+		`SELECT e.id,e.brand_id,e.name,e.current_rating,e.cell_max_id,e.notes,COALESCE(ic.count,0)
          FROM escs e LEFT JOIN item_counts ic ON ic.item_type='esc' AND ic.item_id=e.id
          WHERE e.id=$1`, id).
-		Scan(&page.ID, &brandID, &page.Name, &cr, &cm, &page.Notes, &qty)
+		Scan(&page.ID, &brandID, &page.Name, &cr, &cellMaxID, &page.Notes, &qty)
 	if err == pgx.ErrNoRows {
 		http.NotFound(w, r)
 		return
@@ -1476,15 +1500,14 @@ func (a *App) handleESCEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page.BrandID = derefInt(brandID)
+	page.CellMaxID = derefInt(cellMaxID)
 	if cr != nil {
 		page.CurrentRating = strconv.Itoa(*cr)
-	}
-	if cm != nil {
-		page.CellMax = strconv.Itoa(*cm)
 	}
 	page.Quantity = strconv.Itoa(qty)
 	page.ActiveTab = "inventory"
 	page.Brands, _ = a.brandOptions(r)
+	page.Cells, _ = a.cellOptions(r)
 	page.Photos = a.fetchItemPhotos(ctx, "esc_photos", "esc_id", id)
 	render(w, "esc-form", page)
 }
@@ -1629,9 +1652,8 @@ func (a *App) handleVTXNew(w http.ResponseWriter, r *http.Request) {
 		qty, _ := strconv.Atoi(r.FormValue("quantity"))
 		var id int
 		err := a.db.QueryRow(ctx,
-			`INSERT INTO vtx_units (brand_id,name,system,max_power_mw,resolution,weight_g,notes) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-			nullIntPtr(r.FormValue("brand_id")), name, r.FormValue("system"),
-			nullIntPtr(r.FormValue("max_power_mw")), r.FormValue("resolution"),
+			`INSERT INTO vtx_units (brand_id,name,weight_g,notes) VALUES ($1,$2,$3,$4) RETURNING id`,
+			nullIntPtr(r.FormValue("brand_id")), name,
 			nullIntPtr(r.FormValue("weight_g")), r.FormValue("notes")).Scan(&id)
 		if err != nil {
 			httpErr(w, err)
@@ -1667,9 +1689,8 @@ func (a *App) handleVTXEdit(w http.ResponseWriter, r *http.Request) {
 		}
 		qty, _ := strconv.Atoi(r.FormValue("quantity"))
 		_, err := a.db.Exec(ctx,
-			`UPDATE vtx_units SET brand_id=$1,name=$2,system=$3,max_power_mw=$4,resolution=$5,weight_g=$6,notes=$7 WHERE id=$8`,
-			nullIntPtr(r.FormValue("brand_id")), name, r.FormValue("system"),
-			nullIntPtr(r.FormValue("max_power_mw")), r.FormValue("resolution"),
+			`UPDATE vtx_units SET brand_id=$1,name=$2,weight_g=$3,notes=$4 WHERE id=$5`,
+			nullIntPtr(r.FormValue("brand_id")), name,
 			nullIntPtr(r.FormValue("weight_g")), r.FormValue("notes"), id)
 		if err != nil {
 			httpErr(w, err)
@@ -1682,14 +1703,13 @@ func (a *App) handleVTXEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var page VTXFormPage
-	var brandID *int
-	var mw, wg *int
+	var brandID, wg *int
 	var qty int
 	err := a.db.QueryRow(ctx,
-		`SELECT v.id,v.brand_id,v.name,v.system,v.max_power_mw,v.resolution,v.weight_g,v.notes,COALESCE(ic.count,0)
+		`SELECT v.id,v.brand_id,v.name,v.weight_g,v.notes,COALESCE(ic.count,0)
          FROM vtx_units v LEFT JOIN item_counts ic ON ic.item_type='vtx' AND ic.item_id=v.id
          WHERE v.id=$1`, id).
-		Scan(&page.ID, &brandID, &page.Name, &page.System, &mw, &page.Resolution, &wg, &page.Notes, &qty)
+		Scan(&page.ID, &brandID, &page.Name, &wg, &page.Notes, &qty)
 	if err == pgx.ErrNoRows {
 		http.NotFound(w, r)
 		return
@@ -1699,9 +1719,6 @@ func (a *App) handleVTXEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page.BrandID = derefInt(brandID)
-	if mw != nil {
-		page.MaxPowerMW = strconv.Itoa(*mw)
-	}
 	if wg != nil {
 		page.WeightG = strconv.Itoa(*wg)
 	}
@@ -1731,7 +1748,7 @@ func (a *App) handleProps(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.Query(ctx, `
         SELECT p.id, COALESCE(br.name,''), p.name,
                COALESCE(sz.label,''), CAST(p.pitch AS FLOAT8),
-               p.blade_count, p.material, p.quantity, p.reorder_threshold,
+               p.blade_count, p.quantity, p.reorder_threshold,
                COALESCE(string_agg(d.name, ', ' ORDER BY d.name),''), COALESCE(pp.id,0)
         FROM propellers p
         LEFT JOIN brands br ON br.id=p.brand_id
@@ -1739,7 +1756,7 @@ func (a *App) handleProps(w http.ResponseWriter, r *http.Request) {
         LEFT JOIN drone_props dp ON dp.prop_id=p.id
         LEFT JOIN drones d ON d.id=dp.drone_id
         LEFT JOIN LATERAL (SELECT id FROM prop_photos WHERE prop_id=p.id ORDER BY created_at LIMIT 1) pp ON true
-        GROUP BY p.id, br.name, p.name, sz.label, p.pitch, p.blade_count, p.material, p.quantity, p.reorder_threshold, pp.id
+        GROUP BY p.id, br.name, p.name, sz.label, p.pitch, p.blade_count, p.quantity, p.reorder_threshold, pp.id
         ORDER BY br.name, p.name`)
 	if err != nil {
 		httpErr(w, err)
@@ -1751,7 +1768,7 @@ func (a *App) handleProps(w http.ResponseWriter, r *http.Request) {
 		var p PropRow
 		var pitch *float64
 		if err := rows.Scan(&p.ID, &p.Brand, &p.Name, &p.SizeInch, &pitch,
-			&p.BladeCount, &p.Material, &p.Quantity, &p.ReorderThreshold, &p.DroneNames, &p.FirstPhotoID); err != nil {
+			&p.BladeCount, &p.Quantity, &p.ReorderThreshold, &p.DroneNames, &p.FirstPhotoID); err != nil {
 			httpErr(w, err)
 			return
 		}
@@ -1790,11 +1807,11 @@ func (a *App) handlePropNew(w http.ResponseWriter, r *http.Request) {
 		qty, _ := strconv.Atoi(r.FormValue("quantity"))
 		rt, _ := strconv.Atoi(r.FormValue("reorder_threshold"))
 		_, err := a.db.Exec(ctx,
-			`INSERT INTO propellers (brand_id,name,size_id,pitch,blade_count,material,quantity,reorder_threshold,notes)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+			`INSERT INTO propellers (brand_id,name,size_id,pitch,blade_count,quantity,reorder_threshold,notes)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
 			nullIntPtr(r.FormValue("brand_id")), name,
 			nullIntPtr(r.FormValue("size_id")), nullFloat64(r.FormValue("pitch")),
-			bc, r.FormValue("material"), qty, rt, r.FormValue("notes"))
+			bc, qty, rt, r.FormValue("notes"))
 		if err != nil {
 			httpErr(w, err)
 			return
@@ -1835,10 +1852,10 @@ func (a *App) handlePropEdit(w http.ResponseWriter, r *http.Request) {
 		rt, _ := strconv.Atoi(r.FormValue("reorder_threshold"))
 		_, err := a.db.Exec(ctx,
 			`UPDATE propellers SET brand_id=$1,name=$2,size_id=$3,pitch=$4,blade_count=$5,
-             material=$6,quantity=$7,reorder_threshold=$8,notes=$9 WHERE id=$10`,
+             quantity=$6,reorder_threshold=$7,notes=$8 WHERE id=$9`,
 			nullIntPtr(r.FormValue("brand_id")), name,
 			nullIntPtr(r.FormValue("size_id")), nullFloat64(r.FormValue("pitch")),
-			bc, r.FormValue("material"), qty, rt, r.FormValue("notes"), id)
+			bc, qty, rt, r.FormValue("notes"), id)
 		if err != nil {
 			httpErr(w, err)
 			return
@@ -1852,9 +1869,9 @@ func (a *App) handlePropEdit(w http.ResponseWriter, r *http.Request) {
 	var bladeCount, qty, rt int
 	err := a.db.QueryRow(ctx,
 		`SELECT id,brand_id,name,size_id,CAST(pitch AS FLOAT8),blade_count,
-         material,quantity,reorder_threshold,notes FROM propellers WHERE id=$1`, id).
+         quantity,reorder_threshold,notes FROM propellers WHERE id=$1`, id).
 		Scan(&page.ID, &brandID, &page.Name, &sizeID, &pitch,
-			&bladeCount, &page.Material, &qty, &rt, &page.Notes)
+			&bladeCount, &qty, &rt, &page.Notes)
 	page.BladeCount = strconv.Itoa(bladeCount)
 	page.Quantity = strconv.Itoa(qty)
 	page.ReorderThreshold = strconv.Itoa(rt)
@@ -2496,8 +2513,8 @@ func (a *App) handleRXNew(w http.ResponseWriter, r *http.Request) {
 		qty, _ := strconv.Atoi(r.FormValue("quantity"))
 		var id int
 		err := a.db.QueryRow(ctx,
-			`INSERT INTO radio_receivers (brand_id,name,protocol,notes) VALUES ($1,$2,$3,$4) RETURNING id`,
-			nullIntPtr(r.FormValue("brand_id")), name, r.FormValue("protocol"), r.FormValue("notes")).Scan(&id)
+			`INSERT INTO radio_receivers (brand_id,name,protocol_id,notes) VALUES ($1,$2,$3,$4) RETURNING id`,
+			nullIntPtr(r.FormValue("brand_id")), name, nullIntPtr(r.FormValue("protocol_id")), r.FormValue("notes")).Scan(&id)
 		if err != nil {
 			httpErr(w, err)
 			return
@@ -2508,6 +2525,7 @@ func (a *App) handleRXNew(w http.ResponseWriter, r *http.Request) {
 	}
 	page := RXFormPage{ActiveTab: "inventory"}
 	page.Brands, _ = a.brandOptions(r)
+	page.Protocols, _ = a.radioProtocolOptions(r)
 	render(w, "rx-form", page)
 }
 
@@ -2532,8 +2550,8 @@ func (a *App) handleRXEdit(w http.ResponseWriter, r *http.Request) {
 		}
 		qty, _ := strconv.Atoi(r.FormValue("quantity"))
 		_, err := a.db.Exec(ctx,
-			`UPDATE radio_receivers SET brand_id=$1,name=$2,protocol=$3,notes=$4 WHERE id=$5`,
-			nullIntPtr(r.FormValue("brand_id")), name, r.FormValue("protocol"), r.FormValue("notes"), id)
+			`UPDATE radio_receivers SET brand_id=$1,name=$2,protocol_id=$3,notes=$4 WHERE id=$5`,
+			nullIntPtr(r.FormValue("brand_id")), name, nullIntPtr(r.FormValue("protocol_id")), r.FormValue("notes"), id)
 		if err != nil {
 			httpErr(w, err)
 			return
@@ -2545,13 +2563,13 @@ func (a *App) handleRXEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var page RXFormPage
-	var brandID *int
+	var brandID, protocolID *int
 	var qty int
 	err := a.db.QueryRow(ctx,
-		`SELECT rx.id,rx.brand_id,rx.name,rx.protocol,rx.notes,COALESCE(ic.count,0)
+		`SELECT rx.id,rx.brand_id,rx.name,rx.protocol_id,rx.notes,COALESCE(ic.count,0)
          FROM radio_receivers rx LEFT JOIN item_counts ic ON ic.item_type='rx' AND ic.item_id=rx.id
          WHERE rx.id=$1`, id).
-		Scan(&page.ID, &brandID, &page.Name, &page.Protocol, &page.Notes, &qty)
+		Scan(&page.ID, &brandID, &page.Name, &protocolID, &page.Notes, &qty)
 	if err == pgx.ErrNoRows {
 		http.NotFound(w, r)
 		return
@@ -2561,9 +2579,11 @@ func (a *App) handleRXEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page.BrandID = derefInt(brandID)
+	page.ProtocolID = derefInt(protocolID)
 	page.Quantity = strconv.Itoa(qty)
 	page.ActiveTab = "inventory"
 	page.Brands, _ = a.brandOptions(r)
+	page.Protocols, _ = a.radioProtocolOptions(r)
 	page.Photos = a.fetchItemPhotos(ctx, "rx_photos", "rx_id", id)
 	render(w, "rx-form", page)
 }
@@ -3244,7 +3264,177 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		cellRows.Close()
 	}
+	rpRows, _ := a.db.Query(ctx, `SELECT id, name FROM radio_protocols ORDER BY name`)
+	if rpRows != nil {
+		for rpRows.Next() {
+			var rp RadioProtocolRow
+			rpRows.Scan(&rp.ID, &rp.Name)
+			page.RadioProtocols = append(page.RadioProtocols, rp)
+		}
+		rpRows.Close()
+	}
+	mcuRows, _ := a.db.Query(ctx, `SELECT id, name FROM mcus ORDER BY name`)
+	if mcuRows != nil {
+		for mcuRows.Next() {
+			var m MCURow
+			mcuRows.Scan(&m.ID, &m.Name)
+			page.MCUs = append(page.MCUs, m)
+		}
+		mcuRows.Close()
+	}
 	render(w, "settings", page)
+}
+
+// ---- Radio Protocols ----
+
+func (a *App) handleRadioProtocolNew(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		if err := r.ParseForm(); err != nil {
+			httpErr(w, err)
+			return
+		}
+		name := strings.TrimSpace(r.FormValue("name"))
+		if name == "" {
+			render(w, "radio-protocol-form", RadioProtocolFormPage{ActiveTab: "settings", Error: "Name is required"})
+			return
+		}
+		_, err := a.db.Exec(r.Context(), `INSERT INTO radio_protocols (name) VALUES ($1)`, name)
+		if err != nil {
+			render(w, "radio-protocol-form", RadioProtocolFormPage{ActiveTab: "settings", Error: "Protocol already exists"})
+			return
+		}
+		http.Redirect(w, r, "/settings", http.StatusSeeOther)
+		return
+	}
+	render(w, "radio-protocol-form", RadioProtocolFormPage{ActiveTab: "settings"})
+}
+
+func (a *App) handleRadioProtocolEdit(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method == http.MethodPost {
+		if err := r.ParseForm(); err != nil {
+			httpErr(w, err)
+			return
+		}
+		name := strings.TrimSpace(r.FormValue("name"))
+		if name == "" {
+			render(w, "radio-protocol-form", RadioProtocolFormPage{ActiveTab: "settings", Error: "Name is required", ID: id})
+			return
+		}
+		_, err := a.db.Exec(r.Context(), `UPDATE radio_protocols SET name=$1 WHERE id=$2`, name, id)
+		if err != nil {
+			render(w, "radio-protocol-form", RadioProtocolFormPage{ActiveTab: "settings", Error: "Protocol already exists", ID: id, Name: name})
+			return
+		}
+		http.Redirect(w, r, "/settings", http.StatusSeeOther)
+		return
+	}
+	var page RadioProtocolFormPage
+	err := a.db.QueryRow(r.Context(), `SELECT id, name FROM radio_protocols WHERE id=$1`, id).
+		Scan(&page.ID, &page.Name)
+	if err == pgx.ErrNoRows {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	page.ActiveTab = "settings"
+	render(w, "radio-protocol-form", page)
+}
+
+func (a *App) handleRadioProtocolDelete(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if _, err := a.db.Exec(r.Context(), `DELETE FROM radio_protocols WHERE id=$1`, id); err != nil {
+		httpErr(w, err)
+		return
+	}
+	http.Redirect(w, r, "/settings", http.StatusSeeOther)
+}
+
+// ---- MCUs ----
+
+func (a *App) handleMCUNew(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		if err := r.ParseForm(); err != nil {
+			httpErr(w, err)
+			return
+		}
+		name := strings.TrimSpace(r.FormValue("name"))
+		if name == "" {
+			render(w, "mcu-form", MCUFormPage{ActiveTab: "settings", Error: "Name is required"})
+			return
+		}
+		_, err := a.db.Exec(r.Context(), `INSERT INTO mcus (name) VALUES ($1)`, name)
+		if err != nil {
+			render(w, "mcu-form", MCUFormPage{ActiveTab: "settings", Error: "MCU already exists"})
+			return
+		}
+		http.Redirect(w, r, "/settings", http.StatusSeeOther)
+		return
+	}
+	render(w, "mcu-form", MCUFormPage{ActiveTab: "settings"})
+}
+
+func (a *App) handleMCUEdit(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method == http.MethodPost {
+		if err := r.ParseForm(); err != nil {
+			httpErr(w, err)
+			return
+		}
+		name := strings.TrimSpace(r.FormValue("name"))
+		if name == "" {
+			render(w, "mcu-form", MCUFormPage{ActiveTab: "settings", Error: "Name is required", ID: id})
+			return
+		}
+		_, err := a.db.Exec(r.Context(), `UPDATE mcus SET name=$1 WHERE id=$2`, name, id)
+		if err != nil {
+			render(w, "mcu-form", MCUFormPage{ActiveTab: "settings", Error: "MCU already exists", ID: id, Name: name})
+			return
+		}
+		http.Redirect(w, r, "/settings", http.StatusSeeOther)
+		return
+	}
+	var page MCUFormPage
+	err := a.db.QueryRow(r.Context(), `SELECT id, name FROM mcus WHERE id=$1`, id).
+		Scan(&page.ID, &page.Name)
+	if err == pgx.ErrNoRows {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	page.ActiveTab = "settings"
+	render(w, "mcu-form", page)
+}
+
+func (a *App) handleMCUDelete(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if _, err := a.db.Exec(r.Context(), `DELETE FROM mcus WHERE id=$1`, id); err != nil {
+		httpErr(w, err)
+		return
+	}
+	http.Redirect(w, r, "/settings", http.StatusSeeOther)
 }
 
 // ---- Sizes ----
@@ -3553,10 +3743,16 @@ func (a *App) handleWeather(w http.ResponseWriter, r *http.Request) {
 	}
 
 
+	now := time.Now().In(aest)
+	todayKey := now.Format("2006-01-02")
+
 	for _, d := range daily.Data {
 		t, _ := time.Parse(time.RFC3339, d.Date)
 		tLocal := t.In(aest)
 		dateKey := tLocal.Format("2006-01-02")
+		if dateKey == todayKey && now.Hour() > 17 {
+			continue
+		}
 
 		rainMaxStr := "—"
 		if d.Rain.Amount.Max != nil {

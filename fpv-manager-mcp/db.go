@@ -37,6 +37,7 @@ type DroneRow struct {
 	RXBrand    string
 	RXName     string
 	WeightG    *int
+	Sub250g    bool
 	Notes      string
 }
 
@@ -58,7 +59,7 @@ SELECT d.id, d.name, d.status, TO_CHAR(d.build_date,'YYYY-MM-DD'),
     WHERE db2.drone_id=d.id),''),
   COALESCE(bg.name,''), COALESCE(g.name,''),
   COALESCE(brx.name,''), COALESCE(rx.name,''),
-  d.weight_g, d.notes
+  d.weight_g, d.sub_250g, d.notes
 FROM drones d
 LEFT JOIN sizes sz ON sz.id=d.size_id
 LEFT JOIN cells c ON c.id=d.cell_id
@@ -90,7 +91,7 @@ func scanDrone(fn func(...any) error) (DroneRow, error) {
 		&d.BattNames,
 		&d.GPSBrand, &d.GPSName,
 		&d.RXBrand, &d.RXName,
-		&d.WeightG, &d.Notes,
+		&d.WeightG, &d.Sub250g, &d.Notes,
 	)
 	return d, err
 }
@@ -367,10 +368,11 @@ ORDER BY bf.name, f.name`)
 func (q *Queries) listFCs(ctx context.Context) ([]ComponentRow, error) {
 	return q.scanComponents(ctx, "fc", `
 SELECT fc.id, COALESCE(bfc.name,''), fc.name,
-  TRIM(fc.mcu || CASE WHEN fc.firmware!='' THEN ' '||fc.firmware ELSE '' END),
+  TRIM(COALESCE(m.name,'') || CASE WHEN fc.firmware!='' THEN ' '||fc.firmware ELSE '' END),
   COALESCE(ic.count,0), di.installed, COALESCE(ic.count,0)-di.installed, di.names
 FROM flight_controllers fc
 LEFT JOIN brands bfc ON bfc.id=fc.brand_id
+LEFT JOIN mcus m ON m.id=fc.mcu_id
 LEFT JOIN item_counts ic ON ic.item_type='fc' AND ic.item_id=fc.id
 LEFT JOIN LATERAL (SELECT COUNT(*)::int AS installed, COALESCE(string_agg(d.name,', ' ORDER BY d.name),'') AS names FROM drones d WHERE d.fc_id=fc.id) di ON true
 ORDER BY bfc.name, fc.name`)
@@ -381,11 +383,12 @@ func (q *Queries) listESCs(ctx context.Context) ([]ComponentRow, error) {
 SELECT e.id, COALESCE(be.name,''), e.name,
   TRIM(
     CASE WHEN e.current_rating IS NOT NULL THEN e.current_rating::text||'A' ELSE '' END ||
-    CASE WHEN e.cell_max IS NOT NULL THEN ' '||e.cell_max::text||'S max' ELSE '' END
+    CASE WHEN c.label IS NOT NULL THEN ' '||c.label||' max' ELSE '' END
   ),
   COALESCE(ic.count,0), di.installed, COALESCE(ic.count,0)-di.installed, di.names
 FROM escs e
 LEFT JOIN brands be ON be.id=e.brand_id
+LEFT JOIN cells c ON c.id=e.cell_max_id
 LEFT JOIN item_counts ic ON ic.item_type='esc' AND ic.item_id=e.id
 LEFT JOIN LATERAL (SELECT COUNT(*)::int AS installed, COALESCE(string_agg(d.name,', ' ORDER BY d.name),'') AS names FROM drones d WHERE d.esc_id=e.id) di ON true
 ORDER BY be.name, e.name`)
@@ -406,11 +409,7 @@ ORDER BY bm.name, m.name`)
 func (q *Queries) listVTXs(ctx context.Context) ([]ComponentRow, error) {
 	return q.scanComponents(ctx, "vtx", `
 SELECT v.id, COALESCE(bv.name,''), v.name,
-  TRIM(
-    v.system ||
-    CASE WHEN v.max_power_mw IS NOT NULL THEN ' '||v.max_power_mw::text||'mW' ELSE '' END ||
-    CASE WHEN v.resolution!='' THEN ' '||v.resolution ELSE '' END
-  ),
+  CASE WHEN v.weight_g IS NOT NULL THEN v.weight_g::text||'g' ELSE '' END,
   COALESCE(ic.count,0), di.installed, COALESCE(ic.count,0)-di.installed, di.names
 FROM vtx_units v
 LEFT JOIN brands bv ON bv.id=v.brand_id
@@ -432,10 +431,11 @@ ORDER BY bg.name, g.name`)
 
 func (q *Queries) listRX(ctx context.Context) ([]ComponentRow, error) {
 	return q.scanComponents(ctx, "rx", `
-SELECT rx.id, COALESCE(brx.name,''), rx.name, rx.protocol,
+SELECT rx.id, COALESCE(brx.name,''), rx.name, COALESCE(rp.name,''),
   COALESCE(ic.count,0), di.installed, COALESCE(ic.count,0)-di.installed, di.names
 FROM radio_receivers rx
 LEFT JOIN brands brx ON brx.id=rx.brand_id
+LEFT JOIN radio_protocols rp ON rp.id=rx.protocol_id
 LEFT JOIN item_counts ic ON ic.item_type='rx' AND ic.item_id=rx.id
 LEFT JOIN LATERAL (SELECT COUNT(*)::int AS installed, COALESCE(string_agg(d.name,', ' ORDER BY d.name),'') AS names FROM drones d WHERE d.rx_id=rx.id) di ON true
 ORDER BY brx.name, rx.name`)

@@ -15,6 +15,12 @@ type OptionItem struct {
 	Label string
 }
 
+type FrameOption struct {
+	ID     int
+	Label  string
+	SizeID int
+}
+
 type DroneListPage struct {
 	ActiveTab string
 	Drones    []DroneRow
@@ -27,6 +33,7 @@ type DroneRow struct {
 	CellLabel    string
 	Status       string
 	WeightG      *int
+	Sub250g      bool
 	FirstPhotoID int
 }
 
@@ -85,10 +92,11 @@ type DroneFormPage struct {
 	SizeID       int
 	CellID       int
 	WeightG      string
+	Sub250g      bool
 	Notes        string
 	Sizes        []OptionItem
 	Cells        []OptionItem
-	Frames       []OptionItem
+	Frames       []FrameOption
 	FCs          []OptionItem
 	ESCs         []OptionItem
 	VTXs         []OptionItem
@@ -147,16 +155,17 @@ type GPSFormPage struct {
 }
 
 type RXFormPage struct {
-	ActiveTab string
-	Error     string
-	ID        int
-	BrandID   int
-	Name      string
-	Protocol  string
-	Notes     string
-	Quantity  string
-	Photos    []DronePhotoRow
-	Brands    []OptionItem
+	ActiveTab  string
+	Error      string
+	ID         int
+	BrandID    int
+	Name       string
+	ProtocolID int
+	Notes      string
+	Quantity   string
+	Photos     []DronePhotoRow
+	Brands     []OptionItem
+	Protocols  []OptionItem
 }
 
 type FrameRow struct {
@@ -215,9 +224,6 @@ type VTXRow struct {
 	ID           int
 	Brand        string
 	Name         string
-	System       string
-	MaxPowerMW   string
-	Resolution   string
 	Total        int
 	Installed    int
 	Available    int
@@ -246,12 +252,13 @@ type FCFormPage struct {
 	ID        int
 	BrandID   int
 	Name      string
-	MCU       string
+	MCUID     int
 	Firmware  string
 	Notes     string
 	Quantity  string
 	Photos    []DronePhotoRow
 	Brands    []OptionItem
+	MCUs      []OptionItem
 }
 
 type ESCFormPage struct {
@@ -261,11 +268,12 @@ type ESCFormPage struct {
 	BrandID       int
 	Name          string
 	CurrentRating string
-	CellMax       string
+	CellMaxID     int
 	Notes         string
 	Quantity      string
 	Photos        []DronePhotoRow
 	Brands        []OptionItem
+	Cells         []OptionItem
 }
 
 type MotorFormPage struct {
@@ -286,12 +294,9 @@ type VTXFormPage struct {
 	ActiveTab  string
 	Error      string
 	ID         int
-	BrandID    int
-	Name       string
-	System     string
-	MaxPowerMW string
-	Resolution string
-	WeightG    string
+	BrandID int
+	Name    string
+	WeightG string
 	Notes      string
 	Quantity   string
 	Photos     []DronePhotoRow
@@ -344,7 +349,6 @@ type PropRow struct {
 	SizeInch         string
 	Pitch            string
 	BladeCount       int
-	Material         string
 	Quantity         int
 	ReorderThreshold int
 	DroneNames       string
@@ -367,7 +371,6 @@ type PropFormPage struct {
 	Name             string
 	Pitch            string
 	BladeCount       string
-	Material         string
 	Quantity         string
 	ReorderThreshold string
 	Notes            string
@@ -488,11 +491,37 @@ type CellRow struct {
 	Label string
 }
 
-type SettingsPage struct {
+type RadioProtocolRow struct {
+	ID   int
+	Name string
+}
+
+type RadioProtocolFormPage struct {
 	ActiveTab string
-	Brands    []BrandRow
-	Sizes     []SizeRow
-	Cells     []CellRow
+	Error     string
+	ID        int
+	Name      string
+}
+
+type MCURow struct {
+	ID   int
+	Name string
+}
+
+type MCUFormPage struct {
+	ActiveTab string
+	Error     string
+	ID        int
+	Name      string
+}
+
+type SettingsPage struct {
+	ActiveTab      string
+	Brands         []BrandRow
+	Sizes          []SizeRow
+	Cells          []CellRow
+	RadioProtocols []RadioProtocolRow
+	MCUs           []MCURow
 }
 
 type CellFormPage struct {
@@ -655,6 +684,8 @@ func initTemplates() {
 	add("brand-form", brandFormTmpl)
 	add("size-form", sizeFormTmpl)
 	add("cell-form", cellFormTmpl)
+	add("radio-protocol-form", radioProtocolFormTmpl)
+	add("mcu-form", mcuFormTmpl)
 	add("weather", weatherTmpl)
 }
 
@@ -901,7 +932,7 @@ const droneListTmpl = `{{define "content"}}
 <div class="table-wrap">
 <table>
 <thead><tr>
-  <th></th><th>Name</th><th>Size</th><th>Cell</th><th>Status</th><th>Weight</th><th></th>
+  <th></th><th>Name</th><th>Size</th><th>Cell</th><th>Status</th><th>Weight</th><th>Sub 250g</th><th></th>
 </tr></thead>
 <tbody>
 {{range .Drones}}
@@ -918,6 +949,7 @@ const droneListTmpl = `{{define "content"}}
   <td class="muted">{{dash .CellLabel}}</td>
   <td><span class="badge {{badgeClass .Status}}">{{.Status}}</span></td>
   <td class="muted">{{if .WeightG}}{{.WeightG}}g{{else}}—{{end}}</td>
+  <td>{{if .Sub250g}}<span style="color:#3fb950;font-weight:600">✓</span>{{else}}<span class="muted">—</span>{{end}}</td>
   <td class="actions-cell">
     <a href="/drones/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
     <form class="inline" method="POST" action="/drones/{{.ID}}/delete">
@@ -1122,6 +1154,12 @@ const droneFormTmpl = `{{define "content"}}
       <label>Weight (g)</label>
       <input type="number" name="weight_g" value="{{.WeightG}}" placeholder="e.g. 250" min="0">
     </div>
+    <div class="form-group" style="justify-content:flex-end;padding-bottom:6px">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" name="sub_250g" {{if .Sub250g}}checked{{end}}>
+        Sub 250g
+      </label>
+    </div>
   </div>
   <div class="form-row">
     <div class="form-group">
@@ -1129,7 +1167,7 @@ const droneFormTmpl = `{{define "content"}}
       <select name="frame_id">
         <option value="">— none —</option>
         {{range .Frames}}
-        <option value="{{.ID}}" {{if eq $.FrameID .ID}}selected{{end}}>{{.Label}}</option>
+        <option value="{{.ID}}" data-size-id="{{.SizeID}}" {{if eq $.FrameID .ID}}selected{{end}}>{{.Label}}</option>
         {{end}}
       </select>
     </div>
@@ -1260,6 +1298,25 @@ const droneFormTmpl = `{{define "content"}}
 </form>
 {{end}}
 </div>
+<script>
+(function() {
+  var sizeSelect = document.querySelector('select[name="size_id"]');
+  var frameSelect = document.querySelector('select[name="frame_id"]');
+  if (!sizeSelect || !frameSelect) return;
+  function filterFrames() {
+    var sizeVal = sizeSelect.value;
+    Array.prototype.forEach.call(frameSelect.options, function(opt) {
+      if (!opt.value) return;
+      var frameSizeId = opt.getAttribute('data-size-id') || '0';
+      var hide = sizeVal && frameSizeId !== '0' && frameSizeId !== sizeVal;
+      opt.hidden = hide;
+      if (hide && opt.selected) { opt.selected = false; frameSelect.value = ''; }
+    });
+  }
+  sizeSelect.addEventListener('change', filterFrames);
+  filterFrames();
+})();
+</script>
 {{end}}`
 
 const inventoryTmpl = `{{define "content"}}
@@ -1356,7 +1413,7 @@ const inventoryTmpl = `{{define "content"}}
     <td class="muted">{{dash .Brand}}</td>
     <td>{{.Name}}</td>
     <td class="muted">{{if .CurrentRating}}{{.CurrentRating}}A{{else}}—{{end}}</td>
-    <td class="muted">{{if .CellMax}}{{.CellMax}}S{{else}}—{{end}}</td>
+    <td class="muted">{{if .CellMax}}{{.CellMax}}{{else}}—{{end}}</td>
     <td class="muted">{{.Total}}</td>
     <td class="muted">{{.Installed}}</td>
     <td>{{if gt .Available 0}}<span style="color:#3fb950;font-weight:500">{{.Available}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
@@ -1422,16 +1479,13 @@ const inventoryTmpl = `{{define "content"}}
   {{if .VTXs}}
   <div class="table-wrap">
   <table>
-  <thead><tr><th></th><th>Brand</th><th>Name</th><th>System</th><th>Max Power</th><th>Resolution</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
+  <thead><tr><th></th><th>Brand</th><th>Name</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .VTXs}}
   <tr>
     <td style="width:40px;padding:4px 6px">{{if .FirstPhotoID}}<img src="/vtx-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="openLightbox('/vtx-photos/{{.FirstPhotoID}}')">{{end}}</td>
     <td class="muted">{{dash .Brand}}</td>
     <td>{{.Name}}</td>
-    <td class="muted">{{dash .System}}</td>
-    <td class="muted">{{if .MaxPowerMW}}{{.MaxPowerMW}}mW{{else}}—{{end}}</td>
-    <td class="muted">{{dash .Resolution}}</td>
     <td class="muted">{{.Total}}</td>
     <td class="muted">{{.Installed}}</td>
     <td>{{if gt .Available 0}}<span style="color:#3fb950;font-weight:500">{{.Available}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
@@ -1623,7 +1677,10 @@ const fcFormTmpl = `{{define "content"}}
   <div class="form-row">
     <div class="form-group">
       <label>MCU</label>
-      <input type="text" name="mcu" value="{{.MCU}}" placeholder="e.g. H743">
+      <select name="mcu_id">
+        <option value="">— none —</option>
+        {{range .MCUs}}<option value="{{.ID}}" {{if eq $.MCUID .ID}}selected{{end}}>{{.Label}}</option>{{end}}
+      </select>
     </div>
     <div class="form-group">
       <label>Firmware</label>
@@ -1699,8 +1756,11 @@ const escFormTmpl = `{{define "content"}}
       <input type="number" name="current_rating" value="{{.CurrentRating}}" placeholder="e.g. 45">
     </div>
     <div class="form-group">
-      <label>Max Cell (S)</label>
-      <input type="number" name="cell_max" value="{{.CellMax}}" placeholder="e.g. 6">
+      <label>Max Cell</label>
+      <select name="cell_max_id">
+        <option value="">— none —</option>
+        {{range .Cells}}<option value="{{.ID}}" {{if eq $.CellMaxID .ID}}selected{{end}}>{{.Label}}</option>{{end}}
+      </select>
     </div>
   </div>
   <div class="form-row">
@@ -1839,20 +1899,6 @@ const vtxFormTmpl = `{{define "content"}}
   </div>
   <div class="form-row">
     <div class="form-group">
-      <label>System</label>
-      <input type="text" name="system" value="{{.System}}" placeholder="e.g. DJI O3">
-    </div>
-    <div class="form-group">
-      <label>Max Power (mW)</label>
-      <input type="number" name="max_power_mw" value="{{.MaxPowerMW}}" placeholder="e.g. 700">
-    </div>
-  </div>
-  <div class="form-row">
-    <div class="form-group">
-      <label>Resolution</label>
-      <input type="text" name="resolution" value="{{.Resolution}}" placeholder="e.g. 1080p60">
-    </div>
-    <div class="form-group">
       <label>Weight (g)</label>
       <input type="number" name="weight_g" value="{{.WeightG}}" placeholder="e.g. 28">
     </div>
@@ -1984,7 +2030,10 @@ const rxFormTmpl = `{{define "content"}}
   <div class="form-row">
     <div class="form-group">
       <label>Protocol</label>
-      <input type="text" name="protocol" value="{{.Protocol}}" placeholder="e.g. ELRS 2.4GHz">
+      <select name="protocol_id">
+        <option value="">— none —</option>
+        {{range .Protocols}}<option value="{{.ID}}" {{if eq $.ProtocolID .ID}}selected{{end}}>{{.Label}}</option>{{end}}
+      </select>
     </div>
     <div class="form-group" style="max-width:100px">
       <label>Quantity owned</label>
@@ -2158,7 +2207,7 @@ const propListTmpl = `{{define "content"}}
 <table>
 <thead><tr>
   <th></th><th>Brand</th><th>Name</th><th>Size</th><th>Pitch</th><th>Blades</th>
-  <th>Material</th><th>Qty</th><th>Reorder At</th><th>Drone</th><th></th>
+  <th>Qty</th><th>Reorder At</th><th>Drone</th><th></th>
 </tr></thead>
 <tbody>
 {{range .Propellers}}
@@ -2169,7 +2218,6 @@ const propListTmpl = `{{define "content"}}
   <td class="muted">{{if .SizeInch}}{{.SizeInch}}"{{else}}—{{end}}</td>
   <td class="muted">{{dash .Pitch}}</td>
   <td class="muted">{{.BladeCount}}</td>
-  <td class="muted">{{dash .Material}}</td>
   <td>{{.Quantity}}{{if .LowStock}} <span class="muted" title="low stock">&#9888;</span>{{end}}</td>
   <td class="muted">{{.ReorderThreshold}}</td>
   <td class="muted">{{dash .DroneNames}}</td>
@@ -2227,10 +2275,6 @@ const propFormTmpl = `{{define "content"}}
     </div>
   </div>
   <div class="form-row">
-    <div class="form-group">
-      <label>Material</label>
-      <input type="text" name="material" value="{{.Material}}" placeholder="e.g. PC">
-    </div>
     <div class="form-group">
       <label>Quantity</label>
       <input type="number" name="quantity" value="{{.Quantity}}" min="0">
@@ -2808,6 +2852,50 @@ const settingsTmpl = `{{define "content"}}
   </tbody></table></div>
   {{else}}<p class="muted">No cells yet. <a href="/cells/new">Add one.</a></p>{{end}}
 </div>
+
+<div class="section">
+  <div class="section-header">
+    <h3>Radio Protocols</h3>
+    <a href="/radio-protocols/new" class="btn btn-sm btn-primary">+ Add</a>
+  </div>
+  {{if .RadioProtocols}}
+  <div class="table-wrap"><table>
+  <thead><tr><th>Name</th><th></th></tr></thead>
+  <tbody>
+  {{range .RadioProtocols}}<tr>
+    <td><strong>{{.Name}}</strong></td>
+    <td class="actions-cell">
+      <a href="/radio-protocols/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
+      <form class="inline" method="POST" action="/radio-protocols/{{.ID}}/delete">
+        <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+      </form>
+    </td>
+  </tr>{{end}}
+  </tbody></table></div>
+  {{else}}<p class="muted">No radio protocols yet. <a href="/radio-protocols/new">Add one.</a></p>{{end}}
+</div>
+
+<div class="section">
+  <div class="section-header">
+    <h3>MCUs</h3>
+    <a href="/mcus/new" class="btn btn-sm btn-primary">+ Add</a>
+  </div>
+  {{if .MCUs}}
+  <div class="table-wrap"><table>
+  <thead><tr><th>Name</th><th></th></tr></thead>
+  <tbody>
+  {{range .MCUs}}<tr>
+    <td><strong>{{.Name}}</strong></td>
+    <td class="actions-cell">
+      <a href="/mcus/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
+      <form class="inline" method="POST" action="/mcus/{{.ID}}/delete">
+        <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+      </form>
+    </td>
+  </tr>{{end}}
+  </tbody></table></div>
+  {{else}}<p class="muted">No MCUs yet. <a href="/mcus/new">Add one.</a></p>{{end}}
+</div>
 {{end}}`
 
 const brandFormTmpl = `{{define "content"}}
@@ -2861,6 +2949,44 @@ const sizeFormTmpl = `{{define "content"}}
   </div>
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add Size{{end}}</button>
+    <a href="/settings" class="btn btn-cancel">Cancel</a>
+  </div>
+</form>
+</div>
+{{end}}`
+
+const mcuFormTmpl = `{{define "content"}}
+<div class="page-header">
+  <h2>{{if .ID}}Edit MCU{{else}}New MCU{{end}}</h2>
+</div>
+<div class="form-page">
+{{if .Error}}<div class="error-box">{{.Error}}</div>{{end}}
+<form method="POST">
+  <div class="form-group">
+    <label>Name *</label>
+    <input type="text" name="name" value="{{.Name}}" required autofocus placeholder="e.g. F405">
+  </div>
+  <div class="form-actions">
+    <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add MCU{{end}}</button>
+    <a href="/settings" class="btn btn-cancel">Cancel</a>
+  </div>
+</form>
+</div>
+{{end}}`
+
+const radioProtocolFormTmpl = `{{define "content"}}
+<div class="page-header">
+  <h2>{{if .ID}}Edit Radio Protocol{{else}}New Radio Protocol{{end}}</h2>
+</div>
+<div class="form-page">
+{{if .Error}}<div class="error-box">{{.Error}}</div>{{end}}
+<form method="POST">
+  <div class="form-group">
+    <label>Name *</label>
+    <input type="text" name="name" value="{{.Name}}" required autofocus placeholder="e.g. ELRS 2.4GHz">
+  </div>
+  <div class="form-actions">
+    <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add Protocol{{end}}</button>
     <a href="/settings" class="btn btn-cancel">Cancel</a>
   </div>
 </form>

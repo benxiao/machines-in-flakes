@@ -369,6 +369,16 @@ CREATE TABLE IF NOT EXISTS brands (
     id   SERIAL PRIMARY KEY,
     name TEXT NOT NULL UNIQUE
 );
+CREATE TABLE IF NOT EXISTS radio_protocols (
+    id   SERIAL PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE
+);
+INSERT INTO radio_protocols (name) VALUES ('ELRS 2.4GHz'),('ELRS 915MHz') ON CONFLICT DO NOTHING;
+CREATE TABLE IF NOT EXISTS mcus (
+    id   SERIAL PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE
+);
+INSERT INTO mcus (name) VALUES ('F405'),('F722') ON CONFLICT DO NOTHING;
 
 -- Migrations (DO blocks are idempotent; run after all tables exist):
 DO $$ BEGIN ALTER TABLE motors      DROP COLUMN drone_id; EXCEPTION WHEN undefined_column THEN NULL; END $$;
@@ -480,6 +490,19 @@ DO $$ BEGIN UPDATE frames     SET size_id=s.id FROM sizes s WHERE frames.size_in
 DO $$ BEGIN UPDATE propellers SET size_id=s.id FROM sizes s WHERE CAST(propellers.size_inch AS TEXT)=s.label AND propellers.size_id IS NULL; EXCEPTION WHEN undefined_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE frames      DROP COLUMN size_inch; EXCEPTION WHEN undefined_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE propellers  DROP COLUMN size_inch; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE radio_receivers ADD COLUMN protocol_id INTEGER REFERENCES radio_protocols(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE radio_receivers DROP COLUMN protocol; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE propellers DROP COLUMN material; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE escs ADD COLUMN cell_max_id INTEGER REFERENCES cells(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN UPDATE escs SET cell_max_id=c.id FROM cells c WHERE c.label=CAST(escs.cell_max AS TEXT)||'S' AND escs.cell_max_id IS NULL; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE escs DROP COLUMN cell_max; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE flight_controllers ADD COLUMN mcu_id INTEGER REFERENCES mcus(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN UPDATE flight_controllers SET mcu_id=m.id FROM mcus m WHERE m.name=flight_controllers.mcu AND flight_controllers.mcu_id IS NULL; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE flight_controllers DROP COLUMN mcu; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE drones ADD COLUMN sub_250g BOOLEAN NOT NULL DEFAULT FALSE; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE vtx_units DROP COLUMN system; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE vtx_units DROP COLUMN max_power_mw; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE vtx_units DROP COLUMN resolution; EXCEPTION WHEN undefined_column THEN NULL; END $$;
 
 CREATE INDEX IF NOT EXISTS idx_drones_frame    ON drones(frame_id);
 CREATE INDEX IF NOT EXISTS idx_drones_fc       ON drones(fc_id);
@@ -646,6 +669,12 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/cells/new", a.handleCellNew)
 	mux.HandleFunc("/cells/{id}/edit", a.handleCellEdit)
 	mux.HandleFunc("POST /cells/{id}/delete", a.handleCellDelete)
+	mux.HandleFunc("/radio-protocols/new", a.handleRadioProtocolNew)
+	mux.HandleFunc("/radio-protocols/{id}/edit", a.handleRadioProtocolEdit)
+	mux.HandleFunc("POST /radio-protocols/{id}/delete", a.handleRadioProtocolDelete)
+	mux.HandleFunc("/mcus/new", a.handleMCUNew)
+	mux.HandleFunc("/mcus/{id}/edit", a.handleMCUEdit)
+	mux.HandleFunc("POST /mcus/{id}/delete", a.handleMCUDelete)
 
 	mux.HandleFunc("/weather", a.handleWeather)
 }
