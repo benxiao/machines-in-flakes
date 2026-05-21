@@ -875,6 +875,16 @@ const baseTmpl = `<!DOCTYPE html>
 <main>
 {{template "content" .}}
 </main>
+<script>
+document.addEventListener('submit', function(e) {
+  var action = e.target.getAttribute('action') || '';
+  if (action.indexOf('/delete') !== -1) {
+    if (!confirm('Are you sure you want to delete this? This cannot be undone.')) {
+      e.preventDefault();
+    }
+  }
+});
+</script>
 </body>
 </html>`
 
