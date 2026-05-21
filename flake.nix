@@ -381,7 +381,7 @@
                 let
                   fpv-manager = pkgs.buildGoModule {
                     pname = "fpv-manager";
-                    version = "0.3.0";
+                    version = "0.4.0";
                     src = ./fpv-manager;
                     vendorHash = "sha256-Qs23BHgrlK0P5BREEzS5Y/2G7mL1pcSd1k3z8NUw/mM=";
                   };

@@ -69,28 +69,39 @@ type DroneTimelineEntry struct {
 	Location    string
 }
 
-type DroneDetailPage struct {
+type DronePage struct {
 	ActiveTab    string
 	ID           int
 	Name         string
 	Status       string
-	SizeInch     string
-	CellLabel    string
-	WeightG      *int
+	SizeID       int
+	CellID       int
+	FrameID      int
+	FCID         int
+	ESCID        int
+	VTXID        int
+	MotorID      int
+	MotorCount   string
+	GPSID        int
+	RXID         int
 	BuildDate    string
+	WeightG      string
+	Sub250g      bool
 	Notes        string
-	FrameName    string
-	FCName       string
-	ESCName      string
-	VTXName      string
-	MotorName    string
-	MotorCount   int
 	BatteryNames string
-	GPSName      string
-	RXName       string
 	PropNames    string
+	Batteries    []BatteryCheck
 	Photos       []DronePhotoRow
 	Timeline     []DroneTimelineEntry
+	Sizes        []OptionItem
+	Cells        []OptionItem
+	Frames       []FrameOption
+	FCs          []OptionItem
+	ESCs         []OptionItem
+	VTXs         []OptionItem
+	Motors       []OptionItem
+	GPSs         []OptionItem
+	RXs          []OptionItem
 }
 
 type DroneFormPage struct {
@@ -682,7 +693,7 @@ func initTemplates() {
 	}
 
 	add("drone-list", droneListTmpl)
-	add("drone-detail", droneDetailTmpl)
+	add("drone", droneTmpl)
 	add("drone-form", droneFormTmpl)
 	add("inventory", inventoryTmpl)
 	add("frame-form", frameFormTmpl)
@@ -882,6 +893,7 @@ hr { border: none; border-top: 1px solid #30363d; margin: 32px 0; }
   color: #58a6ff;
 }
 .upload-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+#drone-name:focus { border-bottom-color: #58a6ff !important; }
 @media (max-width: 640px) {
   main { padding: 12px; }
   header { padding: 10px 16px; }
@@ -898,7 +910,9 @@ hr { border: none; border-top: 1px solid #30363d; margin: 32px 0; }
   .dle-entry-row { flex-direction: column !important; }
   .dle-entry-btns { align-self: flex-end; }
   .media-card-header { flex-wrap: wrap; gap: 8px; }
-  .upload-form input[type=file] { width: 100%; }
+  .drone-cols { grid-template-columns: 1fr !important; }
+  #drone-name { width: 100%; min-width: 0; box-sizing: border-box; }
+  .drone-motor-row { flex-wrap: wrap; }
 }
 `
 
@@ -909,12 +923,12 @@ const baseTmpl = `<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FPV Manager v0.3</title>
+<title>FPV Manager v0.4</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cline x1='16' y1='16' x2='5' y2='5' stroke='%2358a6ff' stroke-width='2.5' stroke-linecap='round'/%3E%3Cline x1='16' y1='16' x2='27' y2='5' stroke='%2358a6ff' stroke-width='2.5' stroke-linecap='round'/%3E%3Cline x1='16' y1='16' x2='5' y2='27' stroke='%2358a6ff' stroke-width='2.5' stroke-linecap='round'/%3E%3Cline x1='16' y1='16' x2='27' y2='27' stroke='%2358a6ff' stroke-width='2.5' stroke-linecap='round'/%3E%3Ccircle cx='5' cy='5' r='4' fill='%2358a6ff'/%3E%3Ccircle cx='27' cy='5' r='4' fill='%2358a6ff'/%3E%3Ccircle cx='5' cy='27' r='4' fill='%2358a6ff'/%3E%3Ccircle cx='27' cy='27' r='4' fill='%2358a6ff'/%3E%3Ccircle cx='16' cy='16' r='3.5' fill='%2358a6ff'/%3E%3C/svg%3E">
 <style>` + css + `</style>
 </head>
 <body>
-<header><span class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="20" height="20" style="vertical-align:-4px;margin-right:6px"><line x1="16" y1="16" x2="5" y2="5" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/><line x1="16" y1="16" x2="27" y2="5" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/><line x1="16" y1="16" x2="5" y2="27" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/><line x1="16" y1="16" x2="27" y2="27" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/><circle cx="5" cy="5" r="4" fill="#58a6ff"/><circle cx="27" cy="5" r="4" fill="#58a6ff"/><circle cx="5" cy="27" r="4" fill="#58a6ff"/><circle cx="27" cy="27" r="4" fill="#58a6ff"/><circle cx="16" cy="16" r="3.5" fill="#58a6ff"/></svg>FPV Manager <span style="font-size:0.7em;opacity:0.5;font-weight:400">v0.3</span></span></header>
+<header><span class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="20" height="20" style="vertical-align:-4px;margin-right:6px"><line x1="16" y1="16" x2="5" y2="5" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/><line x1="16" y1="16" x2="27" y2="5" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/><line x1="16" y1="16" x2="5" y2="27" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/><line x1="16" y1="16" x2="27" y2="27" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/><circle cx="5" cy="5" r="4" fill="#58a6ff"/><circle cx="27" cy="5" r="4" fill="#58a6ff"/><circle cx="5" cy="27" r="4" fill="#58a6ff"/><circle cx="27" cy="27" r="4" fill="#58a6ff"/><circle cx="16" cy="16" r="3.5" fill="#58a6ff"/></svg>FPV Manager <span style="font-size:0.7em;opacity:0.5;font-weight:400">v0.4</span></span></header>
 <nav>
   <a href="/drones"    {{if eq .ActiveTab "drones"}}class="active"{{end}}>Drones</a>
   <a href="/inventory" {{if eq .ActiveTab "inventory"}}class="active"{{end}}>Inventory</a>
@@ -958,22 +972,21 @@ const droneListTmpl = `{{define "content"}}
 </tr></thead>
 <tbody>
 {{range .Drones}}
-<tr class="{{if eq .Status "retired"}}retired{{end}}">
-  <td style="width:56px;padding:6px 8px">
+<tr class="{{if eq .Status "retired"}}retired{{end}}" style="cursor:pointer" onclick="window.location='/drones/{{.ID}}'">
+  <td style="width:56px;padding:6px 8px" onclick="event.stopPropagation()">
     {{if .FirstPhotoID}}
-    <img src="/drone-photos/{{.FirstPhotoID}}" style="width:48px;height:48px;object-fit:cover;border-radius:4px;display:block;cursor:zoom-in" onclick="openLightbox('/drone-photos/{{.FirstPhotoID}}')">
+    <img src="/drone-photos/{{.FirstPhotoID}}" style="width:48px;height:48px;object-fit:cover;border-radius:4px;display:block;cursor:zoom-in" onclick="event.stopPropagation();openLightbox('/drone-photos/{{.FirstPhotoID}}')">
     {{else}}
     <div style="width:48px;height:48px;background:#21262d;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#8b949e;font-size:20px">✈</div>
     {{end}}
   </td>
-  <td><a href="/drones/{{.ID}}" style="font-weight:600;color:#c9d1d9;text-decoration:none">{{.Name}}</a></td>
+  <td style="font-weight:600">{{.Name}}</td>
   <td class="muted">{{if .SizeInch}}{{.SizeInch}}"{{else}}—{{end}}</td>
   <td class="muted">{{dash .CellLabel}}</td>
   <td><span class="badge {{badgeClass .Status}}">{{.Status}}</span></td>
   <td class="muted">{{if gt .FlightCount 0}}{{.FlightCount}}{{else}}—{{end}}</td>
   <td>{{if .Sub250g}}<span style="color:#3fb950;font-weight:600">✓</span>{{else}}<span class="muted">—</span>{{end}}</td>
-  <td class="actions-cell">
-    <a href="/drones/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
+  <td class="actions-cell" onclick="event.stopPropagation()">
     <form class="inline" method="POST" action="/drones/{{.ID}}/delete">
       <button class="btn btn-sm btn-danger" type="submit">Delete</button>
     </form>
@@ -997,14 +1010,14 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')closeLightbo
 </script>
 {{end}}`
 
-const droneDetailTmpl = `{{define "content"}}
+const droneTmpl = `{{define "content"}}
 <div class="page-header">
-  <div class="page-header-left">
-    <h2>{{.Name}}</h2>
-    <span class="badge {{badgeClass .Status}}" style="margin-left:10px">{{.Status}}</span>
+  <div class="page-header-left" style="gap:12px;align-items:center">
+    <input type="text" id="drone-name" value="{{.Name}}" onchange="saveDrone()"
+      style="font-size:1.4rem;font-weight:600;background:none;border:none;border-bottom:1px solid transparent;color:#c9d1d9;padding:2px 0;min-width:160px;width:auto;outline:none">
+    <span class="badge {{badgeClass .Status}}">{{.Status}}</span>
   </div>
   <div style="display:flex;gap:8px;align-items:center">
-    <a href="/drones/{{.ID}}/edit" class="btn btn-edit">Edit</a>
     <form class="inline" method="POST" action="/drones/{{.ID}}/delete">
       <button class="btn btn-danger" type="submit">Delete</button>
     </form>
@@ -1012,54 +1025,173 @@ const droneDetailTmpl = `{{define "content"}}
   </div>
 </div>
 
+<form id="drone-form" action="/drones/{{.ID}}/save" method="POST">
 <div class="section">
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;max-width:900px">
+  <div class="drone-cols" style="display:grid;grid-template-columns:1fr 1fr;gap:24px;max-width:900px">
     <div>
       {{if .Photos}}
       <img src="/drone-photos/{{(index .Photos 0).ID}}" style="width:100%;border-radius:6px;object-fit:cover;max-height:260px;display:block;cursor:zoom-in;margin-bottom:16px" onclick="openLightbox('/drone-photos/{{(index .Photos 0).ID}}')">
       {{end}}
       <table style="border-collapse:collapse;width:100%">
-        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">Size</td><td>{{if .SizeInch}}{{.SizeInch}}"{{else}}<span class="muted">—</span>{{end}}</td></tr>
-        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">Cell Count</td><td>{{if .CellLabel}}{{.CellLabel}}{{else}}<span class="muted">—</span>{{end}}</td></tr>
-        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">Weight</td><td>{{if .WeightG}}{{.WeightG}}g{{else}}<span class="muted">—</span>{{end}}</td></tr>
-        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">Build Date</td><td>{{if .BuildDate}}{{.BuildDate}}{{else}}<span class="muted">—</span>{{end}}</td></tr>
-        {{if .Notes}}<tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap;vertical-align:top">Notes</td><td style="white-space:pre-wrap">{{.Notes}}</td></tr>{{end}}
+        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap;width:90px">Status</td><td>
+          <select name="status" onchange="saveDrone()">
+            <option value="build"     {{if eq .Status "build"}}selected{{end}}>build</option>
+            <option value="flying"    {{if eq .Status "flying"}}selected{{end}}>flying</option>
+            <option value="repairing" {{if eq .Status "repairing"}}selected{{end}}>repairing</option>
+            <option value="retired"   {{if eq .Status "retired"}}selected{{end}}>retired</option>
+          </select>
+        </td></tr>
+        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">Size</td><td>
+          <select name="size_id" onchange="filterFrames();saveDrone()">
+            <option value="">—</option>
+            {{range .Sizes}}<option value="{{.ID}}" {{if eq $.SizeID .ID}}selected{{end}}>{{.Label}}"</option>{{end}}
+          </select>
+        </td></tr>
+        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">Cell Count</td><td>
+          <select name="cell_id" onchange="saveDrone()">
+            <option value="">—</option>
+            {{range .Cells}}<option value="{{.ID}}" {{if eq $.CellID .ID}}selected{{end}}>{{.Label}}</option>{{end}}
+          </select>
+        </td></tr>
+        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">Weight (g)</td><td>
+          <input type="number" name="weight_g" value="{{.WeightG}}" min="0" placeholder="e.g. 250" onchange="saveDrone()" style="width:100px">
+        </td></tr>
+        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">Build Date</td><td>
+          <input type="date" name="build_date" value="{{.BuildDate}}" onchange="saveDrone()">
+        </td></tr>
+        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">Sub 250g</td><td>
+          <input type="checkbox" name="sub_250g" {{if .Sub250g}}checked{{end}} onchange="saveDrone()">
+        </td></tr>
+        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap;vertical-align:top;padding-top:8px">Batteries</td><td>
+          {{if .Batteries}}
+          <div class="battery-checks" id="bat-checks">
+            {{range .Batteries}}
+            <label class="battery-check">
+              <input type="checkbox" name="battery_ids" value="{{.ID}}" {{if .Checked}}checked{{end}} onchange="saveBatteries()">
+              {{.Label}}
+            </label>
+            {{end}}
+          </div>
+          {{else}}<span class="muted">—</span>{{end}}
+        </td></tr>
+        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">Props</td><td><span class="muted">{{dash .PropNames}}</span></td></tr>
       </table>
-      {{if gt (len .Photos) 1}}
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:8px;margin-top:12px">
-        {{range $i,$p := .Photos}}{{if gt $i 0}}
-        <img src="/drone-photos/{{$p.ID}}" style="width:100%;height:80px;object-fit:cover;border-radius:4px;cursor:zoom-in" onclick="openLightbox('/drone-photos/{{$p.ID}}')">
-        {{end}}{{end}}
-      </div>
-      {{end}}
     </div>
     <div>
       <table style="border-collapse:collapse;width:100%">
-        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">Frame</td><td>{{dash .FrameName}}</td></tr>
-        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">FC</td><td>{{dash .FCName}}</td></tr>
-        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">ESC</td><td>{{dash .ESCName}}</td></tr>
-        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">VTX</td><td>{{dash .VTXName}}</td></tr>
-        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">Motors</td><td>{{if .MotorName}}{{.MotorName}} ×{{.MotorCount}}{{else}}<span class="muted">—</span>{{end}}</td></tr>
-        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">Batteries</td><td>{{dash .BatteryNames}}</td></tr>
-        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">GPS</td><td>{{dash .GPSName}}</td></tr>
-        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">RX</td><td>{{dash .RXName}}</td></tr>
-        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">Props</td><td>{{dash .PropNames}}</td></tr>
+        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap;width:90px">Frame</td><td>
+          <select name="frame_id" onchange="saveDrone()">
+            <option value="">— none —</option>
+            {{range .Frames}}<option value="{{.ID}}" data-size-id="{{.SizeID}}" {{if eq $.FrameID .ID}}selected{{end}}>{{.Label}}</option>{{end}}
+          </select>
+        </td></tr>
+        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">FC</td><td>
+          <select name="fc_id" onchange="saveDrone()">
+            <option value="">— none —</option>
+            {{range .FCs}}<option value="{{.ID}}" {{if eq $.FCID .ID}}selected{{end}}>{{.Label}}</option>{{end}}
+          </select>
+        </td></tr>
+        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">ESC</td><td>
+          <select name="esc_id" onchange="saveDrone()">
+            <option value="">— none —</option>
+            {{range .ESCs}}<option value="{{.ID}}" {{if eq $.ESCID .ID}}selected{{end}}>{{.Label}}</option>{{end}}
+          </select>
+        </td></tr>
+        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">VTX</td><td>
+          <select name="vtx_id" onchange="saveDrone()">
+            <option value="">— none —</option>
+            {{range .VTXs}}<option value="{{.ID}}" {{if eq $.VTXID .ID}}selected{{end}}>{{.Label}}</option>{{end}}
+          </select>
+        </td></tr>
+        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">Motors</td><td><div class="drone-motor-row" style="display:flex;gap:8px;align-items:center">
+          <select name="motor_id" onchange="saveDrone()">
+            <option value="">— none —</option>
+            {{range .Motors}}<option value="{{.ID}}" {{if eq $.MotorID .ID}}selected{{end}}>{{.Label}}</option>{{end}}
+          </select>
+          <input type="number" name="motor_count" value="{{if .MotorCount}}{{.MotorCount}}{{else}}4{{end}}" min="1" onchange="saveDrone()" style="width:60px" title="Motor count">
+        </div></td></tr>
+        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">GPS</td><td>
+          <select name="gps_id" onchange="saveDrone()">
+            <option value="">— none —</option>
+            {{range .GPSs}}<option value="{{.ID}}" {{if eq $.GPSID .ID}}selected{{end}}>{{.Label}}</option>{{end}}
+          </select>
+        </td></tr>
+        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">RX</td><td>
+          <select name="rx_id" onchange="saveDrone()">
+            <option value="">— none —</option>
+            {{range .RXs}}<option value="{{.ID}}" {{if eq $.RXID .ID}}selected{{end}}>{{.Label}}</option>{{end}}
+          </select>
+        </td></tr>
+        <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap;vertical-align:top;padding-top:8px">Notes</td><td>
+          <textarea name="notes" rows="4" style="width:100%;resize:vertical" onchange="saveDrone()">{{.Notes}}</textarea>
+        </td></tr>
       </table>
     </div>
   </div>
 </div>
+</form>
 
 <div id="lightbox" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;align-items:center;justify-content:center" onclick="closeLightbox()">
   <img id="lightbox-img" src="" style="max-width:90vw;max-height:90vh;border-radius:8px;object-fit:contain;box-shadow:0 8px 40px rgba(0,0,0,.6)">
 </div>
 <script>
+var _saveDroneTimer = null;
+function saveDrone() {
+  clearTimeout(_saveDroneTimer);
+  _saveDroneTimer = setTimeout(function() {
+    var form = document.getElementById('drone-form');
+    var body = new URLSearchParams(new FormData(form));
+    body.set('name', document.getElementById('drone-name').value);
+    fetch(form.action, {method:'POST', body:body}).catch(function(e) { console.error('save failed', e); });
+  }, 300);
+}
+function saveBatteries() {
+  var checks = document.querySelectorAll('#bat-checks input[type=checkbox]');
+  var body = new URLSearchParams();
+  checks.forEach(function(cb) { if (cb.checked) body.append('battery_ids', cb.value); });
+  fetch('/drones/{{.ID}}/batteries', {method:'POST', body:body}).catch(function(e) { console.error('save failed', e); });
+}
+function filterFrames() {
+  var sizeSelect = document.querySelector('select[name="size_id"]');
+  var frameSelect = document.querySelector('select[name="frame_id"]');
+  if (!sizeSelect || !frameSelect) return;
+  var sizeVal = sizeSelect.value;
+  Array.prototype.forEach.call(frameSelect.options, function(opt) {
+    if (!opt.value) return;
+    var frameSizeId = opt.getAttribute('data-size-id') || '0';
+    var hide = sizeVal && frameSizeId !== '0' && frameSizeId !== sizeVal;
+    opt.hidden = hide;
+    if (hide && opt.selected) { opt.selected = false; frameSelect.value = ''; }
+  });
+}
 function openLightbox(src){var lb=document.getElementById('lightbox');document.getElementById('lightbox-img').src=src;lb.style.display='flex';}
 function closeLightbox(){document.getElementById('lightbox').style.display='none';}
 document.addEventListener('keydown',function(e){if(e.key==='Escape')closeLightbox();});
+filterFrames();
 </script>
 
+{{if .Photos}}
 <div class="section">
-  <h3 style="margin-bottom:12px">Add Entry</h3>
+<h3 style="margin-bottom:12px">Photos</h3>
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:16px;max-width:900px;margin-bottom:16px">
+{{range .Photos}}
+<div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px">
+  <img src="/drone-photos/{{.ID}}" style="width:100%;border-radius:4px;display:block;max-height:160px;object-fit:cover;cursor:zoom-in" onclick="openLightbox('/drone-photos/{{.ID}}')">
+  <form method="POST" action="/drone-photos/{{.ID}}/delete" style="margin-top:6px">
+    <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+  </form>
+</div>
+{{end}}
+</div>
+{{end}}
+<div class="section" style="padding-top:0">
+<form method="POST" action="/drones/{{.ID}}/photos" enctype="multipart/form-data" class="upload-form">
+  <label class="btn btn-primary">Upload Photo<input type="file" name="photo" accept="image/*" style="display:none" onchange="this.closest('form').requestSubmit()"></label>
+</form>
+</div>
+
+<div class="section">
+  <h3 style="margin-bottom:12px">Add Log Entry</h3>
   <form method="POST" action="/drones/{{.ID}}/log" style="display:flex;flex-direction:column;gap:10px;max-width:600px">
     <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
       <div class="form-group" style="flex:0 0 auto">
@@ -1076,11 +1208,7 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')closeLightbo
   <script>
     (function(){
       var el=document.getElementById('log_at');
-      if(el&&!el.value){
-        var n=new Date();
-        n.setMinutes(n.getMinutes()-n.getTimezoneOffset());
-        el.value=n.toISOString().slice(0,16);
-      }
+      if(el&&!el.value){var n=new Date();n.setMinutes(n.getMinutes()-n.getTimezoneOffset());el.value=n.toISOString().slice(0,16);}
     })();
   </script>
 </div>
@@ -1334,8 +1462,7 @@ const droneFormTmpl = `{{define "content"}}
 <p class="muted" style="margin-bottom:8px">No photos yet.</p>
 {{end}}
 <form method="POST" action="/drones/{{.ID}}/photos" enctype="multipart/form-data" class="upload-form">
-  <input type="file" name="photo" accept="image/*" style="color:#c9d1d9;font-size:13px">
-  <button class="btn btn-primary" type="submit">Upload Photo</button>
+  <label class="btn btn-primary">Upload Photo<input type="file" name="photo" accept="image/*" style="display:none" onchange="this.closest('form').requestSubmit()"></label>
 </form>
 {{end}}
 </div>
@@ -1688,8 +1815,7 @@ const frameFormTmpl = `{{define "content"}}
 <p class="muted" style="margin-bottom:8px">No photos yet.</p>
 {{end}}
 <form method="POST" action="/frames/{{.ID}}/photos" enctype="multipart/form-data" class="upload-form">
-  <input type="file" name="photo" accept="image/*" style="color:#c9d1d9;font-size:13px">
-  <button class="btn btn-primary" type="submit">Upload Photo</button>
+  <label class="btn btn-primary">Upload Photo<input type="file" name="photo" accept="image/*" style="display:none" onchange="this.closest('form').requestSubmit()"></label>
 </form>
 {{end}}
 </div>
@@ -1764,8 +1890,7 @@ const fcFormTmpl = `{{define "content"}}
 <p class="muted" style="margin-bottom:8px">No photos yet.</p>
 {{end}}
 <form method="POST" action="/fcs/{{.ID}}/photos" enctype="multipart/form-data" class="upload-form">
-  <input type="file" name="photo" accept="image/*" style="color:#c9d1d9;font-size:13px">
-  <button class="btn btn-primary" type="submit">Upload Photo</button>
+  <label class="btn btn-primary">Upload Photo<input type="file" name="photo" accept="image/*" style="display:none" onchange="this.closest('form').requestSubmit()"></label>
 </form>
 {{end}}
 </div>
@@ -1840,8 +1965,7 @@ const escFormTmpl = `{{define "content"}}
 <p class="muted" style="margin-bottom:8px">No photos yet.</p>
 {{end}}
 <form method="POST" action="/escs/{{.ID}}/photos" enctype="multipart/form-data" class="upload-form">
-  <input type="file" name="photo" accept="image/*" style="color:#c9d1d9;font-size:13px">
-  <button class="btn btn-primary" type="submit">Upload Photo</button>
+  <label class="btn btn-primary">Upload Photo<input type="file" name="photo" accept="image/*" style="display:none" onchange="this.closest('form').requestSubmit()"></label>
 </form>
 {{end}}
 </div>
@@ -1911,8 +2035,7 @@ const motorFormTmpl = `{{define "content"}}
 <p class="muted" style="margin-bottom:8px">No photos yet.</p>
 {{end}}
 <form method="POST" action="/motors/{{.ID}}/photos" enctype="multipart/form-data" class="upload-form">
-  <input type="file" name="photo" accept="image/*" style="color:#c9d1d9;font-size:13px">
-  <button class="btn btn-primary" type="submit">Upload Photo</button>
+  <label class="btn btn-primary">Upload Photo<input type="file" name="photo" accept="image/*" style="display:none" onchange="this.closest('form').requestSubmit()"></label>
 </form>
 {{end}}
 </div>
@@ -1980,8 +2103,7 @@ const vtxFormTmpl = `{{define "content"}}
 <p class="muted" style="margin-bottom:8px">No photos yet.</p>
 {{end}}
 <form method="POST" action="/vtx/{{.ID}}/photos" enctype="multipart/form-data" class="upload-form">
-  <input type="file" name="photo" accept="image/*" style="color:#c9d1d9;font-size:13px">
-  <button class="btn btn-primary" type="submit">Upload Photo</button>
+  <label class="btn btn-primary">Upload Photo<input type="file" name="photo" accept="image/*" style="display:none" onchange="this.closest('form').requestSubmit()"></label>
 </form>
 {{end}}
 </div>
@@ -2041,8 +2163,7 @@ const gpsFormTmpl = `{{define "content"}}
 <p class="muted" style="margin-bottom:8px">No photos yet.</p>
 {{end}}
 <form method="POST" action="/gps/{{.ID}}/photos" enctype="multipart/form-data" class="upload-form">
-  <input type="file" name="photo" accept="image/*" style="color:#c9d1d9;font-size:13px">
-  <button class="btn btn-primary" type="submit">Upload Photo</button>
+  <label class="btn btn-primary">Upload Photo<input type="file" name="photo" accept="image/*" style="display:none" onchange="this.closest('form').requestSubmit()"></label>
 </form>
 {{end}}
 </div>
@@ -2111,8 +2232,7 @@ const rxFormTmpl = `{{define "content"}}
 <p class="muted" style="margin-bottom:8px">No photos yet.</p>
 {{end}}
 <form method="POST" action="/rx/{{.ID}}/photos" enctype="multipart/form-data" class="upload-form">
-  <input type="file" name="photo" accept="image/*" style="color:#c9d1d9;font-size:13px">
-  <button class="btn btn-primary" type="submit">Upload Photo</button>
+  <label class="btn btn-primary">Upload Photo<input type="file" name="photo" accept="image/*" style="display:none" onchange="this.closest('form').requestSubmit()"></label>
 </form>
 {{end}}
 </div>
@@ -2231,8 +2351,7 @@ const batteryFormTmpl = `{{define "content"}}
 <p class="muted" style="margin-bottom:8px">No photos yet.</p>
 {{end}}
 <form method="POST" action="/batteries/{{.ID}}/photos" enctype="multipart/form-data" class="upload-form">
-  <input type="file" name="photo" accept="image/*" style="color:#c9d1d9;font-size:13px">
-  <button class="btn btn-primary" type="submit">Upload Photo</button>
+  <label class="btn btn-primary">Upload Photo<input type="file" name="photo" accept="image/*" style="display:none" onchange="this.closest('form').requestSubmit()"></label>
 </form>
 {{end}}
 </div>
@@ -2355,8 +2474,7 @@ const propFormTmpl = `{{define "content"}}
 <p class="muted" style="margin-bottom:8px">No photos yet.</p>
 {{end}}
 <form method="POST" action="/props/{{.ID}}/photos" enctype="multipart/form-data" class="upload-form">
-  <input type="file" name="photo" accept="image/*" style="color:#c9d1d9;font-size:13px">
-  <button class="btn btn-primary" type="submit">Upload Photo</button>
+  <label class="btn btn-primary">Upload Photo<input type="file" name="photo" accept="image/*" style="display:none" onchange="this.closest('form').requestSubmit()"></label>
 </form>
 {{end}}
 </div>
@@ -2375,7 +2493,7 @@ const logListTmpl = `{{define "content"}}
 </tr></thead>
 <tbody>
 {{range .Sessions}}
-<tr>
+<tr style="cursor:pointer" onclick="window.location='/log/{{.ID}}'">
   <td class="muted" style="white-space:nowrap">{{.SessionDate}}</td>
   <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{if .Title}}<strong>{{.Title}}</strong>{{else}}<span class="muted">{{dash .Notes}}</span>{{end}}</td>
   <td><strong>{{.DroneNames}}</strong></td>
@@ -2383,8 +2501,7 @@ const logListTmpl = `{{define "content"}}
   <td class="muted">{{if gt .DurationMin 0}}{{.DurationMin}}m{{else}}—{{end}}</td>
   <td class="muted">{{dash .Location}}</td>
   <td class="muted" style="font-size:12px">{{dash .BatteryList}}</td>
-  <td class="actions-cell">
-    <a href="/log/{{.ID}}" class="btn btn-sm btn-edit">View</a>
+  <td class="actions-cell" onclick="event.stopPropagation()">
     <a href="/log/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
     <form class="inline" method="POST" action="/log/{{.ID}}/delete">
       <button class="btn btn-sm btn-danger" type="submit">Delete</button>
@@ -2578,8 +2695,7 @@ const sessionDetailTmpl = `{{define "content"}}
 <p class="muted" style="margin-bottom:8px">No videos yet.</p>
 {{end}}
 <form id="video-upload-form" method="POST" action="/log/{{.ID}}/videos" enctype="multipart/form-data" class="upload-form" style="margin-bottom:8px">
-  <input type="file" name="video" accept="video/*" style="color:#c9d1d9;font-size:13px">
-  <button class="btn btn-primary" type="submit">Upload Video</button>
+  <label class="btn btn-primary">Upload Video<input type="file" name="video" accept="video/*" style="display:none" onchange="this.closest('form').requestSubmit()"></label>
 </form>
 <div id="video-upload-progress" style="display:none;margin-bottom:24px;max-width:860px">
   <div style="background:#30363d;border-radius:4px;height:8px;overflow:hidden">
@@ -2611,8 +2727,7 @@ const sessionDetailTmpl = `{{define "content"}}
 <p class="muted" style="margin-bottom:8px">No photos yet.</p>
 {{end}}
 <form method="POST" action="/log/{{.ID}}/photos" enctype="multipart/form-data" class="upload-form" style="margin-bottom:32px">
-  <input type="file" name="photo" accept="image/*" style="color:#c9d1d9;font-size:13px">
-  <button class="btn btn-primary" type="submit">Upload Photo</button>
+  <label class="btn btn-primary">Upload Photo<input type="file" name="photo" accept="image/*" style="display:none" onchange="this.closest('form').requestSubmit()"></label>
 </form>
 
 <p><a href="/log">&larr; Back to log</a></p>

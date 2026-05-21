@@ -268,6 +268,18 @@ func (a *App) fillDroneFormOptions(r *http.Request, page *DroneFormPage) {
 	page.RXs, _ = a.rxOptions(r)
 }
 
+func (a *App) fillDronePageOptions(r *http.Request, page *DronePage) {
+	page.Sizes, _ = a.sizeOptions(r)
+	page.Cells, _ = a.cellOptions(r)
+	page.Frames, _ = a.frameOptions(r)
+	page.FCs, _ = a.fcOptions(r)
+	page.ESCs, _ = a.escOptions(r)
+	page.VTXs, _ = a.vtxOptions(r)
+	page.Motors, _ = a.motorOptions(r)
+	page.GPSs, _ = a.gpsOptions(r)
+	page.RXs, _ = a.rxOptions(r)
+}
+
 func (a *App) handleDroneNew(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if r.Method == http.MethodPost {
@@ -310,12 +322,7 @@ func (a *App) handleDroneNew(w http.ResponseWriter, r *http.Request) {
 			httpErr(w, err)
 			return
 		}
-		for _, bidStr := range r.Form["battery_ids"] {
-			bid, _ := strconv.Atoi(bidStr)
-			if bid > 0 {
-				a.db.Exec(ctx, `INSERT INTO drone_batteries (drone_id,battery_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, droneID, bid)
-			}
-		}
+		a.updateDroneBatteries(ctx, droneID, r.Form["battery_ids"])
 		for _, pidStr := range r.Form["prop_ids"] {
 			pid, _ := strconv.Atoi(pidStr)
 			if pid > 0 {
@@ -337,6 +344,10 @@ func (a *App) handleDroneEdit(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseID(r)
 	if !ok {
 		http.NotFound(w, r)
+		return
+	}
+	if r.Method == http.MethodGet {
+		http.Redirect(w, r, fmt.Sprintf("/drones/%d", id), http.StatusSeeOther)
 		return
 	}
 	if r.Method == http.MethodPost {
@@ -379,11 +390,7 @@ func (a *App) handleDroneEdit(w http.ResponseWriter, r *http.Request) {
 			httpErr(w, err)
 			return
 		}
-		newBatIDs := parseIntList(r.Form["battery_ids"])
-		a.db.Exec(ctx, `DELETE FROM drone_batteries WHERE drone_id=$1`, id)
-		for _, bid := range newBatIDs {
-			a.db.Exec(ctx, `INSERT INTO drone_batteries (drone_id,battery_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, id, bid)
-		}
+		a.updateDroneBatteries(ctx, id, r.Form["battery_ids"])
 		newPropIDs := parseIntList(r.Form["prop_ids"])
 		a.db.Exec(ctx, `DELETE FROM drone_props WHERE drone_id=$1`, id)
 		for _, pid := range newPropIDs {
@@ -488,56 +495,39 @@ func (a *App) handleDroneDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	var page DroneDetailPage
+	var page DronePage
+	var frameID, fcID, escID, vtxID, motorID, sizeID, cellID, gpsID, rxID *int
+	var motorCount int
 	var bd *string
-	var frameID, fcID, escID, vtxID, motorID, gpsID, rxID *int
+	var weightGInt *int
 	err := a.db.QueryRow(ctx, `
-        SELECT d.id, d.name, d.status,
-               COALESCE(sz.label,''), COALESCE(c.label,''),
-               d.weight_g, TO_CHAR(d.build_date,'YYYY-MM-DD'), d.notes,
-               COALESCE(COALESCE(bf.name||' ','')|| f.name,''),
-               COALESCE(COALESCE(bfc.name||' ','')|| fc.name,''),
-               COALESCE(COALESCE(be.name||' ','')|| e.name,''),
-               COALESCE(COALESCE(bv.name||' ','')|| v.name,''),
-               COALESCE(COALESCE(bm.name||' ','')|| m.name,''),
-               d.motor_count,
-               COALESCE(COALESCE(bg.name||' ','')|| g.name,''),
-               COALESCE(COALESCE(brx.name||' ','')|| rx.name,''),
-               d.frame_id, d.fc_id, d.esc_id, d.vtx_id, d.motor_id, d.gps_id, d.rx_id
-        FROM drones d
-        LEFT JOIN sizes sz ON sz.id=d.size_id
-        LEFT JOIN cells c ON c.id=d.cell_id
-        LEFT JOIN frames f ON f.id=d.frame_id
-        LEFT JOIN brands bf ON bf.id=f.brand_id
-        LEFT JOIN flight_controllers fc ON fc.id=d.fc_id
-        LEFT JOIN brands bfc ON bfc.id=fc.brand_id
-        LEFT JOIN escs e ON e.id=d.esc_id
-        LEFT JOIN brands be ON be.id=e.brand_id
-        LEFT JOIN vtx_units v ON v.id=d.vtx_id
-        LEFT JOIN brands bv ON bv.id=v.brand_id
-        LEFT JOIN motors m ON m.id=d.motor_id
-        LEFT JOIN brands bm ON bm.id=m.brand_id
-        LEFT JOIN gps_modules g ON g.id=d.gps_id
-        LEFT JOIN brands bg ON bg.id=g.brand_id
-        LEFT JOIN radio_receivers rx ON rx.id=d.rx_id
-        LEFT JOIN brands brx ON brx.id=rx.brand_id
-        WHERE d.id=$1`, id).Scan(
+        SELECT id,name,status,size_id,cell_id,frame_id,fc_id,esc_id,vtx_id,motor_id,motor_count,
+               gps_id,rx_id,TO_CHAR(build_date,'YYYY-MM-DD'),weight_g,sub_250g,notes
+        FROM drones WHERE id=$1`, id).Scan(
 		&page.ID, &page.Name, &page.Status,
-		&page.SizeInch, &page.CellLabel,
-		&page.WeightG, &bd, &page.Notes,
-		&page.FrameName, &page.FCName, &page.ESCName, &page.VTXName,
-		&page.MotorName, &page.MotorCount,
-		&page.GPSName, &page.RXName,
-		&frameID, &fcID, &escID, &vtxID, &motorID, &gpsID, &rxID)
+		&sizeID, &cellID, &frameID, &fcID, &escID, &vtxID, &motorID, &motorCount,
+		&gpsID, &rxID, &bd, &weightGInt, &page.Sub250g, &page.Notes)
 	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
+	page.SizeID = derefInt(sizeID)
+	page.CellID = derefInt(cellID)
+	page.FrameID = derefInt(frameID)
+	page.FCID = derefInt(fcID)
+	page.ESCID = derefInt(escID)
+	page.VTXID = derefInt(vtxID)
+	page.MotorID = derefInt(motorID)
+	page.MotorCount = strconv.Itoa(motorCount)
+	page.GPSID = derefInt(gpsID)
+	page.RXID = derefInt(rxID)
 	if bd != nil {
 		page.BuildDate = *bd
 	}
+	if weightGInt != nil {
+		page.WeightG = strconv.Itoa(*weightGInt)
+	}
 
-	// batteries (all assigned)
 	batRows, _ := a.db.Query(ctx, `
         SELECT COALESCE(br.name||' ','')|| b.name||' ('||COALESCE(c2.label,'?')||' '||b.capacity_mah||'mAh)'
         FROM drone_batteries db2
@@ -556,7 +546,6 @@ func (a *App) handleDroneDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	page.BatteryNames = strings.Join(batNames, ", ")
 
-	// props (all assigned)
 	propRows, _ := a.db.Query(ctx, `
         SELECT COALESCE(br.name||' ','')|| p.name||COALESCE(' '||sz2.label||'"','')
         FROM drone_props dp2
@@ -575,10 +564,9 @@ func (a *App) handleDroneDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	page.PropNames = strings.Join(propNames, ", ")
 
-	// photos
+	page.Batteries, _ = a.droneBatteryChecks(r, id)
 	page.Photos = a.fetchItemPhotos(ctx, "drone_photos", "drone_id", id)
 
-	// unified timeline: manual log entries + sessions, sorted newest-first
 	logRows, err := a.db.Query(ctx,
 		`SELECT id, logged_at, body FROM drone_log_entries WHERE drone_id=$1`, id)
 	if err != nil {
@@ -619,8 +607,77 @@ func (a *App) handleDroneDetail(w http.ResponseWriter, r *http.Request) {
 		return page.Timeline[i].SortKey > page.Timeline[j].SortKey
 	})
 
+	a.fillDronePageOptions(r, &page)
 	page.ActiveTab = "drones"
-	render(w, "drone-detail", page)
+	render(w, "drone", page)
+}
+
+func (a *App) updateDroneBatteries(ctx context.Context, droneID int, bidStrs []string) {
+	a.db.Exec(ctx, `DELETE FROM drone_batteries WHERE drone_id=$1`, droneID)
+	for _, s := range bidStrs {
+		bid, _ := strconv.Atoi(s)
+		if bid > 0 {
+			a.db.Exec(ctx, `INSERT INTO drone_batteries (drone_id,battery_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, droneID, bid)
+		}
+	}
+}
+
+func (a *App) handleDroneBatteries(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		httpErr(w, err)
+		return
+	}
+	a.updateDroneBatteries(r.Context(), id, r.Form["battery_ids"])
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleDroneSave(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		httpErr(w, err)
+		return
+	}
+	mc, _ := strconv.Atoi(r.FormValue("motor_count"))
+	if mc == 0 {
+		mc = 4
+	}
+	name := strings.TrimSpace(r.FormValue("name"))
+	if name == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	a.db.Exec(r.Context(), `
+        UPDATE drones SET name=$1,frame_id=$2,fc_id=$3,esc_id=$4,vtx_id=$5,
+        motor_id=$6,motor_count=$7,size_id=$8,cell_id=$9,
+        gps_id=$10,rx_id=$11,status=$12,build_date=$13,weight_g=$14,sub_250g=$15,notes=$16
+        WHERE id=$17`,
+		name,
+		nullIntPtr(r.FormValue("frame_id")),
+		nullIntPtr(r.FormValue("fc_id")),
+		nullIntPtr(r.FormValue("esc_id")),
+		nullIntPtr(r.FormValue("vtx_id")),
+		nullIntPtr(r.FormValue("motor_id")),
+		mc,
+		nullIntPtr(r.FormValue("size_id")),
+		nullIntPtr(r.FormValue("cell_id")),
+		nullIntPtr(r.FormValue("gps_id")),
+		nullIntPtr(r.FormValue("rx_id")),
+		r.FormValue("status"),
+		nullDate(r.FormValue("build_date")),
+		nullIntPtr(r.FormValue("weight_g")),
+		r.FormValue("sub_250g") == "on",
+		r.FormValue("notes"),
+		id)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *App) handleDroneLogAdd(w http.ResponseWriter, r *http.Request) {
