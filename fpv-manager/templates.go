@@ -2970,14 +2970,14 @@ const settingsTmpl = `{{define "content"}}
 
 <div class="section">
   <div class="section-header"><h3>Transcode</h3></div>
-  <form method="POST" action="/settings/config" style="max-width:480px">
+  <form id="config-form" action="/settings/config" method="POST" style="max-width:480px">
     <table style="border-collapse:collapse;width:100%">
       <tr><td style="padding:6px 12px 6px 0;color:#8b949e;white-space:nowrap;width:140px">CRF (0–51)</td><td>
-        <input type="number" name="ffmpeg_crf" value="{{.Config.FFmpegCRF}}" min="0" max="51" style="width:80px">
+        <input type="number" name="ffmpeg_crf" value="{{.Config.FFmpegCRF}}" min="0" max="51" style="width:80px" onchange="saveConfig()">
         <span class="muted" style="font-size:12px;margin-left:8px">lower = better quality</span>
       </td></tr>
       <tr><td style="padding:6px 12px 6px 0;color:#8b949e;white-space:nowrap">Preset</td><td>
-        <select name="ffmpeg_preset">
+        <select name="ffmpeg_preset" onchange="saveConfig()">
           <option value="ultrafast" {{if eq .Config.FFmpegPreset "ultrafast"}}selected{{end}}>ultrafast</option>
           <option value="superfast" {{if eq .Config.FFmpegPreset "superfast"}}selected{{end}}>superfast</option>
           <option value="veryfast"  {{if eq .Config.FFmpegPreset "veryfast"}}selected{{end}}>veryfast</option>
@@ -2990,19 +2990,26 @@ const settingsTmpl = `{{define "content"}}
         </select>
       </td></tr>
       <tr><td style="padding:6px 12px 6px 0;color:#8b949e;white-space:nowrap">Max width (px)</td><td>
-        <input type="number" name="video_max_width" value="{{.Config.VideoMaxWidth}}" min="480" step="16" style="width:100px">
+        <input type="number" name="video_max_width" value="{{.Config.VideoMaxWidth}}" min="480" step="16" style="width:100px" onchange="saveConfig()">
       </td></tr>
       <tr><td style="padding:6px 12px 6px 0;color:#8b949e;white-space:nowrap">Bitrate (kbps)</td><td>
-        <input type="number" name="video_bitrate_k" value="{{.Config.VideoBitrateK}}" min="500" step="100" style="width:100px">
+        <input type="number" name="video_bitrate_k" value="{{.Config.VideoBitrateK}}" min="500" step="100" style="width:100px" onchange="saveConfig()">
       </td></tr>
       <tr><td style="padding:6px 12px 6px 0;color:#8b949e;white-space:nowrap">HLS segment (s)</td><td>
-        <input type="number" name="hls_segment_sec" value="{{.Config.HLSSegmentSec}}" min="2" max="30" style="width:80px">
+        <input type="number" name="hls_segment_sec" value="{{.Config.HLSSegmentSec}}" min="2" max="30" style="width:80px" onchange="saveConfig()">
       </td></tr>
     </table>
-    <div class="form-actions" style="margin-top:16px">
-      <button class="btn btn-primary" type="submit">Save</button>
-    </div>
   </form>
+<script>
+var _saveConfigTimer = null;
+function saveConfig() {
+  clearTimeout(_saveConfigTimer);
+  _saveConfigTimer = setTimeout(function() {
+    var form = document.getElementById('config-form');
+    fetch(form.action, {method:'POST', body:new URLSearchParams(new FormData(form))}).catch(function(e){console.error('config save failed',e);});
+  }, 300);
+}
+</script>
 </div>
 
 <div class="section">

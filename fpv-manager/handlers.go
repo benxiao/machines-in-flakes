@@ -3509,7 +3509,7 @@ func (a *App) handleConfigSave(w http.ResponseWriter, r *http.Request) {
 		ON CONFLICT (id) DO UPDATE SET
 			ffmpeg_crf=$1, ffmpeg_preset=$2, video_max_width=$3, video_bitrate_k=$4, hls_segment_sec=$5`,
 		crf, preset, maxW, bitrateK, hlsSec)
-	http.Redirect(w, r, "/settings", http.StatusSeeOther)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // ---- Radio Protocols ----
