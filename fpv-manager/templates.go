@@ -2486,7 +2486,7 @@ const logListTmpl = `{{define "content"}}
 </tr></thead>
 <tbody>
 {{range .Sessions}}
-<tr {{if .IsQuickFlight}}class="quick-flight-row"{{end}} style="cursor:pointer" onclick="window.location='/log/{{.ID}}'">
+<tr {{if .IsQuickFlight}}class="quick-flight-row"{{end}} style="cursor:pointer" onclick="window.location='/log/{{.ID}}/edit'">
   <td class="muted" style="white-space:nowrap">{{.SessionDate}}</td>
   <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{if .Title}}<strong>{{.Title}}</strong>{{else}}<span class="muted">{{dash .Notes}}</span>{{end}}</td>
   <td><strong>{{.DroneNames}}</strong></td>
@@ -2609,6 +2609,10 @@ const sessionFormTmpl = `{{define "content"}}
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Log Session{{end}}</button>
     <a href="/log" class="btn btn-cancel">Cancel</a>
+    {{if .ID}}
+    <a href="/log/{{.ID}}" class="btn btn-cancel">View</a>
+    <form class="inline" method="POST" action="/log/{{.ID}}/delete"><button class="btn btn-danger" type="submit">Delete</button></form>
+    {{end}}
   </div>
 </form>
 </div>
@@ -2621,10 +2625,7 @@ const sessionDetailTmpl = `{{define "content"}}
     <div class="summary">{{.DroneNames}} &mdash; {{.Date}}</div>
   </div>
   <div>
-    <a href="/log/{{.ID}}/edit" class="btn btn-edit">Edit</a>
-    <form class="inline" method="POST" action="/log/{{.ID}}/delete">
-      <button class="btn btn-danger" type="submit">Delete</button>
-    </form>
+    <a href="/log/{{.ID}}/edit" class="btn btn-cancel">← Edit</a>
   </div>
 </div>
 <table style="max-width:500px;margin-bottom:24px">
@@ -2730,7 +2731,7 @@ const sessionDetailTmpl = `{{define "content"}}
   <label class="btn btn-primary">Upload Photo<input type="file" name="photo" accept="image/*" style="display:none" onchange="this.closest('form').requestSubmit()"></label>
 </form>
 
-<p><a href="/log">&larr; Back to log</a></p>
+<p><a href="/log">&larr; Back to log</a> &nbsp; <a href="/log/{{.ID}}/edit">Edit session</a></p>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4"></script>
 <script>
 function attachVideo(video, src) {
