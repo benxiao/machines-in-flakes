@@ -368,7 +368,76 @@ func (a *App) handleDroneEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodGet {
-		http.Redirect(w, r, fmt.Sprintf("/drones/%d", id), http.StatusSeeOther)
+		var page DronePage
+		var frameID, fcID, escID, vtxID, motorID, sizeID, cellID, gpsID, rxID *int
+		var motorCount int
+		var bd *string
+		var weightGInt *int
+		err := a.db.QueryRow(ctx, `
+	        SELECT id,name,status,size_id,cell_id,frame_id,fc_id,esc_id,vtx_id,motor_id,motor_count,
+	               gps_id,rx_id,TO_CHAR(build_date,'YYYY-MM-DD'),weight_g,sub_250g,notes
+	        FROM drones WHERE id=$1`, id).Scan(
+			&page.ID, &page.Name, &page.Status,
+			&sizeID, &cellID, &frameID, &fcID, &escID, &vtxID, &motorID, &motorCount,
+			&gpsID, &rxID, &bd, &weightGInt, &page.Sub250g, &page.Notes)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		page.SizeID = derefInt(sizeID)
+		page.CellID = derefInt(cellID)
+		page.FrameID = derefInt(frameID)
+		page.FCID = derefInt(fcID)
+		page.ESCID = derefInt(escID)
+		page.VTXID = derefInt(vtxID)
+		page.MotorID = derefInt(motorID)
+		page.MotorCount = strconv.Itoa(motorCount)
+		page.GPSID = derefInt(gpsID)
+		page.RXID = derefInt(rxID)
+		if bd != nil {
+			page.BuildDate = *bd
+		}
+		if weightGInt != nil {
+			page.WeightG = strconv.Itoa(*weightGInt)
+		}
+		page.Batteries, _ = a.droneBatteryChecks(r, id)
+		batRows, _ := a.db.Query(ctx, `
+	        SELECT COALESCE(br.name||' ','')|| b.name||' ('||COALESCE(c2.label,'?')||' '||b.capacity_mah||'mAh)'
+	        FROM drone_batteries db2
+	        JOIN batteries b ON b.id=db2.battery_id
+	        LEFT JOIN brands br ON br.id=b.brand_id
+	        LEFT JOIN cells c2 ON c2.id=b.cell_id
+	        WHERE db2.drone_id=$1 ORDER BY b.name`, id)
+		var batNames []string
+		if batRows != nil {
+			for batRows.Next() {
+				var s string
+				batRows.Scan(&s)
+				batNames = append(batNames, s)
+			}
+			batRows.Close()
+		}
+		page.BatteryNames = strings.Join(batNames, ", ")
+		propRows, _ := a.db.Query(ctx, `
+	        SELECT COALESCE(br.name||' ','')|| p.name||COALESCE(' '||sz2.label||'"','')
+	        FROM drone_props dp2
+	        JOIN propellers p ON p.id=dp2.prop_id
+	        LEFT JOIN brands br ON br.id=p.brand_id
+	        LEFT JOIN sizes sz2 ON sz2.id=p.size_id
+	        WHERE dp2.drone_id=$1 ORDER BY p.name`, id)
+		var propNames []string
+		if propRows != nil {
+			for propRows.Next() {
+				var s string
+				propRows.Scan(&s)
+				propNames = append(propNames, s)
+			}
+			propRows.Close()
+		}
+		page.PropNames = strings.Join(propNames, ", ")
+		a.fillDronePageOptions(r, &page)
+		page.ActiveTab = "drones"
+		render(w, "drone-edit", page)
 		return
 	}
 	if r.Method == http.MethodPost {
@@ -564,75 +633,12 @@ func (a *App) handleDroneDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	var page DronePage
-	var frameID, fcID, escID, vtxID, motorID, sizeID, cellID, gpsID, rxID *int
-	var motorCount int
-	var bd *string
-	var weightGInt *int
-	err := a.db.QueryRow(ctx, `
-        SELECT id,name,status,size_id,cell_id,frame_id,fc_id,esc_id,vtx_id,motor_id,motor_count,
-               gps_id,rx_id,TO_CHAR(build_date,'YYYY-MM-DD'),weight_g,sub_250g,notes
-        FROM drones WHERE id=$1`, id).Scan(
-		&page.ID, &page.Name, &page.Status,
-		&sizeID, &cellID, &frameID, &fcID, &escID, &vtxID, &motorID, &motorCount,
-		&gpsID, &rxID, &bd, &weightGInt, &page.Sub250g, &page.Notes)
+	err := a.db.QueryRow(ctx, `SELECT id, name, status FROM drones WHERE id=$1`, id).Scan(
+		&page.ID, &page.Name, &page.Status)
 	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
-	page.SizeID = derefInt(sizeID)
-	page.CellID = derefInt(cellID)
-	page.FrameID = derefInt(frameID)
-	page.FCID = derefInt(fcID)
-	page.ESCID = derefInt(escID)
-	page.VTXID = derefInt(vtxID)
-	page.MotorID = derefInt(motorID)
-	page.MotorCount = strconv.Itoa(motorCount)
-	page.GPSID = derefInt(gpsID)
-	page.RXID = derefInt(rxID)
-	if bd != nil {
-		page.BuildDate = *bd
-	}
-	if weightGInt != nil {
-		page.WeightG = strconv.Itoa(*weightGInt)
-	}
-
-	batRows, _ := a.db.Query(ctx, `
-        SELECT COALESCE(br.name||' ','')|| b.name||' ('||COALESCE(c2.label,'?')||' '||b.capacity_mah||'mAh)'
-        FROM drone_batteries db2
-        JOIN batteries b ON b.id=db2.battery_id
-        LEFT JOIN brands br ON br.id=b.brand_id
-        LEFT JOIN cells c2 ON c2.id=b.cell_id
-        WHERE db2.drone_id=$1 ORDER BY b.name`, id)
-	var batNames []string
-	if batRows != nil {
-		for batRows.Next() {
-			var s string
-			batRows.Scan(&s)
-			batNames = append(batNames, s)
-		}
-		batRows.Close()
-	}
-	page.BatteryNames = strings.Join(batNames, ", ")
-
-	propRows, _ := a.db.Query(ctx, `
-        SELECT COALESCE(br.name||' ','')|| p.name||COALESCE(' '||sz2.label||'"','')
-        FROM drone_props dp2
-        JOIN propellers p ON p.id=dp2.prop_id
-        LEFT JOIN brands br ON br.id=p.brand_id
-        LEFT JOIN sizes sz2 ON sz2.id=p.size_id
-        WHERE dp2.drone_id=$1 ORDER BY p.name`, id)
-	var propNames []string
-	if propRows != nil {
-		for propRows.Next() {
-			var s string
-			propRows.Scan(&s)
-			propNames = append(propNames, s)
-		}
-		propRows.Close()
-	}
-	page.PropNames = strings.Join(propNames, ", ")
-
-	page.Batteries, _ = a.droneBatteryChecks(r, id)
 	page.Photos = a.fetchItemPhotos(ctx, "drone_photos", "drone_id", id)
 
 	logRows, err := a.db.Query(ctx,
@@ -675,7 +681,6 @@ func (a *App) handleDroneDetail(w http.ResponseWriter, r *http.Request) {
 		return page.Timeline[i].SortKey > page.Timeline[j].SortKey
 	})
 
-	a.fillDronePageOptions(r, &page)
 	page.ActiveTab = "drones"
 	render(w, "drone", page)
 }

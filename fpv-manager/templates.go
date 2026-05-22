@@ -697,6 +697,7 @@ func initTemplates() {
 
 	add("drone-list", droneListTmpl)
 	add("drone", droneTmpl)
+	add("drone-edit", droneEditTmpl)
 	add("drone-form", droneFormTmpl)
 	add("inventory", inventoryTmpl)
 	add("frame-form", frameFormTmpl)
@@ -975,7 +976,7 @@ const droneListTmpl = `{{define "content"}}
 </tr></thead>
 <tbody>
 {{range .Drones}}
-<tr class="{{if eq .Status "retired"}}retired{{end}}" style="cursor:pointer" onclick="window.location='/drones/{{.ID}}'">
+<tr class="{{if eq .Status "retired"}}retired{{end}}" style="cursor:pointer" onclick="window.location='/drones/{{.ID}}/edit'">
   <td style="width:56px;padding:6px 8px" onclick="event.stopPropagation()">
     {{if .FirstPhotoID}}
     <img src="/drone-photos/{{.FirstPhotoID}}" style="width:48px;height:48px;object-fit:cover;border-radius:4px;display:block;cursor:zoom-in" onclick="event.stopPropagation();openLightbox('/drone-photos/{{.FirstPhotoID}}')">
@@ -1017,7 +1018,7 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')closeLightbo
 </script>
 {{end}}`
 
-const droneTmpl = `{{define "content"}}
+const droneEditTmpl = `{{define "content"}}
 <div class="page-header">
   <div class="page-header-left" style="gap:12px;align-items:center">
     <input type="text" id="drone-name" value="{{.Name}}" onchange="saveDrone()"
@@ -1025,7 +1026,7 @@ const droneTmpl = `{{define "content"}}
     <span class="badge {{badgeClass .Status}}">{{.Status}}</span>
   </div>
   <div style="display:flex;gap:8px;align-items:center">
-    <button class="btn btn-cancel" id="toggle-detail" onclick="toggleDroneDetail()">Show drone detail</button>
+    <a href="/drones/{{.ID}}" class="btn btn-cancel">View</a>
     <form class="inline" method="POST" action="/drones/{{.ID}}/delete">
       <button class="btn btn-danger" type="submit">Delete</button>
     </form>
@@ -1034,12 +1035,9 @@ const droneTmpl = `{{define "content"}}
 </div>
 
 <form id="drone-form" action="/drones/{{.ID}}/save" method="POST">
-<div class="section" id="drone-detail-section">
+<div class="section">
   <div class="drone-cols" style="display:grid;grid-template-columns:1fr 1fr;gap:24px;max-width:900px">
     <div>
-      {{if .Photos}}
-      <img src="/drone-photos/{{(index .Photos 0).ID}}" style="width:100%;border-radius:6px;object-fit:cover;max-height:260px;display:block;cursor:zoom-in;margin-bottom:16px" onclick="openLightbox('/drone-photos/{{(index .Photos 0).ID}}')">
-      {{end}}
       <table style="border-collapse:collapse;width:100%">
         <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap;width:90px">Status</td><td>
           <select name="status" onchange="saveDrone()">
@@ -1138,22 +1136,7 @@ const droneTmpl = `{{define "content"}}
   </div>
 </div>
 </form>
-
-<div id="lightbox" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;align-items:center;justify-content:center" onclick="closeLightbox()">
-  <img id="lightbox-img" src="" style="max-width:90vw;max-height:90vh;border-radius:8px;object-fit:contain;box-shadow:0 8px 40px rgba(0,0,0,.6)">
-</div>
 <script>
-(function(){
-  var show=localStorage.getItem('showDroneDetail')==='1';
-  function apply(){
-    var s=document.getElementById('drone-detail-section');
-    var b=document.getElementById('toggle-detail');
-    if(s)s.style.display=show?'':'none';
-    if(b)b.textContent=show?'Hide drone detail':'Show drone detail';
-  }
-  window.toggleDroneDetail=function(){show=!show;localStorage.setItem('showDroneDetail',show?'1':'0');apply();};
-  apply();
-})();
 var _saveDroneTimer = null;
 function saveDrone() {
   clearTimeout(_saveDroneTimer);
@@ -1183,11 +1166,21 @@ function filterFrames() {
     if (hide && opt.selected) { opt.selected = false; frameSelect.value = ''; }
   });
 }
-function openLightbox(src){var lb=document.getElementById('lightbox');document.getElementById('lightbox-img').src=src;lb.style.display='flex';}
-function closeLightbox(){document.getElementById('lightbox').style.display='none';}
-document.addEventListener('keydown',function(e){if(e.key==='Escape')closeLightbox();});
 filterFrames();
 </script>
+{{end}}`
+
+const droneTmpl = `{{define "content"}}
+<div class="page-header">
+  <div class="page-header-left" style="gap:12px;align-items:center">
+    <h2 style="margin:0">{{.Name}}</h2>
+    <span class="badge {{badgeClass .Status}}">{{.Status}}</span>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <a href="/drones/{{.ID}}/edit" class="btn btn-cancel">← Edit</a>
+    <a href="/drones" class="btn btn-cancel">← Back</a>
+  </div>
+</div>
 
 {{if .Photos}}
 <div class="section">
