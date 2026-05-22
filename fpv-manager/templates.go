@@ -996,7 +996,7 @@ const droneListTmpl = `{{define "content"}}
     <button class="btn btn-sm" disabled style="opacity:0.35;cursor:not-allowed" title="Already flown today">+</button>
     {{else}}
     <form class="inline" method="POST" action="/drones/{{.ID}}/quick-flight">
-      <button class="btn btn-sm btn-primary" type="submit" title="Log quick flight">+</button>
+      <button class="btn btn-sm btn-primary" type="submit" title="Log quick flight" onclick="return confirm('Log a quick flight for {{.Name}}?')">+</button>
     </form>
     {{end}}
   </td>
