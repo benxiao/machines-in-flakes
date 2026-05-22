@@ -27,14 +27,15 @@ type DroneListPage struct {
 }
 
 type DroneRow struct {
-	ID           int
-	Name         string
-	SizeInch     string
-	CellLabel    string
-	Status       string
-	Sub250g      bool
-	FlightCount  int
-	FirstPhotoID int
+	ID             int
+	Name           string
+	SizeInch       string
+	CellLabel      string
+	Status         string
+	Sub250g        bool
+	FlightCount    int
+	FirstPhotoID   int
+	HasFlightToday bool
 }
 
 type DronePhotoRow struct {
@@ -415,15 +416,16 @@ type LogListPage struct {
 }
 
 type SessionRow struct {
-	ID          int
-	Title       string
-	DroneNames  string
-	Type        string
-	SessionDate string
-	DurationMin int
-	Location    string
-	Notes       string
-	BatteryList string
+	ID             int
+	Title          string
+	DroneNames     string
+	Type           string
+	SessionDate    string
+	DurationMin    int
+	Location       string
+	Notes          string
+	BatteryList    string
+	IsQuickFlight  bool
 }
 
 type BatteryCheck struct {
@@ -887,7 +889,7 @@ hr { border: none; border-top: 1px solid #30363d; margin: 32px 0; }
 }
 .battery-check:hover { border-color: #58a6ff; background: #161b22; }
 .battery-check input[type=checkbox] { margin: 0; cursor: pointer; }
-.actions-cell { white-space: nowrap; }
+.actions-cell { white-space: nowrap; text-align: right; }
 .installed-badge {
   font-size: 12px;
   color: #58a6ff;
@@ -986,10 +988,14 @@ const droneListTmpl = `{{define "content"}}
   <td><span class="badge {{badgeClass .Status}}">{{.Status}}</span></td>
   <td class="muted">{{if gt .FlightCount 0}}{{.FlightCount}}{{else}}—{{end}}</td>
   <td>{{if .Sub250g}}<span style="color:#3fb950;font-weight:600">✓</span>{{else}}<span class="muted">—</span>{{end}}</td>
-  <td class="actions-cell" onclick="event.stopPropagation()">
-    <form class="inline" method="POST" action="/drones/{{.ID}}/delete">
-      <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+  <td style="width:44px;padding:4px 8px;text-align:center" onclick="event.stopPropagation()">
+    {{if .HasFlightToday}}
+    <button class="btn btn-sm" disabled style="opacity:0.35;cursor:not-allowed" title="Already flown today">+</button>
+    {{else}}
+    <form class="inline" method="POST" action="/drones/{{.ID}}/quick-flight">
+      <button class="btn btn-sm btn-primary" type="submit" title="Log quick flight">+</button>
     </form>
+    {{end}}
   </td>
 </tr>
 {{end}}
@@ -1018,6 +1024,7 @@ const droneTmpl = `{{define "content"}}
     <span class="badge {{badgeClass .Status}}">{{.Status}}</span>
   </div>
   <div style="display:flex;gap:8px;align-items:center">
+    <button class="btn btn-cancel" id="toggle-detail" onclick="toggleDroneDetail()">Show drone detail</button>
     <form class="inline" method="POST" action="/drones/{{.ID}}/delete">
       <button class="btn btn-danger" type="submit">Delete</button>
     </form>
@@ -1026,7 +1033,7 @@ const droneTmpl = `{{define "content"}}
 </div>
 
 <form id="drone-form" action="/drones/{{.ID}}/save" method="POST">
-<div class="section">
+<div class="section" id="drone-detail-section">
   <div class="drone-cols" style="display:grid;grid-template-columns:1fr 1fr;gap:24px;max-width:900px">
     <div>
       {{if .Photos}}
@@ -1135,6 +1142,17 @@ const droneTmpl = `{{define "content"}}
   <img id="lightbox-img" src="" style="max-width:90vw;max-height:90vh;border-radius:8px;object-fit:contain;box-shadow:0 8px 40px rgba(0,0,0,.6)">
 </div>
 <script>
+(function(){
+  var show=localStorage.getItem('showDroneDetail')==='1';
+  function apply(){
+    var s=document.getElementById('drone-detail-section');
+    var b=document.getElementById('toggle-detail');
+    if(s)s.style.display=show?'':'none';
+    if(b)b.textContent=show?'Hide drone detail':'Show drone detail';
+  }
+  window.toggleDroneDetail=function(){show=!show;localStorage.setItem('showDroneDetail',show?'1':'0');apply();};
+  apply();
+})();
 var _saveDroneTimer = null;
 function saveDrone() {
   clearTimeout(_saveDroneTimer);
@@ -1503,8 +1521,8 @@ const inventoryTmpl = `{{define "content"}}
   <thead><tr><th></th><th>Brand</th><th>Name</th><th>Size</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .Frames}}
-  <tr>
-    <td style="width:40px;padding:4px 6px">{{if .FirstPhotoID}}<img src="/frame-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="openLightbox('/frame-photos/{{.FirstPhotoID}}')">{{end}}</td>
+  <tr style="cursor:pointer" onclick="window.location='/frames/{{.ID}}/edit'">
+    <td style="width:40px;padding:4px 6px" onclick="event.stopPropagation()">{{if .FirstPhotoID}}<img src="/frame-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="event.stopPropagation();openLightbox('/frame-photos/{{.FirstPhotoID}}')">{{else}}<svg width="36" height="36" viewBox="0 0 36 36" style="border-radius:3px;background:#21262d;display:block"><g stroke="#8b949e" stroke-linecap="round"><line x1="8" y1="8" x2="28" y2="28" stroke-width="1.5"/><line x1="28" y1="8" x2="8" y2="28" stroke-width="1.5"/><circle cx="8" cy="8" r="3.5" fill="#8b949e"/><circle cx="28" cy="8" r="3.5" fill="#8b949e"/><circle cx="8" cy="28" r="3.5" fill="#8b949e"/><circle cx="28" cy="28" r="3.5" fill="#8b949e"/><circle cx="18" cy="18" r="4" fill="none" stroke-width="1.5"/></g></svg>{{end}}</td>
     <td class="muted">{{dash .Brand}}</td>
     <td>{{.Name}}</td>
     <td class="muted">{{if .SizeInch}}{{.SizeInch}}"{{else}}—{{end}}</td>
@@ -1512,14 +1530,10 @@ const inventoryTmpl = `{{define "content"}}
     <td class="muted">{{.Installed}}</td>
     <td>{{if gt .Available 0}}<span style="color:#3fb950;font-weight:500">{{.Available}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
     <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
-    <td class="actions-cell">
-      <a href="/frames/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
+    <td class="actions-cell" onclick="event.stopPropagation()">
       <form class="inline" method="POST" action="/frames/{{.ID}}/adjust">
         <input type="number" name="count" placeholder="±" style="width:46px;padding:2px 4px;vertical-align:middle">
         <button class="btn btn-sm btn-edit" type="submit">Apply</button>
-      </form>
-      <form class="inline" method="POST" action="/frames/{{.ID}}/delete">
-        <button class="btn btn-sm btn-danger" type="submit">Delete</button>
       </form>
     </td>
   </tr>
@@ -1539,8 +1553,8 @@ const inventoryTmpl = `{{define "content"}}
   <thead><tr><th></th><th>Brand</th><th>Name</th><th>MCU</th><th>Firmware</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .FCs}}
-  <tr>
-    <td style="width:40px;padding:4px 6px">{{if .FirstPhotoID}}<img src="/fc-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="openLightbox('/fc-photos/{{.FirstPhotoID}}')">{{end}}</td>
+  <tr style="cursor:pointer" onclick="window.location='/fcs/{{.ID}}/edit'">
+    <td style="width:40px;padding:4px 6px" onclick="event.stopPropagation()">{{if .FirstPhotoID}}<img src="/fc-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="event.stopPropagation();openLightbox('/fc-photos/{{.FirstPhotoID}}')">{{else}}<svg width="36" height="36" viewBox="0 0 36 36" style="border-radius:3px;background:#21262d;display:block"><g stroke="#8b949e"><rect x="10" y="10" width="16" height="16" rx="2" stroke-width="1.5" fill="none"/><rect x="14" y="14" width="8" height="8" rx="1" fill="#8b949e" opacity="0.5"/><line x1="14" y1="10" x2="14" y2="7" stroke-width="1.5" stroke-linecap="round"/><line x1="18" y1="10" x2="18" y2="7" stroke-width="1.5" stroke-linecap="round"/><line x1="22" y1="10" x2="22" y2="7" stroke-width="1.5" stroke-linecap="round"/><line x1="14" y1="26" x2="14" y2="29" stroke-width="1.5" stroke-linecap="round"/><line x1="18" y1="26" x2="18" y2="29" stroke-width="1.5" stroke-linecap="round"/><line x1="22" y1="26" x2="22" y2="29" stroke-width="1.5" stroke-linecap="round"/></g></svg>{{end}}</td>
     <td class="muted">{{dash .Brand}}</td>
     <td>{{.Name}}</td>
     <td class="muted">{{dash .MCU}}</td>
@@ -1549,14 +1563,10 @@ const inventoryTmpl = `{{define "content"}}
     <td class="muted">{{.Installed}}</td>
     <td>{{if gt .Available 0}}<span style="color:#3fb950;font-weight:500">{{.Available}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
     <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
-    <td class="actions-cell">
-      <a href="/fcs/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
+    <td class="actions-cell" onclick="event.stopPropagation()">
       <form class="inline" method="POST" action="/fcs/{{.ID}}/adjust">
         <input type="number" name="count" placeholder="±" style="width:46px;padding:2px 4px;vertical-align:middle">
         <button class="btn btn-sm btn-edit" type="submit">Apply</button>
-      </form>
-      <form class="inline" method="POST" action="/fcs/{{.ID}}/delete">
-        <button class="btn btn-sm btn-danger" type="submit">Delete</button>
       </form>
     </td>
   </tr>
@@ -1576,8 +1586,8 @@ const inventoryTmpl = `{{define "content"}}
   <thead><tr><th></th><th>Brand</th><th>Name</th><th>Current</th><th>Max Cell</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .ESCs}}
-  <tr>
-    <td style="width:40px;padding:4px 6px">{{if .FirstPhotoID}}<img src="/esc-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="openLightbox('/esc-photos/{{.FirstPhotoID}}')">{{end}}</td>
+  <tr style="cursor:pointer" onclick="window.location='/escs/{{.ID}}/edit'">
+    <td style="width:40px;padding:4px 6px" onclick="event.stopPropagation()">{{if .FirstPhotoID}}<img src="/esc-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="event.stopPropagation();openLightbox('/esc-photos/{{.FirstPhotoID}}')">{{else}}<svg width="36" height="36" viewBox="0 0 36 36" style="border-radius:3px;background:#21262d;display:block"><g stroke="#8b949e"><rect x="5" y="12" width="26" height="12" rx="2" stroke-width="1.5" fill="none"/><line x1="11" y1="12" x2="11" y2="24" stroke-width="1" opacity="0.5"/><line x1="17" y1="12" x2="17" y2="24" stroke-width="1" opacity="0.5"/><line x1="23" y1="12" x2="23" y2="24" stroke-width="1" opacity="0.5"/><line x1="5" y1="18" x2="31" y2="18" stroke-width="1" opacity="0.3"/></g></svg>{{end}}</td>
     <td class="muted">{{dash .Brand}}</td>
     <td>{{.Name}}</td>
     <td class="muted">{{if .CurrentRating}}{{.CurrentRating}}A{{else}}—{{end}}</td>
@@ -1586,14 +1596,10 @@ const inventoryTmpl = `{{define "content"}}
     <td class="muted">{{.Installed}}</td>
     <td>{{if gt .Available 0}}<span style="color:#3fb950;font-weight:500">{{.Available}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
     <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
-    <td class="actions-cell">
-      <a href="/escs/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
+    <td class="actions-cell" onclick="event.stopPropagation()">
       <form class="inline" method="POST" action="/escs/{{.ID}}/adjust">
         <input type="number" name="count" placeholder="±" style="width:46px;padding:2px 4px;vertical-align:middle">
         <button class="btn btn-sm btn-edit" type="submit">Apply</button>
-      </form>
-      <form class="inline" method="POST" action="/escs/{{.ID}}/delete">
-        <button class="btn btn-sm btn-danger" type="submit">Delete</button>
       </form>
     </td>
   </tr>
@@ -1613,8 +1619,8 @@ const inventoryTmpl = `{{define "content"}}
   <thead><tr><th></th><th>Brand</th><th>Name</th><th>Stator</th><th>KV</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .Motors}}
-  <tr>
-    <td style="width:40px;padding:4px 6px">{{if .FirstPhotoID}}<img src="/motor-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="openLightbox('/motor-photos/{{.FirstPhotoID}}')">{{end}}</td>
+  <tr style="cursor:pointer" onclick="window.location='/motors/{{.ID}}/edit'">
+    <td style="width:40px;padding:4px 6px" onclick="event.stopPropagation()">{{if .FirstPhotoID}}<img src="/motor-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="event.stopPropagation();openLightbox('/motor-photos/{{.FirstPhotoID}}')">{{else}}<svg width="36" height="36" viewBox="0 0 36 36" style="border-radius:3px;background:#21262d;display:block"><g stroke="#8b949e" stroke-width="1.5" fill="none"><circle cx="18" cy="18" r="12"/><circle cx="18" cy="18" r="6"/><circle cx="18" cy="18" r="2" fill="#8b949e" stroke="none"/></g></svg>{{end}}</td>
     <td class="muted">{{dash .Brand}}</td>
     <td>{{.Name}}</td>
     <td class="muted">{{dash .StatorSize}}</td>
@@ -1623,14 +1629,10 @@ const inventoryTmpl = `{{define "content"}}
     <td class="muted">{{.Installed}}</td>
     <td>{{if gt .Available 0}}<span style="color:#3fb950;font-weight:500">{{.Available}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
     <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
-    <td class="actions-cell">
-      <a href="/motors/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
+    <td class="actions-cell" onclick="event.stopPropagation()">
       <form class="inline" method="POST" action="/motors/{{.ID}}/adjust">
         <input type="number" name="count" placeholder="±" style="width:46px;padding:2px 4px;vertical-align:middle">
         <button class="btn btn-sm btn-edit" type="submit">Apply</button>
-      </form>
-      <form class="inline" method="POST" action="/motors/{{.ID}}/delete">
-        <button class="btn btn-sm btn-danger" type="submit">Delete</button>
       </form>
     </td>
   </tr>
@@ -1650,22 +1652,18 @@ const inventoryTmpl = `{{define "content"}}
   <thead><tr><th></th><th>Brand</th><th>Name</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .VTXs}}
-  <tr>
-    <td style="width:40px;padding:4px 6px">{{if .FirstPhotoID}}<img src="/vtx-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="openLightbox('/vtx-photos/{{.FirstPhotoID}}')">{{end}}</td>
+  <tr style="cursor:pointer" onclick="window.location='/vtx/{{.ID}}/edit'">
+    <td style="width:40px;padding:4px 6px" onclick="event.stopPropagation()">{{if .FirstPhotoID}}<img src="/vtx-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="event.stopPropagation();openLightbox('/vtx-photos/{{.FirstPhotoID}}')">{{else}}<svg width="36" height="36" viewBox="0 0 36 36" style="border-radius:3px;background:#21262d;display:block"><g stroke="#8b949e" stroke-linecap="round" fill="none"><line x1="18" y1="10" x2="18" y2="27" stroke-width="2"/><circle cx="18" cy="27" r="2.5" fill="#8b949e" stroke="none"/><path d="M12 17 Q18 13 24 17" stroke-width="1.5"/><path d="M8 12 Q18 7 28 12" stroke-width="1.5"/></g></svg>{{end}}</td>
     <td class="muted">{{dash .Brand}}</td>
     <td>{{.Name}}</td>
     <td class="muted">{{.Total}}</td>
     <td class="muted">{{.Installed}}</td>
     <td>{{if gt .Available 0}}<span style="color:#3fb950;font-weight:500">{{.Available}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
     <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
-    <td class="actions-cell">
-      <a href="/vtx/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
+    <td class="actions-cell" onclick="event.stopPropagation()">
       <form class="inline" method="POST" action="/vtx/{{.ID}}/adjust">
         <input type="number" name="count" placeholder="±" style="width:46px;padding:2px 4px;vertical-align:middle">
         <button class="btn btn-sm btn-edit" type="submit">Apply</button>
-      </form>
-      <form class="inline" method="POST" action="/vtx/{{.ID}}/delete">
-        <button class="btn btn-sm btn-danger" type="submit">Delete</button>
       </form>
     </td>
   </tr>
@@ -1685,22 +1683,18 @@ const inventoryTmpl = `{{define "content"}}
   <thead><tr><th></th><th>Brand</th><th>Name</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .GPSs}}
-  <tr>
-    <td style="width:40px;padding:4px 6px">{{if .FirstPhotoID}}<img src="/gps-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="openLightbox('/gps-photos/{{.FirstPhotoID}}')">{{end}}</td>
+  <tr style="cursor:pointer" onclick="window.location='/gps/{{.ID}}/edit'">
+    <td style="width:40px;padding:4px 6px" onclick="event.stopPropagation()">{{if .FirstPhotoID}}<img src="/gps-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="event.stopPropagation();openLightbox('/gps-photos/{{.FirstPhotoID}}')">{{else}}<svg width="36" height="36" viewBox="0 0 36 36" style="border-radius:3px;background:#21262d;display:block"><g stroke="#8b949e" stroke-width="1.5"><path d="M18 6C12.5 6 8 10.5 8 16C8 22.5 18 30 18 30C18 30 28 22.5 28 16C28 10.5 23.5 6 18 6Z" fill="none"/><circle cx="18" cy="16" r="3.5" fill="#8b949e" stroke="none"/></g></svg>{{end}}</td>
     <td class="muted">{{dash .Brand}}</td>
     <td>{{.Name}}</td>
     <td class="muted">{{.Total}}</td>
     <td class="muted">{{.Installed}}</td>
     <td>{{if gt .Available 0}}<span style="color:#3fb950;font-weight:500">{{.Available}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
     <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
-    <td class="actions-cell">
-      <a href="/gps/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
+    <td class="actions-cell" onclick="event.stopPropagation()">
       <form class="inline" method="POST" action="/gps/{{.ID}}/adjust">
         <input type="number" name="count" placeholder="±" style="width:46px;padding:2px 4px;vertical-align:middle">
         <button class="btn btn-sm btn-edit" type="submit">Apply</button>
-      </form>
-      <form class="inline" method="POST" action="/gps/{{.ID}}/delete">
-        <button class="btn btn-sm btn-danger" type="submit">Delete</button>
       </form>
     </td>
   </tr>
@@ -1720,8 +1714,8 @@ const inventoryTmpl = `{{define "content"}}
   <thead><tr><th></th><th>Brand</th><th>Name</th><th>Protocol</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .RXs}}
-  <tr>
-    <td style="width:40px;padding:4px 6px">{{if .FirstPhotoID}}<img src="/rx-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="openLightbox('/rx-photos/{{.FirstPhotoID}}')">{{end}}</td>
+  <tr style="cursor:pointer" onclick="window.location='/rx/{{.ID}}/edit'">
+    <td style="width:40px;padding:4px 6px" onclick="event.stopPropagation()">{{if .FirstPhotoID}}<img src="/rx-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="event.stopPropagation();openLightbox('/rx-photos/{{.FirstPhotoID}}')">{{else}}<svg width="36" height="36" viewBox="0 0 36 36" style="border-radius:3px;background:#21262d;display:block"><g stroke="#8b949e" stroke-linecap="round" fill="none"><line x1="18" y1="13" x2="18" y2="29" stroke-width="2"/><circle cx="18" cy="9.5" r="3" fill="#8b949e" stroke="none"/><path d="M11 18 Q18 22 25 18" stroke-width="1.5"/><path d="M8 14 Q18 19 28 14" stroke-width="1.5" opacity="0.5"/></g></svg>{{end}}</td>
     <td class="muted">{{dash .Brand}}</td>
     <td>{{.Name}}</td>
     <td class="muted">{{dash .Protocol}}</td>
@@ -1729,14 +1723,10 @@ const inventoryTmpl = `{{define "content"}}
     <td class="muted">{{.Installed}}</td>
     <td>{{if gt .Available 0}}<span style="color:#3fb950;font-weight:500">{{.Available}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
     <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
-    <td class="actions-cell">
-      <a href="/rx/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
+    <td class="actions-cell" onclick="event.stopPropagation()">
       <form class="inline" method="POST" action="/rx/{{.ID}}/adjust">
         <input type="number" name="count" placeholder="±" style="width:46px;padding:2px 4px;vertical-align:middle">
         <button class="btn btn-sm btn-edit" type="submit">Apply</button>
-      </form>
-      <form class="inline" method="POST" action="/rx/{{.ID}}/delete">
-        <button class="btn btn-sm btn-danger" type="submit">Delete</button>
       </form>
     </td>
   </tr>
@@ -1792,6 +1782,7 @@ const frameFormTmpl = `{{define "content"}}
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add Frame{{end}}</button>
     <a href="/inventory" class="btn btn-cancel">Cancel</a>
+    {{if .ID}}<form class="inline" method="POST" action="/frames/{{.ID}}/delete"><button class="btn btn-danger" type="submit">Delete</button></form>{{end}}
   </div>
 </form>
 {{if .ID}}
@@ -1867,6 +1858,7 @@ const fcFormTmpl = `{{define "content"}}
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add FC{{end}}</button>
     <a href="/inventory" class="btn btn-cancel">Cancel</a>
+    {{if .ID}}<form class="inline" method="POST" action="/fcs/{{.ID}}/delete"><button class="btn btn-danger" type="submit">Delete</button></form>{{end}}
   </div>
 </form>
 {{if .ID}}
@@ -1942,6 +1934,7 @@ const escFormTmpl = `{{define "content"}}
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add ESC{{end}}</button>
     <a href="/inventory" class="btn btn-cancel">Cancel</a>
+    {{if .ID}}<form class="inline" method="POST" action="/escs/{{.ID}}/delete"><button class="btn btn-danger" type="submit">Delete</button></form>{{end}}
   </div>
 </form>
 {{if .ID}}
@@ -2012,6 +2005,7 @@ const motorFormTmpl = `{{define "content"}}
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add Motor{{end}}</button>
     <a href="/inventory" class="btn btn-cancel">Cancel</a>
+    {{if .ID}}<form class="inline" method="POST" action="/motors/{{.ID}}/delete"><button class="btn btn-danger" type="submit">Delete</button></form>{{end}}
   </div>
 </form>
 {{if .ID}}
@@ -2080,6 +2074,7 @@ const vtxFormTmpl = `{{define "content"}}
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add VTX{{end}}</button>
     <a href="/inventory" class="btn btn-cancel">Cancel</a>
+    {{if .ID}}<form class="inline" method="POST" action="/vtx/{{.ID}}/delete"><button class="btn btn-danger" type="submit">Delete</button></form>{{end}}
   </div>
 </form>
 {{if .ID}}
@@ -2140,6 +2135,7 @@ const gpsFormTmpl = `{{define "content"}}
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add GPS{{end}}</button>
     <a href="/inventory" class="btn btn-cancel">Cancel</a>
+    {{if .ID}}<form class="inline" method="POST" action="/gps/{{.ID}}/delete"><button class="btn btn-danger" type="submit">Delete</button></form>{{end}}
   </div>
 </form>
 {{if .ID}}
@@ -2209,6 +2205,7 @@ const rxFormTmpl = `{{define "content"}}
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add RX{{end}}</button>
     <a href="/inventory" class="btn btn-cancel">Cancel</a>
+    {{if .ID}}<form class="inline" method="POST" action="/rx/{{.ID}}/delete"><button class="btn btn-danger" type="submit">Delete</button></form>{{end}}
   </div>
 </form>
 {{if .ID}}
@@ -2251,8 +2248,8 @@ const batteryListTmpl = `{{define "content"}}
 </tr></thead>
 <tbody>
 {{range .Batteries}}
-<tr>
-  <td style="width:40px;padding:4px 6px">{{if .FirstPhotoID}}<img src="/battery-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="openLightbox('/battery-photos/{{.FirstPhotoID}}')">{{end}}</td>
+<tr style="cursor:pointer" onclick="window.location='/batteries/{{.ID}}/edit'">
+  <td style="width:40px;padding:4px 6px" onclick="event.stopPropagation()">{{if .FirstPhotoID}}<img src="/battery-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="event.stopPropagation();openLightbox('/battery-photos/{{.FirstPhotoID}}')">{{else}}<svg width="36" height="36" viewBox="0 0 36 36" style="border-radius:3px;background:#21262d;display:block"><g stroke="#8b949e"><rect x="4" y="12" width="24" height="12" rx="2" stroke-width="1.5" fill="none"/><rect x="6" y="15" width="10" height="6" rx="1" fill="#8b949e" opacity="0.5" stroke="none"/><line x1="28" y1="15" x2="28" y2="21" stroke-width="2" stroke-linecap="round"/><line x1="31" y1="16.5" x2="31" y2="19.5" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/></g></svg>{{end}}</td>
   <td class="muted">{{dash .Brand}}</td>
   <td><strong>{{.Name}}</strong></td>
   <td class="muted">{{dash .CellLabel}}</td>
@@ -2260,14 +2257,10 @@ const batteryListTmpl = `{{define "content"}}
   <td class="muted">{{if .WeightG}}{{.WeightG}}g{{else}}—{{end}}</td>
   <td class="muted">{{.Total}}</td>
   <td>{{if .AssignedTo}}<span class="installed-badge">{{.AssignedTo}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
-  <td class="actions-cell">
-    <a href="/batteries/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
+  <td class="actions-cell" onclick="event.stopPropagation()">
     <form class="inline" method="POST" action="/batteries/{{.ID}}/adjust">
       <input type="number" name="count" placeholder="±" style="width:46px;padding:2px 4px;vertical-align:middle">
       <button class="btn btn-sm btn-edit" type="submit">Apply</button>
-    </form>
-    <form class="inline" method="POST" action="/batteries/{{.ID}}/delete">
-      <button class="btn btn-sm btn-danger" type="submit">Delete</button>
     </form>
   </td>
 </tr>
@@ -2328,6 +2321,7 @@ const batteryFormTmpl = `{{define "content"}}
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add Battery{{end}}</button>
     <a href="/batteries" class="btn btn-cancel">Cancel</a>
+    {{if .ID}}<form class="inline" method="POST" action="/batteries/{{.ID}}/delete"><button class="btn btn-danger" type="submit">Delete</button></form>{{end}}
   </div>
 </form>
 {{if .ID}}
@@ -2367,12 +2361,12 @@ const propListTmpl = `{{define "content"}}
 <table>
 <thead><tr>
   <th></th><th>Brand</th><th>Name</th><th>Size</th><th>Pitch</th><th>Blades</th>
-  <th>Qty</th><th>Reorder At</th><th>Drone</th><th></th>
+  <th>Qty</th><th>Reorder At</th><th>Drone</th>
 </tr></thead>
 <tbody>
 {{range .Propellers}}
-<tr class="{{if .LowStock}}low-stock{{end}}">
-  <td style="width:40px;padding:4px 6px">{{if .FirstPhotoID}}<img src="/prop-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="openLightbox('/prop-photos/{{.FirstPhotoID}}')">{{end}}</td>
+<tr class="{{if .LowStock}}low-stock{{end}}" style="cursor:pointer" onclick="window.location='/props/{{.ID}}/edit'">
+  <td style="width:40px;padding:4px 6px" onclick="event.stopPropagation()">{{if .FirstPhotoID}}<img src="/prop-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="event.stopPropagation();openLightbox('/prop-photos/{{.FirstPhotoID}}')">{{else}}<svg width="36" height="36" viewBox="0 0 36 36" style="border-radius:3px;background:#21262d;display:block"><g fill="#8b949e" opacity="0.7"><ellipse cx="13" cy="13" rx="8" ry="4" transform="rotate(-45 13 13)"/><ellipse cx="23" cy="23" rx="8" ry="4" transform="rotate(-45 23 23)"/></g><circle cx="18" cy="18" r="3" fill="#21262d" stroke="#8b949e" stroke-width="1.5"/></svg>{{end}}</td>
   <td class="muted">{{dash .Brand}}</td>
   <td>{{.Name}}</td>
   <td class="muted">{{if .SizeInch}}{{.SizeInch}}"{{else}}—{{end}}</td>
@@ -2381,12 +2375,6 @@ const propListTmpl = `{{define "content"}}
   <td>{{.Quantity}}{{if .LowStock}} <span class="muted" title="low stock">&#9888;</span>{{end}}</td>
   <td class="muted">{{.ReorderThreshold}}</td>
   <td class="muted">{{dash .DroneNames}}</td>
-  <td class="actions-cell">
-    <a href="/props/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
-    <form class="inline" method="POST" action="/props/{{.ID}}/delete">
-      <button class="btn btn-sm btn-danger" type="submit">Delete</button>
-    </form>
-  </td>
 </tr>
 {{end}}
 </tbody>
@@ -2451,6 +2439,7 @@ const propFormTmpl = `{{define "content"}}
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add Props{{end}}</button>
     <a href="/props" class="btn btn-cancel">Cancel</a>
+    {{if .ID}}<form class="inline" method="POST" action="/props/{{.ID}}/delete"><button class="btn btn-danger" type="submit">Delete</button></form>{{end}}
   </div>
 </form>
 {{if .ID}}
@@ -2483,7 +2472,10 @@ const propFormTmpl = `{{define "content"}}
 const logListTmpl = `{{define "content"}}
 <div class="page-header">
   <div class="page-header-left"><h2>Flight Log</h2></div>
-  <a href="/log/new" class="btn btn-primary">+ Log Session</a>
+  <div style="display:flex;gap:8px">
+    <button class="btn btn-cancel" id="toggle-quick" onclick="toggleQuickFlights()">Show quick flights</button>
+    <a href="/log/new" class="btn btn-primary">+ Log Session</a>
+  </div>
 </div>
 {{if .Sessions}}
 <div class="table-wrap">
@@ -2493,7 +2485,7 @@ const logListTmpl = `{{define "content"}}
 </tr></thead>
 <tbody>
 {{range .Sessions}}
-<tr style="cursor:pointer" onclick="window.location='/log/{{.ID}}'">
+<tr {{if .IsQuickFlight}}class="quick-flight-row"{{end}} style="cursor:pointer" onclick="window.location='/log/{{.ID}}'">
   <td class="muted" style="white-space:nowrap">{{.SessionDate}}</td>
   <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{if .Title}}<strong>{{.Title}}</strong>{{else}}<span class="muted">{{dash .Notes}}</span>{{end}}</td>
   <td><strong>{{.DroneNames}}</strong></td>
@@ -2515,6 +2507,19 @@ const logListTmpl = `{{define "content"}}
 {{else}}
 <p class="muted">No sessions logged. <a href="/log/new">Log your first session.</a></p>
 {{end}}
+<script>
+(function(){
+  var show = localStorage.getItem('showQuickFlights')==='1';
+  function apply(){
+    var rows=document.querySelectorAll('tr.quick-flight-row');
+    rows.forEach(function(r){r.style.display=show?'':'none';});
+    var btn=document.getElementById('toggle-quick');
+    if(btn)btn.textContent=show?'Hide quick flights':'Show quick flights';
+  }
+  window.toggleQuickFlights=function(){show=!show;localStorage.setItem('showQuickFlights',show?'1':'0');apply();};
+  apply();
+})();
+</script>
 {{end}}`
 
 const sessionFormTmpl = `{{define "content"}}
@@ -2834,22 +2839,15 @@ const placeListTmpl = `{{define "content"}}
 <div class="table-wrap">
 <table>
 <thead><tr>
-  <th>Name</th><th>Type</th><th>Address</th><th>Notes</th><th></th>
+  <th>Name</th><th>Type</th><th>Address</th><th>Notes</th>
 </tr></thead>
 <tbody>
 {{range .Places}}
-<tr>
+<tr style="cursor:pointer" onclick="window.location='/places/{{.ID}}/edit'">
   <td><strong>{{.Name}}</strong></td>
   <td class="muted">{{.PlaceType}}</td>
   <td class="muted">{{dash .Address}}</td>
   <td class="muted" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{dash .Notes}}</td>
-  <td class="actions-cell">
-    <a href="/places/{{.ID}}" class="btn btn-sm btn-edit">View</a>
-    <a href="/places/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
-    <form class="inline" method="POST" action="/places/{{.ID}}/delete">
-      <button class="btn btn-sm btn-danger" type="submit">Delete</button>
-    </form>
-  </td>
 </tr>
 {{end}}
 </tbody>
@@ -2913,6 +2911,7 @@ const placeFormTmpl = `{{define "content"}}
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{if .ID}}Save Changes{{else}}Add Place{{end}}</button>
     <a href="/places" class="btn btn-cancel">Cancel</a>
+    {{if .ID}}<form class="inline" method="POST" action="/places/{{.ID}}/delete"><button class="btn btn-danger" type="submit">Delete</button></form>{{end}}
   </div>
 </form>
 <p class="muted" style="margin-top:16px;font-size:12px">The address will be geocoded automatically to show a map pin.</p>
@@ -2975,16 +2974,10 @@ const settingsTmpl = `{{define "content"}}
   </div>
   {{if .Brands}}
   <div class="table-wrap"><table>
-  <thead><tr><th>Name</th><th></th></tr></thead>
+  <thead><tr><th>Name</th></tr></thead>
   <tbody>
-  {{range .Brands}}<tr>
+  {{range .Brands}}<tr style="cursor:pointer" onclick="window.location='/brands/{{.ID}}/edit'">
     <td><strong>{{.Name}}</strong></td>
-    <td class="actions-cell">
-      <a href="/brands/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
-      <form class="inline" method="POST" action="/brands/{{.ID}}/delete">
-        <button class="btn btn-sm btn-danger" type="submit">Delete</button>
-      </form>
-    </td>
   </tr>{{end}}
   </tbody></table></div>
   {{else}}<p class="muted">No brands yet. <a href="/brands/new">Add one.</a></p>{{end}}
@@ -2997,16 +2990,10 @@ const settingsTmpl = `{{define "content"}}
   </div>
   {{if .Sizes}}
   <div class="table-wrap"><table>
-  <thead><tr><th>Label</th><th></th></tr></thead>
+  <thead><tr><th>Label</th></tr></thead>
   <tbody>
-  {{range .Sizes}}<tr>
+  {{range .Sizes}}<tr style="cursor:pointer" onclick="window.location='/sizes/{{.ID}}/edit'">
     <td><strong>{{.Label}}"</strong></td>
-    <td class="actions-cell">
-      <a href="/sizes/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
-      <form class="inline" method="POST" action="/sizes/{{.ID}}/delete">
-        <button class="btn btn-sm btn-danger" type="submit">Delete</button>
-      </form>
-    </td>
   </tr>{{end}}
   </tbody></table></div>
   {{else}}<p class="muted">No sizes yet. <a href="/sizes/new">Add one.</a></p>{{end}}
@@ -3019,16 +3006,10 @@ const settingsTmpl = `{{define "content"}}
   </div>
   {{if .Cells}}
   <div class="table-wrap"><table>
-  <thead><tr><th>Label</th><th></th></tr></thead>
+  <thead><tr><th>Label</th></tr></thead>
   <tbody>
-  {{range .Cells}}<tr>
+  {{range .Cells}}<tr style="cursor:pointer" onclick="window.location='/cells/{{.ID}}/edit'">
     <td><strong>{{.Label}}</strong></td>
-    <td class="actions-cell">
-      <a href="/cells/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
-      <form class="inline" method="POST" action="/cells/{{.ID}}/delete">
-        <button class="btn btn-sm btn-danger" type="submit">Delete</button>
-      </form>
-    </td>
   </tr>{{end}}
   </tbody></table></div>
   {{else}}<p class="muted">No cells yet. <a href="/cells/new">Add one.</a></p>{{end}}
@@ -3041,16 +3022,10 @@ const settingsTmpl = `{{define "content"}}
   </div>
   {{if .RadioProtocols}}
   <div class="table-wrap"><table>
-  <thead><tr><th>Name</th><th></th></tr></thead>
+  <thead><tr><th>Name</th></tr></thead>
   <tbody>
-  {{range .RadioProtocols}}<tr>
+  {{range .RadioProtocols}}<tr style="cursor:pointer" onclick="window.location='/radio-protocols/{{.ID}}/edit'">
     <td><strong>{{.Name}}</strong></td>
-    <td class="actions-cell">
-      <a href="/radio-protocols/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
-      <form class="inline" method="POST" action="/radio-protocols/{{.ID}}/delete">
-        <button class="btn btn-sm btn-danger" type="submit">Delete</button>
-      </form>
-    </td>
   </tr>{{end}}
   </tbody></table></div>
   {{else}}<p class="muted">No radio protocols yet. <a href="/radio-protocols/new">Add one.</a></p>{{end}}
@@ -3063,16 +3038,10 @@ const settingsTmpl = `{{define "content"}}
   </div>
   {{if .MCUs}}
   <div class="table-wrap"><table>
-  <thead><tr><th>Name</th><th></th></tr></thead>
+  <thead><tr><th>Name</th></tr></thead>
   <tbody>
-  {{range .MCUs}}<tr>
+  {{range .MCUs}}<tr style="cursor:pointer" onclick="window.location='/mcus/{{.ID}}/edit'">
     <td><strong>{{.Name}}</strong></td>
-    <td class="actions-cell">
-      <a href="/mcus/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
-      <form class="inline" method="POST" action="/mcus/{{.ID}}/delete">
-        <button class="btn btn-sm btn-danger" type="submit">Delete</button>
-      </form>
-    </td>
   </tr>{{end}}
   </tbody></table></div>
   {{else}}<p class="muted">No MCUs yet. <a href="/mcus/new">Add one.</a></p>{{end}}
@@ -3093,6 +3062,7 @@ const brandFormTmpl = `{{define "content"}}
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add Brand{{end}}</button>
     <a href="/settings" class="btn btn-cancel">Cancel</a>
+    {{if .ID}}<form class="inline" method="POST" action="/brands/{{.ID}}/delete"><button class="btn btn-danger" type="submit">Delete</button></form>{{end}}
   </div>
 </form>
 </div>
@@ -3112,6 +3082,7 @@ const cellFormTmpl = `{{define "content"}}
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add{{end}}</button>
     <a href="/settings" class="btn btn-cancel">Cancel</a>
+    {{if .ID}}<form class="inline" method="POST" action="/cells/{{.ID}}/delete"><button class="btn btn-danger" type="submit">Delete</button></form>{{end}}
   </div>
 </form>
 </div>
@@ -3131,6 +3102,7 @@ const sizeFormTmpl = `{{define "content"}}
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add Size{{end}}</button>
     <a href="/settings" class="btn btn-cancel">Cancel</a>
+    {{if .ID}}<form class="inline" method="POST" action="/sizes/{{.ID}}/delete"><button class="btn btn-danger" type="submit">Delete</button></form>{{end}}
   </div>
 </form>
 </div>
@@ -3150,6 +3122,7 @@ const mcuFormTmpl = `{{define "content"}}
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add MCU{{end}}</button>
     <a href="/settings" class="btn btn-cancel">Cancel</a>
+    {{if .ID}}<form class="inline" method="POST" action="/mcus/{{.ID}}/delete"><button class="btn btn-danger" type="submit">Delete</button></form>{{end}}
   </div>
 </form>
 </div>
@@ -3169,6 +3142,7 @@ const radioProtocolFormTmpl = `{{define "content"}}
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add Protocol{{end}}</button>
     <a href="/settings" class="btn btn-cancel">Cancel</a>
+    {{if .ID}}<form class="inline" method="POST" action="/radio-protocols/{{.ID}}/delete"><button class="btn btn-danger" type="submit">Delete</button></form>{{end}}
   </div>
 </form>
 </div>

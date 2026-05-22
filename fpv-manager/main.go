@@ -555,6 +555,7 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /drones/{id}/batteries", a.handleDroneBatteries)
 	mux.HandleFunc("/drones/{id}/edit", a.handleDroneEdit)
 	mux.HandleFunc("POST /drones/{id}/delete", a.handleDroneDelete)
+	mux.HandleFunc("POST /drones/{id}/quick-flight", a.handleQuickFlight)
 	mux.HandleFunc("POST /drones/{id}/log", a.handleDroneLogAdd)
 	mux.HandleFunc("POST /drone-log/{id}/delete", a.handleDroneLogDelete)
 	mux.HandleFunc("POST /drone-log/{id}/edit", a.handleDroneLogEdit)

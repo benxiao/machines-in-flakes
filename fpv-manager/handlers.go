@@ -20,6 +20,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+const quickFlightLabel = "Quick flight"
+
 // ---- helpers ----
 
 func (a *App) queryOptions(r *http.Request, sql string) ([]OptionItem, error) {
@@ -194,16 +196,20 @@ func (a *App) handleDrones(w http.ResponseWriter, r *http.Request) {
         SELECT d.id, d.name, d.status,
                COALESCE(sz.label,''), COALESCE(c.label,''),
                d.sub_250g,
-               (SELECT COUNT(*)::int FROM session_drones sd
-                JOIN sessions s ON s.id=sd.session_id
-                WHERE sd.drone_id=d.id AND s.type='flight'),
-               COALESCE(dp.id,0)
+               fl.flight_count, COALESCE(dp.id,0), fl.has_today
         FROM drones d
         LEFT JOIN sizes sz ON sz.id=d.size_id
         LEFT JOIN cells c ON c.id=d.cell_id
         LEFT JOIN LATERAL (
             SELECT id FROM drone_photos WHERE drone_id=d.id ORDER BY created_at LIMIT 1
         ) dp ON true
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*)::int AS flight_count,
+                   COALESCE(bool_or(s.session_date=CURRENT_DATE), false) AS has_today
+            FROM session_drones sd
+            JOIN sessions s ON s.id=sd.session_id
+            WHERE sd.drone_id=d.id AND s.type='flight'
+        ) fl ON true
         ORDER BY d.name`)
 	if err != nil {
 		httpErr(w, err)
@@ -214,7 +220,7 @@ func (a *App) handleDrones(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var d DroneRow
 		if err := rows.Scan(&d.ID, &d.Name, &d.Status,
-			&d.SizeInch, &d.CellLabel, &d.Sub250g, &d.FlightCount, &d.FirstPhotoID); err != nil {
+			&d.SizeInch, &d.CellLabel, &d.Sub250g, &d.FlightCount, &d.FirstPhotoID, &d.HasFlightToday); err != nil {
 			httpErr(w, err)
 			return
 		}
@@ -470,6 +476,53 @@ func (a *App) handleDroneDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.db.Exec(r.Context(), `DELETE FROM drones WHERE id=$1`, id)
+	http.Redirect(w, r, "/drones", http.StatusSeeOther)
+}
+
+func (a *App) handleQuickFlight(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	ctx := r.Context()
+	tx, err := a.db.Begin(ctx)
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	defer tx.Rollback(ctx)
+	var exists bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM session_drones sd
+			JOIN sessions s ON s.id=sd.session_id
+			WHERE sd.drone_id=$1 AND s.type='flight' AND s.session_date=CURRENT_DATE
+		)`, id).Scan(&exists); err != nil {
+		httpErr(w, err)
+		return
+	}
+	if exists {
+		http.Redirect(w, r, "/drones", http.StatusSeeOther)
+		return
+	}
+	var sessionID int
+	if err := tx.QueryRow(ctx,
+		`INSERT INTO sessions (type,session_date,duration_min,location,notes)
+		 VALUES ('flight',CURRENT_DATE,0,'',$1) RETURNING id`, quickFlightLabel,
+	).Scan(&sessionID); err != nil {
+		httpErr(w, err)
+		return
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO session_drones (session_id,drone_id) VALUES ($1,$2)`, sessionID, id); err != nil {
+		httpErr(w, err)
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
+		httpErr(w, err)
+		return
+	}
 	http.Redirect(w, r, "/drones", http.StatusSeeOther)
 }
 
@@ -2173,9 +2226,10 @@ func (a *App) handleLog(w http.ResponseWriter, r *http.Request) {
                COALESCE((SELECT string_agg(b.name||' ('||COALESCE(c.label,'?')||')',', ' ORDER BY b.name)
                          FROM session_batteries sb JOIN batteries b ON b.id=sb.battery_id
                          LEFT JOIN cells c ON c.id=b.cell_id
-                         WHERE sb.session_id=s.id),'')
+                         WHERE sb.session_id=s.id),''),
+               (s.notes=$1 AND s.title='')
         FROM sessions s
-        ORDER BY s.session_date DESC, s.created_at DESC`)
+        ORDER BY s.session_date DESC, s.created_at DESC`, quickFlightLabel)
 	if err != nil {
 		httpErr(w, err)
 		return
@@ -2185,7 +2239,7 @@ func (a *App) handleLog(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var s SessionRow
 		if err := rows.Scan(&s.ID, &s.Title, &s.Type, &s.SessionDate,
-			&s.DurationMin, &s.Location, &s.Notes, &s.DroneNames, &s.BatteryList); err != nil {
+			&s.DurationMin, &s.Location, &s.Notes, &s.DroneNames, &s.BatteryList, &s.IsQuickFlight); err != nil {
 			httpErr(w, err)
 			return
 		}
