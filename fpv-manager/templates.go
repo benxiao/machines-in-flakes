@@ -2466,10 +2466,7 @@ const propFormTmpl = `{{define "content"}}
 const logListTmpl = `{{define "content"}}
 <div class="page-header">
   <div class="page-header-left"><h2>Flight Log</h2></div>
-  <div style="display:flex;gap:8px">
-    <button class="btn btn-cancel" id="toggle-quick" onclick="toggleQuickFlights()">Show quick flights</button>
-    <a href="/log/new" class="btn btn-primary">+ Log Session</a>
-  </div>
+  <a href="/log/new" class="btn btn-primary">+ Log Session</a>
 </div>
 {{if .Sessions}}
 <div class="table-wrap">
@@ -2497,15 +2494,8 @@ const logListTmpl = `{{define "content"}}
 {{end}}
 <script>
 (function(){
-  var show = localStorage.getItem('showQuickFlights')==='1';
-  function apply(){
-    var rows=document.querySelectorAll('tr.quick-flight-row');
-    rows.forEach(function(r){r.style.display=show?'':'none';});
-    var btn=document.getElementById('toggle-quick');
-    if(btn)btn.textContent=show?'Hide quick flights':'Show quick flights';
-  }
-  window.toggleQuickFlights=function(){show=!show;localStorage.setItem('showQuickFlights',show?'1':'0');apply();};
-  apply();
+  var show=localStorage.getItem('showQuickFlights')==='1';
+  document.querySelectorAll('tr.quick-flight-row').forEach(function(r){r.style.display=show?'':'none';});
 })();
 </script>
 {{end}}`
@@ -2997,6 +2987,17 @@ function saveConfig() {
     fetch(form.action, {method:'POST', body:new URLSearchParams(new FormData(form))}).catch(function(e){console.error('config save failed',e);});
   }, 300);
 }
+</script>
+</div>
+
+<div class="section">
+  <div class="section-header"><h3>Preferences</h3></div>
+  <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+    <input type="checkbox" id="pref-show-quick" onchange="localStorage.setItem('showQuickFlights',this.checked?'1':'0')">
+    <span>Show quick flights in log</span>
+  </label>
+<script>
+document.getElementById('pref-show-quick').checked = localStorage.getItem('showQuickFlights')==='1';
 </script>
 </div>
 
