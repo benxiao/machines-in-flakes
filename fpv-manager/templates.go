@@ -2477,7 +2477,7 @@ const logListTmpl = `{{define "content"}}
 </tr></thead>
 <tbody>
 {{range .Sessions}}
-<tr {{if .IsQuickFlight}}class="quick-flight-row"{{end}} style="cursor:pointer" onclick="window.location='/log/{{.ID}}/edit'">
+<tr {{if .IsQuickFlight}}class="quick-flight-row"{{end}} style="cursor:pointer" onclick="window.location='/log/{{.ID}}'">
   <td class="muted" style="white-space:nowrap">{{.SessionDate}}</td>
   <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{if .Title}}<strong>{{.Title}}</strong>{{else}}<span class="muted">{{dash .Notes}}</span>{{end}}</td>
   <td><strong>{{.DroneNames}}</strong></td>
