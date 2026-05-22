@@ -917,6 +917,7 @@ hr { border: none; border-top: 1px solid #30363d; margin: 32px 0; }
   .drone-cols { grid-template-columns: 1fr !important; }
   #drone-name { width: 100%; min-width: 0; box-sizing: border-box; }
   .drone-motor-row { flex-wrap: wrap; }
+  .hide-mobile { display: none !important; }
 }
 `
 
@@ -972,11 +973,11 @@ const droneListTmpl = `{{define "content"}}
 <div class="table-wrap">
 <table>
 <thead><tr>
-  <th></th><th>Name</th><th>Size</th><th>Cell</th><th>Status</th><th>Flights</th><th>Sub 250g</th><th></th>
+  <th></th><th>Name</th><th class="hide-mobile">Size</th><th class="hide-mobile">Cell</th><th>Status</th><th>Flights</th><th class="hide-mobile">Sub 250g</th><th></th>
 </tr></thead>
 <tbody>
 {{range .Drones}}
-<tr class="{{if eq .Status "retired"}}retired{{end}}" style="cursor:pointer" onclick="window.location='/drones/{{.ID}}/edit'">
+<tr class="{{if eq .Status "retired"}}retired{{end}}" style="cursor:pointer" onclick="window.location='/drones/{{.ID}}'">
   <td style="width:56px;padding:6px 8px" onclick="event.stopPropagation()">
     {{if .FirstPhotoID}}
     <img src="/drone-photos/{{.FirstPhotoID}}" style="width:48px;height:48px;object-fit:cover;border-radius:4px;display:block;cursor:zoom-in" onclick="event.stopPropagation();openLightbox('/drone-photos/{{.FirstPhotoID}}')">
@@ -985,11 +986,11 @@ const droneListTmpl = `{{define "content"}}
     {{end}}
   </td>
   <td style="font-weight:600">{{.Name}}</td>
-  <td class="muted">{{if .SizeInch}}{{.SizeInch}}"{{else}}—{{end}}</td>
-  <td class="muted">{{dash .CellLabel}}</td>
+  <td class="muted hide-mobile">{{if .SizeInch}}{{.SizeInch}}"{{else}}—{{end}}</td>
+  <td class="muted hide-mobile">{{dash .CellLabel}}</td>
   <td><span class="badge {{badgeClass .Status}}">{{.Status}}</span></td>
   <td class="muted">{{if gt .FlightCount 0}}{{.FlightCount}}{{else}}—{{end}}</td>
-  <td>{{if .Sub250g}}<span style="color:#3fb950;font-weight:600">✓</span>{{else}}<span class="muted">—</span>{{end}}</td>
+  <td class="hide-mobile">{{if .Sub250g}}<span style="color:#3fb950;font-weight:600">✓</span>{{else}}<span class="muted">—</span>{{end}}</td>
   <td style="width:44px;padding:4px 8px;text-align:center" onclick="event.stopPropagation()">
     {{if .HasFlightToday}}
     <button class="btn btn-sm" disabled style="opacity:0.35;cursor:not-allowed" title="Already flown today">+</button>
@@ -1512,18 +1513,18 @@ const inventoryTmpl = `{{define "content"}}
   {{if .Frames}}
   <div class="table-wrap">
   <table>
-  <thead><tr><th></th><th>Brand</th><th>Name</th><th>Size</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
+  <thead><tr><th></th><th class="hide-mobile">Brand</th><th>Name</th><th class="hide-mobile">Size</th><th>Owned</th><th class="hide-mobile">Installed</th><th>Avail.</th><th class="hide-mobile">Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .Frames}}
   <tr style="cursor:pointer" onclick="window.location='/frames/{{.ID}}/edit'">
     <td style="width:40px;padding:4px 6px" onclick="event.stopPropagation()">{{if .FirstPhotoID}}<img src="/frame-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="event.stopPropagation();openLightbox('/frame-photos/{{.FirstPhotoID}}')">{{else}}<svg width="36" height="36" viewBox="0 0 36 36" style="border-radius:3px;background:#21262d;display:block"><g stroke="#8b949e" stroke-linecap="round"><line x1="8" y1="8" x2="28" y2="28" stroke-width="1.5"/><line x1="28" y1="8" x2="8" y2="28" stroke-width="1.5"/><circle cx="8" cy="8" r="3.5" fill="#8b949e"/><circle cx="28" cy="8" r="3.5" fill="#8b949e"/><circle cx="8" cy="28" r="3.5" fill="#8b949e"/><circle cx="28" cy="28" r="3.5" fill="#8b949e"/><circle cx="18" cy="18" r="4" fill="none" stroke-width="1.5"/></g></svg>{{end}}</td>
-    <td class="muted">{{dash .Brand}}</td>
+    <td class="muted hide-mobile">{{dash .Brand}}</td>
     <td>{{.Name}}</td>
-    <td class="muted">{{if .SizeInch}}{{.SizeInch}}"{{else}}—{{end}}</td>
+    <td class="muted hide-mobile">{{if .SizeInch}}{{.SizeInch}}"{{else}}—{{end}}</td>
     <td class="muted">{{.Total}}</td>
-    <td class="muted">{{.Installed}}</td>
+    <td class="muted hide-mobile">{{.Installed}}</td>
     <td>{{if gt .Available 0}}<span style="color:#3fb950;font-weight:500">{{.Available}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
-    <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
+    <td class="hide-mobile">{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
     <td class="actions-cell" onclick="event.stopPropagation()">
       <form class="inline" method="POST" action="/frames/{{.ID}}/adjust">
         <input type="number" name="count" placeholder="±" style="width:46px;padding:2px 4px;vertical-align:middle">
@@ -1544,19 +1545,19 @@ const inventoryTmpl = `{{define "content"}}
   {{if .FCs}}
   <div class="table-wrap">
   <table>
-  <thead><tr><th></th><th>Brand</th><th>Name</th><th>MCU</th><th>Firmware</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
+  <thead><tr><th></th><th class="hide-mobile">Brand</th><th>Name</th><th class="hide-mobile">MCU</th><th class="hide-mobile">Firmware</th><th>Owned</th><th class="hide-mobile">Installed</th><th>Avail.</th><th class="hide-mobile">Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .FCs}}
   <tr style="cursor:pointer" onclick="window.location='/fcs/{{.ID}}/edit'">
     <td style="width:40px;padding:4px 6px" onclick="event.stopPropagation()">{{if .FirstPhotoID}}<img src="/fc-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="event.stopPropagation();openLightbox('/fc-photos/{{.FirstPhotoID}}')">{{else}}<svg width="36" height="36" viewBox="0 0 36 36" style="border-radius:3px;background:#21262d;display:block"><g stroke="#8b949e"><rect x="10" y="10" width="16" height="16" rx="2" stroke-width="1.5" fill="none"/><rect x="14" y="14" width="8" height="8" rx="1" fill="#8b949e" opacity="0.5"/><line x1="14" y1="10" x2="14" y2="7" stroke-width="1.5" stroke-linecap="round"/><line x1="18" y1="10" x2="18" y2="7" stroke-width="1.5" stroke-linecap="round"/><line x1="22" y1="10" x2="22" y2="7" stroke-width="1.5" stroke-linecap="round"/><line x1="14" y1="26" x2="14" y2="29" stroke-width="1.5" stroke-linecap="round"/><line x1="18" y1="26" x2="18" y2="29" stroke-width="1.5" stroke-linecap="round"/><line x1="22" y1="26" x2="22" y2="29" stroke-width="1.5" stroke-linecap="round"/></g></svg>{{end}}</td>
-    <td class="muted">{{dash .Brand}}</td>
+    <td class="muted hide-mobile">{{dash .Brand}}</td>
     <td>{{.Name}}</td>
-    <td class="muted">{{dash .MCU}}</td>
-    <td class="muted">{{dash .Firmware}}</td>
+    <td class="muted hide-mobile">{{dash .MCU}}</td>
+    <td class="muted hide-mobile">{{dash .Firmware}}</td>
     <td class="muted">{{.Total}}</td>
-    <td class="muted">{{.Installed}}</td>
+    <td class="muted hide-mobile">{{.Installed}}</td>
     <td>{{if gt .Available 0}}<span style="color:#3fb950;font-weight:500">{{.Available}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
-    <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
+    <td class="hide-mobile">{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
     <td class="actions-cell" onclick="event.stopPropagation()">
       <form class="inline" method="POST" action="/fcs/{{.ID}}/adjust">
         <input type="number" name="count" placeholder="±" style="width:46px;padding:2px 4px;vertical-align:middle">
@@ -1577,19 +1578,19 @@ const inventoryTmpl = `{{define "content"}}
   {{if .ESCs}}
   <div class="table-wrap">
   <table>
-  <thead><tr><th></th><th>Brand</th><th>Name</th><th>Current</th><th>Max Cell</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
+  <thead><tr><th></th><th class="hide-mobile">Brand</th><th>Name</th><th class="hide-mobile">Current</th><th class="hide-mobile">Max Cell</th><th>Owned</th><th class="hide-mobile">Installed</th><th>Avail.</th><th class="hide-mobile">Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .ESCs}}
   <tr style="cursor:pointer" onclick="window.location='/escs/{{.ID}}/edit'">
     <td style="width:40px;padding:4px 6px" onclick="event.stopPropagation()">{{if .FirstPhotoID}}<img src="/esc-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="event.stopPropagation();openLightbox('/esc-photos/{{.FirstPhotoID}}')">{{else}}<svg width="36" height="36" viewBox="0 0 36 36" style="border-radius:3px;background:#21262d;display:block"><g stroke="#8b949e"><rect x="5" y="12" width="26" height="12" rx="2" stroke-width="1.5" fill="none"/><line x1="11" y1="12" x2="11" y2="24" stroke-width="1" opacity="0.5"/><line x1="17" y1="12" x2="17" y2="24" stroke-width="1" opacity="0.5"/><line x1="23" y1="12" x2="23" y2="24" stroke-width="1" opacity="0.5"/><line x1="5" y1="18" x2="31" y2="18" stroke-width="1" opacity="0.3"/></g></svg>{{end}}</td>
-    <td class="muted">{{dash .Brand}}</td>
+    <td class="muted hide-mobile">{{dash .Brand}}</td>
     <td>{{.Name}}</td>
-    <td class="muted">{{if .CurrentRating}}{{.CurrentRating}}A{{else}}—{{end}}</td>
-    <td class="muted">{{if .CellMax}}{{.CellMax}}{{else}}—{{end}}</td>
+    <td class="muted hide-mobile">{{if .CurrentRating}}{{.CurrentRating}}A{{else}}—{{end}}</td>
+    <td class="muted hide-mobile">{{if .CellMax}}{{.CellMax}}{{else}}—{{end}}</td>
     <td class="muted">{{.Total}}</td>
-    <td class="muted">{{.Installed}}</td>
+    <td class="muted hide-mobile">{{.Installed}}</td>
     <td>{{if gt .Available 0}}<span style="color:#3fb950;font-weight:500">{{.Available}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
-    <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
+    <td class="hide-mobile">{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
     <td class="actions-cell" onclick="event.stopPropagation()">
       <form class="inline" method="POST" action="/escs/{{.ID}}/adjust">
         <input type="number" name="count" placeholder="±" style="width:46px;padding:2px 4px;vertical-align:middle">
@@ -1610,19 +1611,19 @@ const inventoryTmpl = `{{define "content"}}
   {{if .Motors}}
   <div class="table-wrap">
   <table>
-  <thead><tr><th></th><th>Brand</th><th>Name</th><th>Stator</th><th>KV</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
+  <thead><tr><th></th><th class="hide-mobile">Brand</th><th>Name</th><th class="hide-mobile">Stator</th><th class="hide-mobile">KV</th><th>Owned</th><th class="hide-mobile">Installed</th><th>Avail.</th><th class="hide-mobile">Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .Motors}}
   <tr style="cursor:pointer" onclick="window.location='/motors/{{.ID}}/edit'">
     <td style="width:40px;padding:4px 6px" onclick="event.stopPropagation()">{{if .FirstPhotoID}}<img src="/motor-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="event.stopPropagation();openLightbox('/motor-photos/{{.FirstPhotoID}}')">{{else}}<svg width="36" height="36" viewBox="0 0 36 36" style="border-radius:3px;background:#21262d;display:block"><g stroke="#8b949e" stroke-width="1.5" fill="none"><circle cx="18" cy="18" r="12"/><circle cx="18" cy="18" r="6"/><circle cx="18" cy="18" r="2" fill="#8b949e" stroke="none"/></g></svg>{{end}}</td>
-    <td class="muted">{{dash .Brand}}</td>
+    <td class="muted hide-mobile">{{dash .Brand}}</td>
     <td>{{.Name}}</td>
-    <td class="muted">{{dash .StatorSize}}</td>
-    <td class="muted">{{if .KV}}{{.KV}}kv{{else}}—{{end}}</td>
+    <td class="muted hide-mobile">{{dash .StatorSize}}</td>
+    <td class="muted hide-mobile">{{if .KV}}{{.KV}}kv{{else}}—{{end}}</td>
     <td class="muted">{{.Total}}</td>
-    <td class="muted">{{.Installed}}</td>
+    <td class="muted hide-mobile">{{.Installed}}</td>
     <td>{{if gt .Available 0}}<span style="color:#3fb950;font-weight:500">{{.Available}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
-    <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
+    <td class="hide-mobile">{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
     <td class="actions-cell" onclick="event.stopPropagation()">
       <form class="inline" method="POST" action="/motors/{{.ID}}/adjust">
         <input type="number" name="count" placeholder="±" style="width:46px;padding:2px 4px;vertical-align:middle">
@@ -1643,17 +1644,17 @@ const inventoryTmpl = `{{define "content"}}
   {{if .VTXs}}
   <div class="table-wrap">
   <table>
-  <thead><tr><th></th><th>Brand</th><th>Name</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
+  <thead><tr><th></th><th class="hide-mobile">Brand</th><th>Name</th><th>Owned</th><th class="hide-mobile">Installed</th><th>Avail.</th><th class="hide-mobile">Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .VTXs}}
   <tr style="cursor:pointer" onclick="window.location='/vtx/{{.ID}}/edit'">
     <td style="width:40px;padding:4px 6px" onclick="event.stopPropagation()">{{if .FirstPhotoID}}<img src="/vtx-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="event.stopPropagation();openLightbox('/vtx-photos/{{.FirstPhotoID}}')">{{else}}<svg width="36" height="36" viewBox="0 0 36 36" style="border-radius:3px;background:#21262d;display:block"><g stroke="#8b949e" stroke-linecap="round" fill="none"><line x1="18" y1="10" x2="18" y2="27" stroke-width="2"/><circle cx="18" cy="27" r="2.5" fill="#8b949e" stroke="none"/><path d="M12 17 Q18 13 24 17" stroke-width="1.5"/><path d="M8 12 Q18 7 28 12" stroke-width="1.5"/></g></svg>{{end}}</td>
-    <td class="muted">{{dash .Brand}}</td>
+    <td class="muted hide-mobile">{{dash .Brand}}</td>
     <td>{{.Name}}</td>
     <td class="muted">{{.Total}}</td>
-    <td class="muted">{{.Installed}}</td>
+    <td class="muted hide-mobile">{{.Installed}}</td>
     <td>{{if gt .Available 0}}<span style="color:#3fb950;font-weight:500">{{.Available}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
-    <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
+    <td class="hide-mobile">{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
     <td class="actions-cell" onclick="event.stopPropagation()">
       <form class="inline" method="POST" action="/vtx/{{.ID}}/adjust">
         <input type="number" name="count" placeholder="±" style="width:46px;padding:2px 4px;vertical-align:middle">
@@ -1674,17 +1675,17 @@ const inventoryTmpl = `{{define "content"}}
   {{if .GPSs}}
   <div class="table-wrap">
   <table>
-  <thead><tr><th></th><th>Brand</th><th>Name</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
+  <thead><tr><th></th><th class="hide-mobile">Brand</th><th>Name</th><th>Owned</th><th class="hide-mobile">Installed</th><th>Avail.</th><th class="hide-mobile">Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .GPSs}}
   <tr style="cursor:pointer" onclick="window.location='/gps/{{.ID}}/edit'">
     <td style="width:40px;padding:4px 6px" onclick="event.stopPropagation()">{{if .FirstPhotoID}}<img src="/gps-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="event.stopPropagation();openLightbox('/gps-photos/{{.FirstPhotoID}}')">{{else}}<svg width="36" height="36" viewBox="0 0 36 36" style="border-radius:3px;background:#21262d;display:block"><g stroke="#8b949e" stroke-width="1.5"><path d="M18 6C12.5 6 8 10.5 8 16C8 22.5 18 30 18 30C18 30 28 22.5 28 16C28 10.5 23.5 6 18 6Z" fill="none"/><circle cx="18" cy="16" r="3.5" fill="#8b949e" stroke="none"/></g></svg>{{end}}</td>
-    <td class="muted">{{dash .Brand}}</td>
+    <td class="muted hide-mobile">{{dash .Brand}}</td>
     <td>{{.Name}}</td>
     <td class="muted">{{.Total}}</td>
-    <td class="muted">{{.Installed}}</td>
+    <td class="muted hide-mobile">{{.Installed}}</td>
     <td>{{if gt .Available 0}}<span style="color:#3fb950;font-weight:500">{{.Available}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
-    <td>{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
+    <td class="hide-mobile">{{if .InstalledOn}}<span class="installed-badge">{{.InstalledOn}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
     <td class="actions-cell" onclick="event.stopPropagation()">
       <form class="inline" method="POST" action="/gps/{{.ID}}/adjust">
         <input type="number" name="count" placeholder="±" style="width:46px;padding:2px 4px;vertical-align:middle">
@@ -1705,14 +1706,14 @@ const inventoryTmpl = `{{define "content"}}
   {{if .RXs}}
   <div class="table-wrap">
   <table>
-  <thead><tr><th></th><th>Brand</th><th>Name</th><th>Protocol</th><th>Owned</th><th>Installed</th><th>Avail.</th><th>Installed On</th><th></th></tr></thead>
+  <thead><tr><th></th><th class="hide-mobile">Brand</th><th>Name</th><th class="hide-mobile">Protocol</th><th>Owned</th><th class="hide-mobile">Installed</th><th>Avail.</th><th class="hide-mobile">Installed On</th><th></th></tr></thead>
   <tbody>
   {{range .RXs}}
   <tr style="cursor:pointer" onclick="window.location='/rx/{{.ID}}/edit'">
     <td style="width:40px;padding:4px 6px" onclick="event.stopPropagation()">{{if .FirstPhotoID}}<img src="/rx-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="event.stopPropagation();openLightbox('/rx-photos/{{.FirstPhotoID}}')">{{else}}<svg width="36" height="36" viewBox="0 0 36 36" style="border-radius:3px;background:#21262d;display:block"><g stroke="#8b949e" stroke-linecap="round" fill="none"><line x1="18" y1="13" x2="18" y2="29" stroke-width="2"/><circle cx="18" cy="9.5" r="3" fill="#8b949e" stroke="none"/><path d="M11 18 Q18 22 25 18" stroke-width="1.5"/><path d="M8 14 Q18 19 28 14" stroke-width="1.5" opacity="0.5"/></g></svg>{{end}}</td>
     <td class="muted">{{dash .Brand}}</td>
     <td>{{.Name}}</td>
-    <td class="muted">{{dash .Protocol}}</td>
+    <td class="muted hide-mobile">{{dash .Protocol}}</td>
     <td class="muted">{{.Total}}</td>
     <td class="muted">{{.Installed}}</td>
     <td>{{if gt .Available 0}}<span style="color:#3fb950;font-weight:500">{{.Available}}</span>{{else}}<span class="muted">0</span>{{end}}</td>
@@ -2238,17 +2239,17 @@ const batteryListTmpl = `{{define "content"}}
 <div class="table-wrap">
 <table>
 <thead><tr>
-  <th></th><th>Brand</th><th>Name</th><th>Cell</th><th>mAh</th><th>Weight</th><th>Owned</th><th>Assigned To</th><th></th>
+  <th></th><th class="hide-mobile">Brand</th><th>Name</th><th class="hide-mobile">Cell</th><th>mAh</th><th class="hide-mobile">Weight</th><th>Owned</th><th>Assigned To</th><th></th>
 </tr></thead>
 <tbody>
 {{range .Batteries}}
 <tr style="cursor:pointer" onclick="window.location='/batteries/{{.ID}}/edit'">
   <td style="width:40px;padding:4px 6px" onclick="event.stopPropagation()">{{if .FirstPhotoID}}<img src="/battery-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="event.stopPropagation();openLightbox('/battery-photos/{{.FirstPhotoID}}')">{{else}}<svg width="36" height="36" viewBox="0 0 36 36" style="border-radius:3px;background:#21262d;display:block"><g stroke="#8b949e"><rect x="4" y="12" width="24" height="12" rx="2" stroke-width="1.5" fill="none"/><rect x="6" y="15" width="10" height="6" rx="1" fill="#8b949e" opacity="0.5" stroke="none"/><line x1="28" y1="15" x2="28" y2="21" stroke-width="2" stroke-linecap="round"/><line x1="31" y1="16.5" x2="31" y2="19.5" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/></g></svg>{{end}}</td>
-  <td class="muted">{{dash .Brand}}</td>
+  <td class="muted hide-mobile">{{dash .Brand}}</td>
   <td><strong>{{.Name}}</strong></td>
-  <td class="muted">{{dash .CellLabel}}</td>
+  <td class="muted hide-mobile">{{dash .CellLabel}}</td>
   <td class="muted">{{.CapacityMAh}}</td>
-  <td class="muted">{{if .WeightG}}{{.WeightG}}g{{else}}—{{end}}</td>
+  <td class="muted hide-mobile">{{if .WeightG}}{{.WeightG}}g{{else}}—{{end}}</td>
   <td class="muted">{{.Total}}</td>
   <td>{{if .AssignedTo}}<span class="installed-badge">{{.AssignedTo}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
   <td class="actions-cell" onclick="event.stopPropagation()">
@@ -2354,21 +2355,21 @@ const propListTmpl = `{{define "content"}}
 <div class="table-wrap">
 <table>
 <thead><tr>
-  <th></th><th>Brand</th><th>Name</th><th>Size</th><th>Pitch</th><th>Blades</th>
-  <th>Qty</th><th>Reorder At</th><th>Drone</th>
+  <th></th><th class="hide-mobile">Brand</th><th>Name</th><th class="hide-mobile">Size</th><th class="hide-mobile">Pitch</th><th class="hide-mobile">Blades</th>
+  <th>Qty</th><th class="hide-mobile">Reorder At</th><th class="hide-mobile">Drone</th>
 </tr></thead>
 <tbody>
 {{range .Propellers}}
 <tr class="{{if .LowStock}}low-stock{{end}}" style="cursor:pointer" onclick="window.location='/props/{{.ID}}/edit'">
   <td style="width:40px;padding:4px 6px" onclick="event.stopPropagation()">{{if .FirstPhotoID}}<img src="/prop-photos/{{.FirstPhotoID}}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;display:block;cursor:zoom-in" onclick="event.stopPropagation();openLightbox('/prop-photos/{{.FirstPhotoID}}')">{{else}}<svg width="36" height="36" viewBox="0 0 36 36" style="border-radius:3px;background:#21262d;display:block"><g fill="#8b949e" opacity="0.7"><ellipse cx="13" cy="13" rx="8" ry="4" transform="rotate(-45 13 13)"/><ellipse cx="23" cy="23" rx="8" ry="4" transform="rotate(-45 23 23)"/></g><circle cx="18" cy="18" r="3" fill="#21262d" stroke="#8b949e" stroke-width="1.5"/></svg>{{end}}</td>
-  <td class="muted">{{dash .Brand}}</td>
+  <td class="muted hide-mobile">{{dash .Brand}}</td>
   <td>{{.Name}}</td>
-  <td class="muted">{{if .SizeInch}}{{.SizeInch}}"{{else}}—{{end}}</td>
-  <td class="muted">{{dash .Pitch}}</td>
-  <td class="muted">{{.BladeCount}}</td>
+  <td class="muted hide-mobile">{{if .SizeInch}}{{.SizeInch}}"{{else}}—{{end}}</td>
+  <td class="muted hide-mobile">{{dash .Pitch}}</td>
+  <td class="muted hide-mobile">{{.BladeCount}}</td>
   <td>{{.Quantity}}{{if .LowStock}} <span class="muted" title="low stock">&#9888;</span>{{end}}</td>
-  <td class="muted">{{.ReorderThreshold}}</td>
-  <td class="muted">{{dash .DroneNames}}</td>
+  <td class="muted hide-mobile">{{.ReorderThreshold}}</td>
+  <td class="muted hide-mobile">{{dash .DroneNames}}</td>
 </tr>
 {{end}}
 </tbody>
@@ -2472,7 +2473,7 @@ const logListTmpl = `{{define "content"}}
 <div class="table-wrap">
 <table>
 <thead><tr>
-  <th>Date</th><th>Title / Notes</th><th>Drone</th><th>Type</th><th>Duration</th><th>Location</th><th>Batteries</th>
+  <th>Date</th><th>Title / Notes</th><th>Drone</th><th class="hide-mobile">Type</th><th class="hide-mobile">Duration</th><th class="hide-mobile">Location</th><th class="hide-mobile">Batteries</th>
 </tr></thead>
 <tbody>
 {{range .Sessions}}
@@ -2480,10 +2481,10 @@ const logListTmpl = `{{define "content"}}
   <td class="muted" style="white-space:nowrap">{{.SessionDate}}</td>
   <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{if .Title}}<strong>{{.Title}}</strong>{{else}}<span class="muted">{{dash .Notes}}</span>{{end}}</td>
   <td><strong>{{.DroneNames}}</strong></td>
-  <td><span class="badge {{badgeClass .Type}}">{{.Type}}</span></td>
-  <td class="muted">{{if gt .DurationMin 0}}{{.DurationMin}}m{{else}}—{{end}}</td>
-  <td class="muted">{{dash .Location}}</td>
-  <td class="muted" style="font-size:12px">{{dash .BatteryList}}</td>
+  <td class="hide-mobile"><span class="badge {{badgeClass .Type}}">{{.Type}}</span></td>
+  <td class="muted hide-mobile">{{if gt .DurationMin 0}}{{.DurationMin}}m{{else}}—{{end}}</td>
+  <td class="muted hide-mobile">{{dash .Location}}</td>
+  <td class="muted hide-mobile" style="font-size:12px">{{dash .BatteryList}}</td>
 </tr>
 {{end}}
 </tbody>
@@ -2818,15 +2819,15 @@ const placeListTmpl = `{{define "content"}}
 <div class="table-wrap">
 <table>
 <thead><tr>
-  <th>Name</th><th>Type</th><th>Address</th><th>Notes</th>
+  <th>Name</th><th class="hide-mobile">Type</th><th class="hide-mobile">Address</th><th class="hide-mobile">Notes</th>
 </tr></thead>
 <tbody>
 {{range .Places}}
 <tr style="cursor:pointer" onclick="window.location='/places/{{.ID}}/edit'">
   <td><strong>{{.Name}}</strong></td>
-  <td class="muted">{{.PlaceType}}</td>
-  <td class="muted">{{dash .Address}}</td>
-  <td class="muted" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{dash .Notes}}</td>
+  <td class="muted hide-mobile">{{.PlaceType}}</td>
+  <td class="muted hide-mobile">{{dash .Address}}</td>
+  <td class="muted hide-mobile" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{dash .Notes}}</td>
 </tr>
 {{end}}
 </tbody>
