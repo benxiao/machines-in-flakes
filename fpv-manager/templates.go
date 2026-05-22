@@ -2482,7 +2482,7 @@ const logListTmpl = `{{define "content"}}
 <div class="table-wrap">
 <table>
 <thead><tr>
-  <th>Date</th><th>Title / Notes</th><th>Drone</th><th>Type</th><th>Duration</th><th>Location</th><th>Batteries</th><th></th>
+  <th>Date</th><th>Title / Notes</th><th>Drone</th><th>Type</th><th>Duration</th><th>Location</th><th>Batteries</th>
 </tr></thead>
 <tbody>
 {{range .Sessions}}
@@ -2494,12 +2494,6 @@ const logListTmpl = `{{define "content"}}
   <td class="muted">{{if gt .DurationMin 0}}{{.DurationMin}}m{{else}}—{{end}}</td>
   <td class="muted">{{dash .Location}}</td>
   <td class="muted" style="font-size:12px">{{dash .BatteryList}}</td>
-  <td class="actions-cell" onclick="event.stopPropagation()">
-    <a href="/log/{{.ID}}/edit" class="btn btn-sm btn-edit">Edit</a>
-    <form class="inline" method="POST" action="/log/{{.ID}}/delete">
-      <button class="btn btn-sm btn-danger" type="submit">Delete</button>
-    </form>
-  </td>
 </tr>
 {{end}}
 </tbody>
