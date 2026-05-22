@@ -532,6 +532,16 @@ CREATE INDEX IF NOT EXISTS idx_sv_session      ON session_videos(session_id);
 CREATE INDEX IF NOT EXISTS idx_sp_session      ON session_photos(session_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_date   ON sessions(session_date DESC);
 CREATE INDEX IF NOT EXISTS idx_sb_battery      ON session_batteries(battery_id);
+
+CREATE TABLE IF NOT EXISTS app_config (
+    id              INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+    ffmpeg_crf      INTEGER NOT NULL DEFAULT 23,
+    ffmpeg_preset   TEXT NOT NULL DEFAULT 'fast',
+    video_max_width INTEGER NOT NULL DEFAULT 1280,
+    video_bitrate_k INTEGER NOT NULL DEFAULT 3000,
+    hls_segment_sec INTEGER NOT NULL DEFAULT 6
+);
+INSERT INTO app_config DEFAULT VALUES ON CONFLICT DO NOTHING;
 `
 
 func (a *App) initSchema(ctx context.Context) error {
@@ -665,6 +675,7 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /places/{id}/delete", a.handlePlaceDelete)
 
 	mux.HandleFunc("/settings", a.handleSettings)
+	mux.HandleFunc("POST /settings/config", a.handleConfigSave)
 	mux.HandleFunc("/brands/new", a.handleBrandNew)
 	mux.HandleFunc("/brands/{id}/edit", a.handleBrandEdit)
 	mux.HandleFunc("POST /brands/{id}/delete", a.handleBrandDelete)

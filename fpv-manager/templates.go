@@ -557,6 +557,7 @@ type SettingsPage struct {
 	Cells          []CellRow
 	RadioProtocols []RadioProtocolRow
 	MCUs           []MCURow
+	Config         AppConfig
 }
 
 type CellFormPage struct {
@@ -2966,6 +2967,43 @@ const placeDetailTmpl = `{{define "content"}}
 
 const settingsTmpl = `{{define "content"}}
 <div class="page-header"><h2>Settings</h2></div>
+
+<div class="section">
+  <div class="section-header"><h3>Transcode</h3></div>
+  <form method="POST" action="/settings/config" style="max-width:480px">
+    <table style="border-collapse:collapse;width:100%">
+      <tr><td style="padding:6px 12px 6px 0;color:#8b949e;white-space:nowrap;width:140px">CRF (0–51)</td><td>
+        <input type="number" name="ffmpeg_crf" value="{{.Config.FFmpegCRF}}" min="0" max="51" style="width:80px">
+        <span class="muted" style="font-size:12px;margin-left:8px">lower = better quality</span>
+      </td></tr>
+      <tr><td style="padding:6px 12px 6px 0;color:#8b949e;white-space:nowrap">Preset</td><td>
+        <select name="ffmpeg_preset">
+          <option value="ultrafast" {{if eq .Config.FFmpegPreset "ultrafast"}}selected{{end}}>ultrafast</option>
+          <option value="superfast" {{if eq .Config.FFmpegPreset "superfast"}}selected{{end}}>superfast</option>
+          <option value="veryfast"  {{if eq .Config.FFmpegPreset "veryfast"}}selected{{end}}>veryfast</option>
+          <option value="faster"    {{if eq .Config.FFmpegPreset "faster"}}selected{{end}}>faster</option>
+          <option value="fast"      {{if eq .Config.FFmpegPreset "fast"}}selected{{end}}>fast</option>
+          <option value="medium"    {{if eq .Config.FFmpegPreset "medium"}}selected{{end}}>medium</option>
+          <option value="slow"      {{if eq .Config.FFmpegPreset "slow"}}selected{{end}}>slow</option>
+          <option value="slower"    {{if eq .Config.FFmpegPreset "slower"}}selected{{end}}>slower</option>
+          <option value="veryslow"  {{if eq .Config.FFmpegPreset "veryslow"}}selected{{end}}>veryslow</option>
+        </select>
+      </td></tr>
+      <tr><td style="padding:6px 12px 6px 0;color:#8b949e;white-space:nowrap">Max width (px)</td><td>
+        <input type="number" name="video_max_width" value="{{.Config.VideoMaxWidth}}" min="480" step="16" style="width:100px">
+      </td></tr>
+      <tr><td style="padding:6px 12px 6px 0;color:#8b949e;white-space:nowrap">Bitrate (kbps)</td><td>
+        <input type="number" name="video_bitrate_k" value="{{.Config.VideoBitrateK}}" min="500" step="100" style="width:100px">
+      </td></tr>
+      <tr><td style="padding:6px 12px 6px 0;color:#8b949e;white-space:nowrap">HLS segment (s)</td><td>
+        <input type="number" name="hls_segment_sec" value="{{.Config.HLSSegmentSec}}" min="2" max="30" style="width:80px">
+      </td></tr>
+    </table>
+    <div class="form-actions" style="margin-top:16px">
+      <button class="btn btn-primary" type="submit">Save</button>
+    </div>
+  </form>
+</div>
 
 <div class="section">
   <div class="section-header">

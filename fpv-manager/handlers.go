@@ -22,6 +22,21 @@ import (
 
 const quickFlightLabel = "Quick flight"
 
+type AppConfig struct {
+	FFmpegCRF      int
+	FFmpegPreset   string
+	VideoMaxWidth  int
+	VideoBitrateK  int
+	HLSSegmentSec  int
+}
+
+func (a *App) loadConfig(ctx context.Context) AppConfig {
+	cfg := AppConfig{FFmpegCRF: 23, FFmpegPreset: "fast", VideoMaxWidth: 1280, VideoBitrateK: 3000, HLSSegmentSec: 6}
+	a.db.QueryRow(ctx, `SELECT ffmpeg_crf, ffmpeg_preset, video_max_width, video_bitrate_k, hls_segment_sec FROM app_config WHERE id=1`).
+		Scan(&cfg.FFmpegCRF, &cfg.FFmpegPreset, &cfg.VideoMaxWidth, &cfg.VideoBitrateK, &cfg.HLSSegmentSec)
+	return cfg
+}
+
 // ---- helpers ----
 
 func (a *App) queryOptions(r *http.Request, sql string) ([]OptionItem, error) {
@@ -2871,8 +2886,6 @@ func (a *App) handleVideoServe(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, filepath.Join(a.videoDir, filename))
 }
 
-const hlsSegmentSec = 6
-
 func (a *App) handleMobilePlaylist(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseID(r)
 	if !ok {
@@ -2904,19 +2917,20 @@ func (a *App) handleMobilePlaylist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cfg := a.loadConfig(r.Context())
 	var b strings.Builder
 	b.WriteString("#EXTM3U\n")
 	b.WriteString("#EXT-X-VERSION:3\n")
-	fmt.Fprintf(&b, "#EXT-X-TARGETDURATION:%d\n", hlsSegmentSec)
+	fmt.Fprintf(&b, "#EXT-X-TARGETDURATION:%d\n", cfg.HLSSegmentSec)
 	b.WriteString("#EXT-X-MEDIA-SEQUENCE:0\n")
 	b.WriteString("#EXT-X-PLAYLIST-TYPE:VOD\n")
-	fullSegments := int(duration) / hlsSegmentSec
-	lastDur := duration - float64(fullSegments*hlsSegmentSec)
+	fullSegments := int(duration) / cfg.HLSSegmentSec
+	lastDur := duration - float64(fullSegments*cfg.HLSSegmentSec)
 	for i := range fullSegments {
 		if i > 0 {
 			b.WriteString("#EXT-X-DISCONTINUITY\n")
 		}
-		fmt.Fprintf(&b, "#EXTINF:%d.000,\nmobile/%d.ts\n", hlsSegmentSec, i)
+		fmt.Fprintf(&b, "#EXTINF:%d.000,\nmobile/%d.ts\n", cfg.HLSSegmentSec, i)
 	}
 	if lastDur > 0.05 {
 		if fullSegments > 0 {
@@ -2957,19 +2971,21 @@ func (a *App) handleMobileSegment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	srcPath := filepath.Join(a.videoDir, filename)
-	startSec := n * hlsSegmentSec
+	cfg := a.loadConfig(r.Context())
+	startSec := n * cfg.HLSSegmentSec
+	bitrateStr := strconv.Itoa(cfg.VideoBitrateK) + "k"
 
 	cmd := exec.CommandContext(r.Context(), a.ffmpegPath,
 		"-y",
 		"-ss", strconv.Itoa(startSec),
 		"-i", srcPath,
-		"-t", strconv.Itoa(hlsSegmentSec),
-		"-c:v", "libx264", "-crf", "23", "-preset", "fast",
+		"-t", strconv.Itoa(cfg.HLSSegmentSec),
+		"-c:v", "libx264", "-crf", strconv.Itoa(cfg.FFmpegCRF), "-preset", cfg.FFmpegPreset,
 		"-profile:v", "main", "-level", "4.0",
 		"-pix_fmt", "yuv420p",
 		"-bf", "0",
-		"-vf", "scale='min(1280,iw)':-2",
-		"-b:v", "3000k", "-maxrate", "3000k", "-bufsize", "6000k",
+		"-vf", fmt.Sprintf("scale='min(%d,iw)':-2", cfg.VideoMaxWidth),
+		"-b:v", bitrateStr, "-maxrate", bitrateStr, "-bufsize", strconv.Itoa(cfg.VideoBitrateK*2)+"k",
 		"-c:a", "aac", "-b:a", "128k",
 		"-muxdelay", "0", "-muxpreload", "0",
 		"-f", "mpegts", "pipe:1",
@@ -3453,7 +3469,47 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		mcuRows.Close()
 	}
+	page.Config = a.loadConfig(ctx)
 	render(w, "settings", page)
+}
+
+func (a *App) handleConfigSave(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		httpErr(w, err)
+		return
+	}
+	crf, _ := strconv.Atoi(r.FormValue("ffmpeg_crf"))
+	if crf < 0 {
+		crf = 0
+	} else if crf > 51 {
+		crf = 51
+	}
+	preset := r.FormValue("ffmpeg_preset")
+	validPresets := map[string]bool{"ultrafast": true, "superfast": true, "veryfast": true, "faster": true, "fast": true, "medium": true, "slow": true, "slower": true, "veryslow": true}
+	if !validPresets[preset] {
+		preset = "fast"
+	}
+	maxW, _ := strconv.Atoi(r.FormValue("video_max_width"))
+	if maxW < 480 {
+		maxW = 480
+	}
+	bitrateK, _ := strconv.Atoi(r.FormValue("video_bitrate_k"))
+	if bitrateK < 500 {
+		bitrateK = 500
+	}
+	hlsSec, _ := strconv.Atoi(r.FormValue("hls_segment_sec"))
+	if hlsSec < 2 {
+		hlsSec = 2
+	} else if hlsSec > 30 {
+		hlsSec = 30
+	}
+	a.db.Exec(r.Context(), `
+		INSERT INTO app_config (id, ffmpeg_crf, ffmpeg_preset, video_max_width, video_bitrate_k, hls_segment_sec)
+		VALUES (1, $1, $2, $3, $4, $5)
+		ON CONFLICT (id) DO UPDATE SET
+			ffmpeg_crf=$1, ffmpeg_preset=$2, video_max_width=$3, video_bitrate_k=$4, hls_segment_sec=$5`,
+		crf, preset, maxW, bitrateK, hlsSec)
+	http.Redirect(w, r, "/settings", http.StatusSeeOther)
 }
 
 // ---- Radio Protocols ----
