@@ -18,13 +18,34 @@ type App struct {
 	ffmpegPath string
 }
 
+// systemTimezone reads the IANA timezone name from /etc/localtime symlink.
+// On NixOS, time.Local.String() returns "Local", so we resolve the symlink instead.
+func systemTimezone() string {
+	target, err := os.Readlink("/etc/localtime")
+	if err != nil {
+		return time.Local.String()
+	}
+	const marker = "zoneinfo/"
+	if i := strings.LastIndex(target, marker); i >= 0 {
+		return target[i+len(marker):]
+	}
+	return ""
+}
+
 func main() {
 	ctx := context.Background()
 	dsn := os.Getenv("FPV_DB_DSN")
 	if dsn == "" {
 		dsn = "host=/run/postgresql dbname=fpv_manager user=fpv_manager sslmode=disable"
 	}
-	pool, err := pgxpool.New(ctx, dsn)
+	poolCfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		log.Fatalf("parse dsn: %v", err)
+	}
+	if tz := systemTimezone(); tz != "" && tz != "UTC" {
+		poolCfg.ConnConfig.RuntimeParams["timezone"] = tz
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		log.Fatalf("connect db: %v", err)
 	}
@@ -542,6 +563,25 @@ CREATE TABLE IF NOT EXISTS app_config (
     hls_segment_sec INTEGER NOT NULL DEFAULT 6
 );
 INSERT INTO app_config DEFAULT VALUES ON CONFLICT DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS checklist_items (
+    id         SERIAL PRIMARY KEY,
+    label      TEXT NOT NULL,
+    sort_order INT NOT NULL DEFAULT 0,
+    enabled    BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS session_checklist (
+    id         SERIAL PRIMARY KEY,
+    session_id INT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    label      TEXT NOT NULL,
+    checked    BOOLEAN NOT NULL DEFAULT FALSE,
+    sort_order INT NOT NULL DEFAULT 0
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sc_session_label ON session_checklist(session_id, label);
+DELETE FROM checklist_items WHERE id BETWEEN 1 AND 8 AND label IN ('Props secure','Battery charged','Video link OK','GPS lock','Failsafe tested','Camera angle set','Controller charged','Air space clear');
 `
 
 func (a *App) initSchema(ctx context.Context) error {
@@ -691,6 +731,12 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/mcus/new", a.handleMCUNew)
 	mux.HandleFunc("/mcus/{id}/edit", a.handleMCUEdit)
 	mux.HandleFunc("POST /mcus/{id}/delete", a.handleMCUDelete)
+
+	mux.HandleFunc("POST /log/{id}/checklist", a.handleSessionChecklistSave)
+
+	mux.HandleFunc("/checklist-items/new", a.handleChecklistItemNew)
+	mux.HandleFunc("/checklist-items/{id}/edit", a.handleChecklistItemEdit)
+	mux.HandleFunc("POST /checklist-items/{id}/delete", a.handleChecklistItemDelete)
 
 	mux.HandleFunc("/weather", a.handleWeather)
 }

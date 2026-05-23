@@ -176,6 +176,17 @@ func (a *App) batteryChecks(r *http.Request, sessionID int) ([]BatteryCheck, err
         FROM batteries b
         LEFT JOIN brands br ON br.id=b.brand_id
         LEFT JOIN cells c ON c.id=b.cell_id
+        WHERE $1 = 0
+           OR b.cell_id IS NULL
+           OR NOT EXISTS (
+               SELECT 1 FROM session_drones sd
+               JOIN drones d ON d.id=sd.drone_id
+               WHERE sd.session_id=$1 AND d.cell_id IS NOT NULL)
+           OR b.cell_id IN (
+               SELECT d.cell_id FROM session_drones sd
+               JOIN drones d ON d.id=sd.drone_id
+               WHERE sd.session_id=$1 AND d.cell_id IS NOT NULL)
+           OR EXISTS(SELECT 1 FROM session_batteries sb WHERE sb.session_id=$1 AND sb.battery_id=b.id)
         ORDER BY br.name, b.name`, sessionID)
 	if err != nil {
 		return nil, err
@@ -2247,7 +2258,8 @@ func (a *App) handleLog(w http.ResponseWriter, r *http.Request) {
                          FROM session_batteries sb JOIN batteries b ON b.id=sb.battery_id
                          LEFT JOIN cells c ON c.id=b.cell_id
                          WHERE sb.session_id=s.id),''),
-               (s.notes=$1 AND s.title='')
+               (s.notes=$1 AND s.title=''),
+               COALESCE((SELECT COUNT(*)>0 AND BOOL_AND(checked) FROM session_checklist WHERE session_id=s.id), false)
         FROM sessions s
         ORDER BY s.session_date DESC, s.created_at DESC`, quickFlightLabel)
 	if err != nil {
@@ -2259,7 +2271,7 @@ func (a *App) handleLog(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var s SessionRow
 		if err := rows.Scan(&s.ID, &s.Title, &s.Type, &s.SessionDate,
-			&s.DurationMin, &s.Location, &s.Notes, &s.DroneNames, &s.BatteryList, &s.IsQuickFlight); err != nil {
+			&s.DurationMin, &s.Location, &s.Notes, &s.DroneNames, &s.BatteryList, &s.IsQuickFlight, &s.ChecklistComplete); err != nil {
 			httpErr(w, err)
 			return
 		}
@@ -2331,7 +2343,7 @@ func (a *App) handleSessionNew(w http.ResponseWriter, r *http.Request) {
 			httpErr(w, err)
 			return
 		}
-		http.Redirect(w, r, "/log", http.StatusSeeOther)
+		http.Redirect(w, r, fmt.Sprintf("/log/%d", sessionID), http.StatusSeeOther)
 		return
 	}
 	page := SessionFormPage{ActiveTab: "log", Type: "flight", SessionDate: time.Now().Format("2006-01-02")}
@@ -2442,6 +2454,30 @@ func (a *App) handleSessionDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
+		httpErr(w, err)
+		return
+	}
+	clRows, err := a.db.Query(ctx, `
+		SELECT ci.label, COALESCE(sc.checked, false)
+		FROM checklist_items ci
+		LEFT JOIN session_checklist sc ON sc.session_id=$1 AND sc.label=ci.label
+		WHERE ci.enabled=true
+		ORDER BY ci.sort_order, ci.id`, id)
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	for clRows.Next() {
+		var ci SessionChecklistItem
+		if err := clRows.Scan(&ci.Label, &ci.Checked); err != nil {
+			clRows.Close()
+			httpErr(w, err)
+			return
+		}
+		page.Checklist = append(page.Checklist, ci)
+	}
+	clRows.Close()
+	if err := clRows.Err(); err != nil {
 		httpErr(w, err)
 		return
 	}
@@ -3475,6 +3511,15 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) {
 		mcuRows.Close()
 	}
 	page.Config = a.loadConfig(ctx)
+	clRows, _ := a.db.Query(ctx, `SELECT id, label, sort_order, enabled FROM checklist_items ORDER BY sort_order, id`)
+	if clRows != nil {
+		for clRows.Next() {
+			var ci ChecklistItem
+			clRows.Scan(&ci.ID, &ci.Label, &ci.SortOrder, &ci.Enabled)
+			page.ChecklistItems = append(page.ChecklistItems, ci)
+		}
+		clRows.Close()
+	}
 	render(w, "settings", page)
 }
 
@@ -4059,4 +4104,113 @@ func (a *App) handleWeather(w http.ResponseWriter, r *http.Request) {
 
 	page.FetchedAt = time.Now().In(aest).Format("02 Jan 2006 15:04 AEST")
 	render(w, "weather", page)
+}
+
+func (a *App) handleSessionChecklistSave(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		httpErr(w, err)
+		return
+	}
+	label := strings.TrimSpace(r.FormValue("label"))
+	if label == "" {
+		http.Error(w, "label required", http.StatusBadRequest)
+		return
+	}
+	checked := r.FormValue("checked") == "1"
+	_, err := a.db.Exec(r.Context(), `
+		INSERT INTO session_checklist (session_id, label, checked, sort_order)
+		VALUES ($1, $2, $3, 0)
+		ON CONFLICT (session_id, label) DO UPDATE SET checked=EXCLUDED.checked`,
+		id, label, checked)
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ---- Checklist Items ----
+
+func (a *App) handleChecklistItemNew(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		if err := r.ParseForm(); err != nil {
+			httpErr(w, err)
+			return
+		}
+		label := strings.TrimSpace(r.FormValue("label"))
+		if label == "" {
+			render(w, "checklist-item-form", ChecklistItemFormPage{ActiveTab: "settings", Error: "Label is required", Enabled: true})
+			return
+		}
+		so, _ := strconv.Atoi(r.FormValue("sort_order"))
+		enabled := r.FormValue("enabled") == "1"
+		if _, err := a.db.Exec(r.Context(),
+			`INSERT INTO checklist_items (label, sort_order, enabled) VALUES ($1,$2,$3)`, label, so, enabled); err != nil {
+			httpErr(w, err)
+			return
+		}
+		http.Redirect(w, r, "/settings", http.StatusSeeOther)
+		return
+	}
+	render(w, "checklist-item-form", ChecklistItemFormPage{ActiveTab: "settings", Enabled: true})
+}
+
+func (a *App) handleChecklistItemEdit(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method == http.MethodPost {
+		if err := r.ParseForm(); err != nil {
+			httpErr(w, err)
+			return
+		}
+		label := strings.TrimSpace(r.FormValue("label"))
+		if label == "" {
+			render(w, "checklist-item-form", ChecklistItemFormPage{ActiveTab: "settings", Error: "Label is required", ID: id})
+			return
+		}
+		so, _ := strconv.Atoi(r.FormValue("sort_order"))
+		enabled := r.FormValue("enabled") == "1"
+		if _, err := a.db.Exec(r.Context(),
+			`UPDATE checklist_items SET label=$1, sort_order=$2, enabled=$3 WHERE id=$4`, label, so, enabled, id); err != nil {
+			httpErr(w, err)
+			return
+		}
+		http.Redirect(w, r, "/settings", http.StatusSeeOther)
+		return
+	}
+	var page ChecklistItemFormPage
+	err := a.db.QueryRow(r.Context(),
+		`SELECT id, label, sort_order, enabled FROM checklist_items WHERE id=$1`, id).
+		Scan(&page.ID, &page.Label, &page.SortOrder, &page.Enabled)
+	if err == pgx.ErrNoRows {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	page.ActiveTab = "settings"
+	render(w, "checklist-item-form", page)
+}
+
+func (a *App) handleChecklistItemDelete(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if _, err := a.db.Exec(r.Context(), `DELETE FROM checklist_items WHERE id=$1`, id); err != nil {
+		httpErr(w, err)
+		return
+	}
+	http.Redirect(w, r, "/settings", http.StatusSeeOther)
 }

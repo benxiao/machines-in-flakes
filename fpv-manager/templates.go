@@ -416,16 +416,17 @@ type LogListPage struct {
 }
 
 type SessionRow struct {
-	ID             int
-	Title          string
-	DroneNames     string
-	Type           string
-	SessionDate    string
-	DurationMin    int
-	Location       string
-	Notes          string
-	BatteryList    string
-	IsQuickFlight  bool
+	ID                int
+	Title             string
+	DroneNames        string
+	Type              string
+	SessionDate       string
+	DurationMin       int
+	Location          string
+	Notes             string
+	BatteryList       string
+	IsQuickFlight     bool
+	ChecklistComplete bool
 }
 
 type BatteryCheck struct {
@@ -455,6 +456,27 @@ type PhotoRow struct {
 	Notes        string
 }
 
+type ChecklistItem struct {
+	ID        int
+	Label     string
+	SortOrder int
+	Enabled   bool
+}
+
+type ChecklistItemFormPage struct {
+	ActiveTab string
+	Error     string
+	ID        int
+	Label     string
+	SortOrder int
+	Enabled   bool
+}
+
+type SessionChecklistItem struct {
+	Label   string
+	Checked bool
+}
+
 type SessionFormPage struct {
 	ActiveTab   string
 	Error       string
@@ -465,9 +487,9 @@ type SessionFormPage struct {
 	DurationMin string
 	Location    string
 	Notes       string
-	Drones      []DroneCheck
-	Batteries   []BatteryCheck
-	Places      []OptionItem
+	Drones    []DroneCheck
+	Batteries []BatteryCheck
+	Places    []OptionItem
 }
 
 type SessionDetailPage struct {
@@ -484,6 +506,7 @@ type SessionDetailPage struct {
 	Videos     []VideoRow
 	Photos     []PhotoRow
 	Drones     []OptionItem
+	Checklist  []SessionChecklistItem
 }
 
 type PlaceListPage struct {
@@ -558,6 +581,7 @@ type SettingsPage struct {
 	RadioProtocols []RadioProtocolRow
 	MCUs           []MCURow
 	Config         AppConfig
+	ChecklistItems []ChecklistItem
 }
 
 type CellFormPage struct {
@@ -723,6 +747,7 @@ func initTemplates() {
 	add("cell-form", cellFormTmpl)
 	add("radio-protocol-form", radioProtocolFormTmpl)
 	add("mcu-form", mcuFormTmpl)
+	add("checklist-item-form", checklistItemFormTmpl)
 	add("weather", weatherTmpl)
 }
 
@@ -2481,7 +2506,7 @@ const logListTmpl = `{{define "content"}}
   <td class="muted" style="white-space:nowrap">{{.SessionDate}}</td>
   <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{if .Title}}<strong>{{.Title}}</strong>{{else}}<span class="muted">{{dash .Notes}}</span>{{end}}</td>
   <td><strong>{{.DroneNames}}</strong></td>
-  <td class="hide-mobile"><span class="badge {{badgeClass .Type}}">{{.Type}}</span></td>
+  <td class="hide-mobile"><span class="badge {{badgeClass .Type}}">{{.Type}}</span>{{if .ChecklistComplete}}&nbsp;<span title="Preflight complete" style="color:#3fb950;font-size:13px">✓</span>{{end}}</td>
   <td class="muted hide-mobile">{{if gt .DurationMin 0}}{{.DurationMin}}m{{else}}—{{end}}</td>
   <td class="muted hide-mobile">{{dash .Location}}</td>
   <td class="muted hide-mobile" style="font-size:12px">{{dash .BatteryList}}</td>
@@ -2593,12 +2618,14 @@ const sessionFormTmpl = `{{define "content"}}
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Log Session{{end}}</button>
     <a href="/log" class="btn btn-cancel">Cancel</a>
-    {{if .ID}}
-    <a href="/log/{{.ID}}" class="btn btn-cancel">View</a>
-    <form class="inline" method="POST" action="/log/{{.ID}}/delete"><button class="btn btn-danger" type="submit">Delete</button></form>
-    {{end}}
+    {{if .ID}}<a href="/log/{{.ID}}" class="btn btn-cancel">View</a>{{end}}
   </div>
 </form>
+{{if .ID}}
+<form method="POST" action="/log/{{.ID}}/delete" style="margin-top:8px">
+  <button class="btn btn-danger" type="submit">Delete</button>
+</form>
+{{end}}
 </div>
 {{end}}`
 
@@ -2620,6 +2647,40 @@ const sessionDetailTmpl = `{{define "content"}}
 <tr><td class="muted" style="padding:6px 12px 6px 0">Location</td><td>{{dash .Location}}</td></tr>
 <tr><td class="muted" style="padding:6px 12px 6px 0;vertical-align:top">Notes</td><td style="white-space:pre-wrap">{{dash .Notes}}</td></tr>
 </table>
+
+{{if .Checklist}}
+<div class="section" style="margin-bottom:24px">
+  <div class="section-header" style="margin-bottom:10px">
+    <h3>Preflight Checklist</h3>
+    <span id="cl-all-clear" style="display:none;color:#3fb950;font-size:13px;font-weight:600">✓ All clear</span>
+  </div>
+  <div class="battery-checks" id="preflight-checks">
+    {{range .Checklist}}
+    <label class="battery-check" style="{{if .Checked}}border-color:#3fb950;{{end}}">
+      <input type="checkbox" data-label="{{.Label}}" {{if .Checked}}checked{{end}} onchange="saveChecklistItem(this)">
+      {{.Label}}
+    </label>
+    {{end}}
+  </div>
+</div>
+<script>
+function updateAllClear() {
+  var boxes = document.querySelectorAll('#preflight-checks input[type=checkbox]');
+  var allDone = boxes.length > 0 && Array.from(boxes).every(function(b){return b.checked;});
+  document.getElementById('cl-all-clear').style.display = allDone ? '' : 'none';
+}
+function saveChecklistItem(cb) {
+  var label = cb.getAttribute('data-label');
+  cb.closest('label').style.borderColor = cb.checked ? '#3fb950' : '';
+  updateAllClear();
+  fetch('/log/{{.ID}}/checklist', {
+    method: 'POST',
+    body: new URLSearchParams({label: label, checked: cb.checked ? '1' : '0'})
+  }).catch(function(e) { console.error('checklist save failed', e); });
+}
+updateAllClear();
+</script>
+{{end}}
 
 {{if .Batteries}}
 <h3>Batteries Used</h3>
@@ -3004,6 +3065,24 @@ document.getElementById('pref-show-quick').checked = localStorage.getItem('showQ
 
 <div class="section">
   <div class="section-header">
+    <h3>Preflight Checklist</h3>
+    <a href="/checklist-items/new" class="btn btn-sm btn-primary">+ Add</a>
+  </div>
+  {{if .ChecklistItems}}
+  <div class="table-wrap"><table>
+  <thead><tr><th>Item</th><th>Order</th><th>Enabled</th></tr></thead>
+  <tbody>
+  {{range .ChecklistItems}}<tr style="cursor:pointer" onclick="window.location='/checklist-items/{{.ID}}/edit'">
+    <td><strong>{{.Label}}</strong></td>
+    <td class="muted">{{.SortOrder}}</td>
+    <td class="muted">{{if .Enabled}}Yes{{else}}No{{end}}</td>
+  </tr>{{end}}
+  </tbody></table></div>
+  {{else}}<p class="muted">No checklist items yet. <a href="/checklist-items/new">Add one.</a></p>{{end}}
+</div>
+
+<div class="section">
+  <div class="section-header">
     <h3>Brands</h3>
     <a href="/brands/new" class="btn btn-sm btn-primary">+ Add</a>
   </div>
@@ -3097,9 +3176,13 @@ const brandFormTmpl = `{{define "content"}}
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add Brand{{end}}</button>
     <a href="/settings" class="btn btn-cancel">Cancel</a>
-    {{if .ID}}<form class="inline" method="POST" action="/brands/{{.ID}}/delete"><button class="btn btn-danger" type="submit">Delete</button></form>{{end}}
   </div>
 </form>
+{{if .ID}}
+<form method="POST" action="/brands/{{.ID}}/delete" style="margin-top:8px">
+  <button class="btn btn-danger" type="submit">Delete</button>
+</form>
+{{end}}
 </div>
 {{end}}`
 
@@ -3117,9 +3200,13 @@ const cellFormTmpl = `{{define "content"}}
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add{{end}}</button>
     <a href="/settings" class="btn btn-cancel">Cancel</a>
-    {{if .ID}}<form class="inline" method="POST" action="/cells/{{.ID}}/delete"><button class="btn btn-danger" type="submit">Delete</button></form>{{end}}
   </div>
 </form>
+{{if .ID}}
+<form method="POST" action="/cells/{{.ID}}/delete" style="margin-top:8px">
+  <button class="btn btn-danger" type="submit">Delete</button>
+</form>
+{{end}}
 </div>
 {{end}}`
 
@@ -3137,9 +3224,13 @@ const sizeFormTmpl = `{{define "content"}}
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add Size{{end}}</button>
     <a href="/settings" class="btn btn-cancel">Cancel</a>
-    {{if .ID}}<form class="inline" method="POST" action="/sizes/{{.ID}}/delete"><button class="btn btn-danger" type="submit">Delete</button></form>{{end}}
   </div>
 </form>
+{{if .ID}}
+<form method="POST" action="/sizes/{{.ID}}/delete" style="margin-top:8px">
+  <button class="btn btn-danger" type="submit">Delete</button>
+</form>
+{{end}}
 </div>
 {{end}}`
 
@@ -3157,9 +3248,13 @@ const mcuFormTmpl = `{{define "content"}}
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add MCU{{end}}</button>
     <a href="/settings" class="btn btn-cancel">Cancel</a>
-    {{if .ID}}<form class="inline" method="POST" action="/mcus/{{.ID}}/delete"><button class="btn btn-danger" type="submit">Delete</button></form>{{end}}
   </div>
 </form>
+{{if .ID}}
+<form method="POST" action="/mcus/{{.ID}}/delete" style="margin-top:8px">
+  <button class="btn btn-danger" type="submit">Delete</button>
+</form>
+{{end}}
 </div>
 {{end}}`
 
@@ -3177,9 +3272,48 @@ const radioProtocolFormTmpl = `{{define "content"}}
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add Protocol{{end}}</button>
     <a href="/settings" class="btn btn-cancel">Cancel</a>
-    {{if .ID}}<form class="inline" method="POST" action="/radio-protocols/{{.ID}}/delete"><button class="btn btn-danger" type="submit">Delete</button></form>{{end}}
   </div>
 </form>
+{{if .ID}}
+<form method="POST" action="/radio-protocols/{{.ID}}/delete" style="margin-top:8px">
+  <button class="btn btn-danger" type="submit">Delete</button>
+</form>
+{{end}}
+</div>
+{{end}}`
+
+const checklistItemFormTmpl = `{{define "content"}}
+<div class="page-header">
+  <h2>{{if .ID}}Edit Checklist Item{{else}}New Checklist Item{{end}}</h2>
+</div>
+<div class="form-page">
+{{if .Error}}<div class="error-box">{{.Error}}</div>{{end}}
+<form method="POST">
+  <div class="form-group">
+    <label>Label *</label>
+    <input type="text" name="label" value="{{.Label}}" required autofocus placeholder="e.g. Props secure">
+  </div>
+  <div class="form-group">
+    <label>Sort Order</label>
+    <input type="number" name="sort_order" value="{{.SortOrder}}" min="0" style="width:80px">
+    <span class="muted" style="font-size:12px;margin-left:8px">lower = appears first</span>
+  </div>
+  <div class="form-group">
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+      <input type="checkbox" name="enabled" value="1" {{if .Enabled}}checked{{end}}>
+      Enabled (shown in preflight checklist)
+    </label>
+  </div>
+  <div class="form-actions">
+    <button class="btn btn-primary" type="submit">{{if .ID}}Save{{else}}Add Item{{end}}</button>
+    <a href="/settings" class="btn btn-cancel">Cancel</a>
+  </div>
+</form>
+{{if .ID}}
+<form method="POST" action="/checklist-items/{{.ID}}/delete" style="margin-top:8px">
+  <button class="btn btn-danger" type="submit">Delete</button>
+</form>
+{{end}}
 </div>
 {{end}}`
 
