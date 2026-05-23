@@ -1,7 +1,6 @@
 {
   description = "all my machines in flakes";
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-25.11";
-  inputs.nixpkgs-legacy.url = "github:nixos/nixpkgs/nixos-25.05";
   inputs.nixpkgs-unstable.url = "github:nixos/nixpkgs/nixpkgs-unstable";
   inputs.nixpkgs-master.url = "github:nixos/nixpkgs/master";
 
@@ -11,7 +10,7 @@
     url = "github:nix-community/home-manager/release-25.11";
     inputs.nixpkgs.follows = "nixpkgs";
   };
-  outputs = { self, nixpkgs, nixpkgs-unstable, nixpkgs-master, nixpkgs-legacy, nixos-hardware, vscode-server, home-manager }:
+  outputs = { self, nixpkgs, nixpkgs-unstable, nixpkgs-master, nixos-hardware, vscode-server, home-manager }:
     {
       nixosConfigurations =
         let
@@ -27,16 +26,10 @@
             config.allowUnfree = true;
           };
 
-          legacy = import nixpkgs-legacy {
-            inherit system;
-            config.allowUnfree = true;
-          };
-
           intelCpuModule = ({ ... }: {
             powerManagement.cpuFreqGovernor = "powersave";
             hardware.cpu.intel.updateMicrocode = true;
           });
-
 
           amdCpuModule = ({ ... }: {
             boot.kernelModules = [ "kvm-amd" ];
@@ -151,10 +144,18 @@
             hardware.graphics.enable32Bit = true;
             # docker  run  --device=nvidia.com/gpu=0 --rm nvidia/cuda:11.0.3-base-ubuntu20.04 nvidia-smi
             hardware.nvidia-container-toolkit.enable = true;
-
           });
 
-          checkRouterAliveModule = { pkgs, ... }: {
+          ollamaModule = ({ ... }: {
+            services.ollama = {
+              enable = true;
+              acceleration = "cuda";
+              package = unstable.ollama;
+            };
+            environment.systemPackages = [ unstable.openclaw unstable.opencode ];
+          });
+
+          makeRouterMonitorModule = { routerIp ? "192.168.30.1" }: ({ pkgs, ... }: {
             systemd.services.router-monitor = {
               description = "Router Monitor Service";
               wants = [ "network-online.target" ];
@@ -162,7 +163,7 @@
               wantedBy = [ "multi-user.target" ];
               serviceConfig = {
                 ExecStart = pkgs.writeShellScript "router-monitor" ''
-                  ROUTER_IP='192.168.30.1';
+                  ROUTER_IP='${routerIp}';
                   MAX_ATTEMPTS=5;
                   SLEEP_INTERVAL=30s;
                   attempt=0;
@@ -185,7 +186,7 @@
                 Type = "simple";
               };
             };
-          };
+          });
 
           makeStorageModule =
             { rootPool ? "zroot/root"
@@ -200,6 +201,58 @@
               swapDevices = [{ device = swapDevice; }];
               boot.zfs.extraPools = extraPools;
               boot.zfs.forceImportAll = true;
+            });
+
+          # Factory for local Go web services backed by PostgreSQL.
+          # Builds the derivation, creates the system user/group, wires up the
+          # systemd unit, and declares the postgres database + user — all in one
+          # module so adding a new service is a single call-site change.
+          makeGoService =
+            { pname
+            , version
+            , src
+            , vendorHash
+            , description ? pname
+            , listenEnvVar
+            , listenPort
+            , dbDsnEnvVar
+            , dbName
+            , extraEnv ? { }
+            }: ({ pkgs, ... }:
+            let
+              svcUser = builtins.replaceStrings [ "-" ] [ "_" ] pname;
+              pkg = pkgs.buildGoModule { inherit pname version src vendorHash; };
+            in
+            {
+              services.postgresql.ensureDatabases = [ dbName ];
+              services.postgresql.ensureUsers = [{
+                name = svcUser;
+                ensureDBOwnership = true;
+              }];
+              users.users.${svcUser} = {
+                isSystemUser = true;
+                group = svcUser;
+                description = "${pname} service user";
+              };
+              users.groups.${svcUser} = { };
+              systemd.services.${pname} = {
+                inherit description;
+                wantedBy = [ "multi-user.target" ];
+                after = [ "network.target" "postgresql.service" ];
+                requires = [ "postgresql.service" ];
+                environment = {
+                  ${listenEnvVar} = listenPort;
+                  ${dbDsnEnvVar} = "host=/run/postgresql dbname=${dbName} user=${svcUser} sslmode=disable";
+                } // extraEnv;
+                serviceConfig = {
+                  ExecStart = "${pkg}/bin/${pname}";
+                  Restart = "on-failure";
+                  RestartSec = "5s";
+                  User = svcUser;
+                  Group = svcUser;
+                  StateDirectory = pname;
+                };
+              };
             });
 
           makeSystemModule =
@@ -379,23 +432,11 @@
             extraModules = [
               ({ pkgs, lib, config, modulesPath, ... }:
                 let
-                  fpv-manager = pkgs.buildGoModule {
-                    pname = "fpv-manager";
-                    version = "0.6.0";
-                    src = ./fpv-manager;
-                    vendorHash = "sha256-Qs23BHgrlK0P5BREEzS5Y/2G7mL1pcSd1k3z8NUw/mM=";
-                  };
                   drive-monitor = pkgs.buildGoModule {
                     pname = "drive-monitor";
                     version = "0.1.0";
                     src = ./drive-monitor;
                     vendorHash = null;
-                  };
-                  kanban = pkgs.buildGoModule {
-                    pname = "kanban";
-                    version = "0.1.0";
-                    src = ./kanban;
-                    vendorHash = "sha256-Qs23BHgrlK0P5BREEzS5Y/2G7mL1pcSd1k3z8NUw/mM=";
                   };
                 in
                 {
@@ -410,50 +451,11 @@
                   services.postgresql = {
                     enable = true;
                     package = pkgs.postgresql_16;
-                    ensureDatabases = [ "fpv_manager" "kanban" ];
-                    ensureUsers = [
-                      {
-                        name = "fpv_manager";
-                        ensureDBOwnership = true;
-                      }
-                      {
-                        name = "kanban";
-                        ensureDBOwnership = true;
-                      }
-                    ];
                     authentication = pkgs.lib.mkOverride 10 ''
                       local  all  all              trust
                       host   all  all  127.0.0.1/32  trust
                       host   all  all  ::1/128       trust
                     '';
-                  };
-
-                  users.users.fpv_manager = {
-                    isSystemUser = true;
-                    group = "fpv_manager";
-                    description = "FPV Manager service user";
-                  };
-                  users.groups.fpv_manager = {};
-
-                  systemd.services.fpv-manager = {
-                    description = "FPV Drone Inventory Manager";
-                    wantedBy = [ "multi-user.target" ];
-                    after = [ "network.target" "postgresql.service" ];
-                    requires = [ "postgresql.service" ];
-                    environment = {
-                      FPV_LISTEN = ":10091";
-                      FPV_DB_DSN = "host=/run/postgresql dbname=fpv_manager user=fpv_manager sslmode=disable";
-                      FPV_VIDEO_DIR = "/var/lib/fpv-manager/videos";
-                      FPV_FFMPEG = "${unstable.ffmpeg-full}/bin/ffmpeg";
-                    };
-                    serviceConfig = {
-                      ExecStart = "${fpv-manager}/bin/fpv-manager";
-                      Restart = "on-failure";
-                      RestartSec = "5s";
-                      User = "fpv_manager";
-                      Group = "fpv_manager";
-                      StateDirectory = "fpv-manager";
-                    };
                   };
 
                   systemd.services.restart-broken-containers-after-reboot = {
@@ -499,34 +501,39 @@
                       RestartSec = "5s";
                     };
                   };
-                  systemd.services.kanban = {
-                    description = "Kanban Board";
-                    wantedBy = [ "multi-user.target" ];
-                    after = [ "network.target" "postgresql.service" ];
-                    requires = [ "postgresql.service" ];
-                    environment = {
-                      KANBAN_LISTEN = ":10092";
-                      KANBAN_DB_DSN = "host=/run/postgresql dbname=kanban user=kanban sslmode=disable";
-                      KANBAN_UPLOAD_DIR = "/var/lib/kanban/uploads";
-                    };
-                    serviceConfig = {
-                      ExecStart = "${kanban}/bin/kanban";
-                      Restart = "on-failure";
-                      RestartSec = "5s";
-                      User = "kanban";
-                      Group = "kanban";
-                      StateDirectory = "kanban";
-                    };
-                  };
-                  users.users.kanban = {
-                    isSystemUser = true;
-                    group = "kanban";
-                    description = "Kanban service user";
-                  };
-                  users.groups.kanban = {};
                 })
-              checkRouterAliveModule
-              # nvidiaModule
+              (makeGoService {
+                pname = "fpv-manager";
+                version = "0.6.0";
+                src = ./fpv-manager;
+                vendorHash = "sha256-Qs23BHgrlK0P5BREEzS5Y/2G7mL1pcSd1k3z8NUw/mM=";
+                description = "FPV Drone Inventory Manager";
+                listenEnvVar = "FPV_LISTEN";
+                listenPort = ":10091";
+                dbDsnEnvVar = "FPV_DB_DSN";
+                dbName = "fpv_manager";
+                extraEnv = {
+                  FPV_VIDEO_DIR = "/var/lib/fpv-manager/videos";
+                  FPV_FFMPEG = "${unstable.ffmpeg-full}/bin/ffmpeg";
+                };
+              })
+              (makeGoService {
+                pname = "kanban";
+                version = "0.1.0";
+                src = ./kanban;
+                # NOTE: this hash matches fpv-manager's — verify with vendorHash = null if kanban deps changed
+                vendorHash = "sha256-Qs23BHgrlK0P5BREEzS5Y/2G7mL1pcSd1k3z8NUw/mM=";
+                description = "Kanban Board";
+                listenEnvVar = "KANBAN_LISTEN";
+                listenPort = ":10092";
+                dbDsnEnvVar = "KANBAN_DB_DSN";
+                dbName = "kanban";
+                extraEnv = {
+                  KANBAN_UPLOAD_DIR = "/var/lib/kanban/uploads";
+                };
+              })
+              (makeRouterMonitorModule { })
+              nvidiaModule
               (makeStorageModule {
                 extraPools = [ "blue2t" "c7" "exos12" "exos16" "tm1t" ];
               })
@@ -561,15 +568,7 @@
                   };
                 };
               })
-              ({ ... }: {
-                services.ollama = {
-                  enable = true;
-                  acceleration = "cuda";
-                  package = unstable.ollama;
-                };
-                environment.systemPackages = [ unstable.openclaw unstable.opencode ];
-                nixpkgs.config.permittedInsecurePackages = [ "openclaw-2026.2.26" ];
-              })
+              ollamaModule
             ];
           });
           # amd ryzen 3950x
