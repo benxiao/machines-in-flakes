@@ -3972,11 +3972,12 @@ func (a *App) handleWeather(w http.ResponseWriter, r *http.Request) {
 	type windAgg struct {
 		maxWind int
 		maxGust int
+		maxRain int
 		dir     string
 	}
 	dayWind := map[string]windAgg{}
 
-	type rawHr struct{ hour, wind, rain int }
+	type rawHr struct{ hour, wind, gust, rain int }
 	dayRawHours := map[string][]rawHr{}
 
 	if hourlyRes.err == nil {
@@ -4002,18 +4003,20 @@ func (a *App) handleWeather(w http.ResponseWriter, r *http.Request) {
 				tLocal := t.In(aest)
 				dateKey := tLocal.Format("2006-01-02")
 
-				agg := dayWind[dateKey]
-				if h.Wind.SpeedKmh > agg.maxWind {
-					agg.maxWind = h.Wind.SpeedKmh
-					agg.dir = h.Wind.Dir
-				}
-				if h.Wind.GustKmh > agg.maxGust {
-					agg.maxGust = h.Wind.GustKmh
-				}
-				dayWind[dateKey] = agg
-
 				if hr := tLocal.Hour(); hr >= 8 && hr <= 17 {
-					dayRawHours[dateKey] = append(dayRawHours[dateKey], rawHr{hr, h.Wind.SpeedKmh, h.Rain.Chance})
+					agg := dayWind[dateKey]
+					if h.Wind.SpeedKmh > agg.maxWind {
+						agg.maxWind = h.Wind.SpeedKmh
+						agg.dir = h.Wind.Dir
+					}
+					if h.Wind.GustKmh > agg.maxGust {
+						agg.maxGust = h.Wind.GustKmh
+					}
+					if h.Rain.Chance > agg.maxRain {
+						agg.maxRain = h.Rain.Chance
+					}
+					dayWind[dateKey] = agg
+					dayRawHours[dateKey] = append(dayRawHours[dateKey], rawHr{hr, h.Wind.SpeedKmh, h.Wind.GustKmh, h.Rain.Chance})
 				}
 			}
 		}
@@ -4047,7 +4050,7 @@ func (a *App) handleWeather(w http.ResponseWriter, r *http.Request) {
 		agg := dayWind[dateKey]
 		wd := WeatherDay{
 			Date:         tLocal.Format("Mon 02 Jan"),
-			RainChance:   d.Rain.Chance,
+			RainChance:   agg.maxRain,
 			RainMaxMm:    rainMaxStr,
 			WindSpeedKmh: agg.maxWind,
 			GustSpeedKmh: agg.maxGust,
@@ -4059,20 +4062,21 @@ func (a *App) handleWeather(w http.ResponseWriter, r *http.Request) {
 			IconDesc:     d.IconDesc,
 			HasWind:      agg.maxWind > 0,
 		}
-		wd.FlyRating = flyRating(wd.WindSpeedKmh, wd.GustSpeedKmh, wd.RainChance)
+		wd.FlyRating = flyRating(agg.maxWind, agg.maxGust, agg.maxRain)
 		rawHrs := dayRawHours[dateKey]
-		maxWind := 1 // start at 1 to avoid division by zero
+		maxPeak := 1 // start at 1 to avoid division by zero
 		for _, rh := range rawHrs {
-			maxWind = max(maxWind, rh.wind)
+			maxPeak = max(maxPeak, rh.wind, rh.gust)
 		}
 
 		// Ceiling is 20% above peak, rounded up to nearest 5
-		ceiling := max(((maxWind*6/5)+4)/5*5, 5)
+		ceiling := max(((maxPeak*6/5)+4)/5*5, 5)
 
 		for _, rh := range rawHrs {
 			wd.DayHours = append(wd.DayHours, DayHour{
 				Label:    strconv.Itoa(rh.hour),
 				WindBarH: rh.wind * 100 / ceiling,
+				GustBarH: rh.gust * 100 / ceiling,
 				RainBarH: rh.rain,
 				WindFill: windColor(rh.wind),
 			})

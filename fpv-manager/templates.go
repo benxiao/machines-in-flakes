@@ -638,6 +638,7 @@ type WeatherDay struct {
 type DayHour struct {
 	Label    string // "8" … "17"
 	WindBarH int    // 0–100 (% of chart height)
+	GustBarH int    // 0–100 (% of chart height)
 	RainBarH int    // 0–100 (% of chart height)
 	WindFill string // hex color based on speed
 }
@@ -3362,8 +3363,9 @@ const weatherTmpl = `{{define "content"}}
 .wx-bars-wrap { position: relative; height: 48px; }
 .wx-guideline { position: absolute; left: 0; right: 0; border-top: 1px dashed; z-index: 1; pointer-events: none; }
 .wx-chart { display: flex; align-items: stretch; height: 100%; gap: 2px; position: relative; z-index: 2; }
-.wx-chart-col { flex: 1; min-width: 0; display: flex; align-items: flex-end; }
+.wx-chart-col { flex: 1; min-width: 0; display: flex; align-items: flex-end; position: relative; }
 .wx-bar { width: 100%; min-height: 2px; border-radius: 2px 2px 0 0; }
+.wx-gust-tick { position: absolute; left: 0; right: 0; height: 2px; background: rgba(248,81,73,0.75); pointer-events: none; }
 .wx-hours-row { display: flex; gap: 2px; margin-top: 2px; }
 .wx-hour-cell { flex: 1; font-size: 8px; color: #8b949e; text-align: center; min-width: 0; overflow: hidden; }
 </style>
@@ -3441,7 +3443,7 @@ const weatherTmpl = `{{define "content"}}
       <div style="flex:1">
         <div class="wx-bars-wrap">
           {{range .WindGuides}}<div class="wx-guideline" style="top:{{.TopPct}}%;border-top-color:{{.Color}}"></div>{{end}}
-          <div class="wx-chart">{{range .DayHours}}<div class="wx-chart-col"><div class="wx-bar" style="height:{{.WindBarH}}%;background:{{.WindFill}}"></div></div>{{end}}</div>
+          <div class="wx-chart">{{range .DayHours}}<div class="wx-chart-col"><div class="wx-bar" style="height:{{.WindBarH}}%;background:{{.WindFill}}"></div>{{if .GustBarH}}<div class="wx-gust-tick" style="bottom:{{.GustBarH}}%"></div>{{end}}</div>{{end}}</div>
         </div>
         <div class="wx-hours-row">{{range .DayHours}}<div class="wx-hour-cell">{{.Label}}</div>{{end}}</div>
       </div>
