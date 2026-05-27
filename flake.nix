@@ -532,6 +532,32 @@
                   KANBAN_UPLOAD_DIR = "/var/lib/kanban/uploads";
                 };
               })
+              ({ pkgs, ... }:
+                let
+                  music-server = pkgs.buildGoModule {
+                    pname = "music-server";
+                    version = "0.1.0";
+                    src = ./music-server;
+                    vendorHash = null;
+                  };
+                in {
+                  systemd.services.music-server = {
+                    description = "Music Library Server";
+                    wantedBy = [ "multi-user.target" ];
+                    after = [ "network.target" "zfs-import-blue2t.service" ];
+                    requires = [ "zfs-import-blue2t.service" ];
+                    environment = {
+                      MUSIC_LISTEN = ":10093";
+                      MUSIC_DIR = "/blue2t/music";
+                    };
+                    serviceConfig = {
+                      ExecStart = "${music-server}/bin/music-server";
+                      Restart = "on-failure";
+                      RestartSec = "5s";
+                      User = "rxiao";
+                    };
+                  };
+                })
               (makeRouterMonitorModule { })
               nvidiaModule
               (makeStorageModule {
