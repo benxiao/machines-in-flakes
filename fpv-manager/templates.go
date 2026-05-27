@@ -2703,7 +2703,14 @@ updateAllClear();
 </div>
 {{end}}
 
+<label class="btn btn-primary" style="margin-bottom:8px">Upload Media<input type="file" id="media-upload-input" accept="video/*,image/*" style="display:none" onchange="handleMediaUpload(this,{{.ID}})"></label>
 <h3>Videos</h3>
+<div id="upload-progress" style="display:none;margin-bottom:16px;max-width:860px">
+  <div style="background:#30363d;border-radius:4px;height:8px;overflow:hidden">
+    <div id="upload-bar" style="background:#58a6ff;height:100%;width:0%;transition:width .15s"></div>
+  </div>
+  <div id="upload-label" style="font-size:12px;color:#8b949e;margin-top:4px">Uploading…</div>
+</div>
 {{if .Videos}}
 <div style="display:flex;flex-direction:column;gap:20px;max-width:860px;margin-bottom:16px">
 {{range .Videos}}
@@ -2741,15 +2748,6 @@ updateAllClear();
 {{else}}
 <p class="muted" style="margin-bottom:8px">No videos yet.</p>
 {{end}}
-<form id="video-upload-form" method="POST" action="/log/{{.ID}}/videos" enctype="multipart/form-data" class="upload-form" style="margin-bottom:8px">
-  <label class="btn btn-primary">Upload Video<input type="file" name="video" accept="video/*" style="display:none" onchange="this.closest('form').requestSubmit()"></label>
-</form>
-<div id="video-upload-progress" style="display:none;margin-bottom:24px;max-width:860px">
-  <div style="background:#30363d;border-radius:4px;height:8px;overflow:hidden">
-    <div id="video-upload-bar" style="background:#58a6ff;height:100%;width:0%;transition:width .15s"></div>
-  </div>
-  <div id="video-upload-label" style="font-size:12px;color:#8b949e;margin-top:4px">Uploading…</div>
-</div>
 
 <h3>Photos</h3>
 {{if .Photos}}
@@ -2773,9 +2771,6 @@ updateAllClear();
 {{else}}
 <p class="muted" style="margin-bottom:8px">No photos yet.</p>
 {{end}}
-<form method="POST" action="/log/{{.ID}}/photos" enctype="multipart/form-data" class="upload-form" style="margin-bottom:32px">
-  <label class="btn btn-primary">Upload Photo<input type="file" name="photo" accept="image/*" style="display:none" onchange="this.closest('form').requestSubmit()"></label>
-</form>
 
 <p><a href="/log">&larr; Back to log</a> &nbsp; <a href="/log/{{.ID}}/edit">Edit session</a></p>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4"></script>
@@ -2804,16 +2799,20 @@ function toggleOriginal(btn, id) {
   video.play().catch(function(){});
 }
 document.querySelectorAll('video[data-mobile]').forEach(function(v){ attachVideo(v, v.dataset.mobile); });
-document.getElementById('video-upload-form').addEventListener('submit', function(e) {
-  e.preventDefault();
-  var form = this;
-  var bar = document.getElementById('video-upload-bar');
-  var label = document.getElementById('video-upload-label');
-  var progress = document.getElementById('video-upload-progress');
-  var btn = form.querySelector('button[type=submit]');
-  var xhr = new XMLHttpRequest();
+function handleMediaUpload(input, sessionId) {
+  var file = input.files[0];
+  if (!file) return;
+  var isVideo = file.type.startsWith('video/');
+  var action = isVideo ? '/log/' + sessionId + '/videos' : '/log/' + sessionId + '/photos';
+  var fieldName = isVideo ? 'video' : 'photo';
+  var fd = new FormData();
+  fd.append(fieldName, file);
+  var bar = document.getElementById('upload-bar');
+  var label = document.getElementById('upload-label');
+  var progress = document.getElementById('upload-progress');
   progress.style.display = 'block';
-  btn.disabled = true;
+  bar.style.width = '0%';
+  var xhr = new XMLHttpRequest();
   xhr.upload.onprogress = function(e) {
     if (e.lengthComputable) {
       var pct = Math.round(e.loaded / e.total * 100);
@@ -2828,13 +2827,13 @@ document.getElementById('video-upload-form').addEventListener('submit', function
       window.location.reload();
     } else {
       label.textContent = 'Upload failed.';
-      btn.disabled = false;
     }
   };
-  xhr.onerror = function() { label.textContent = 'Upload failed.'; btn.disabled = false; };
-  xhr.open('POST', form.action);
-  xhr.send(new FormData(form));
-});
+  xhr.onerror = function() { label.textContent = 'Upload failed.'; };
+  xhr.open('POST', action);
+  xhr.send(fd);
+  input.value = '';
+}
 function vnoteEdit(btn) {
   var wrap = btn.parentElement;
   var view = wrap.querySelector('.vnote-view');
