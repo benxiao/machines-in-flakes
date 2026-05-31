@@ -12,7 +12,8 @@ import (
 )
 
 type App struct {
-	db *pgxpool.Pool
+	db         *pgxpool.Pool
+	ffmpegPath string
 }
 
 func systemTimezone() string {
@@ -49,6 +50,8 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	})
 	mux.HandleFunc("GET /browse", a.handleBrowse)
 	mux.HandleFunc("GET /file", a.handleServeFile)
+	mux.HandleFunc("GET /hls/playlist", a.handleHLSPlaylist)
+	mux.HandleFunc("GET /hls/segment", a.handleHLSSegment)
 	mux.HandleFunc("GET /paths", a.handlePathsList)
 	mux.HandleFunc("POST /paths", a.handlePathAdd)
 	mux.HandleFunc("POST /paths/{id}/delete", a.handlePathDelete)
@@ -73,7 +76,10 @@ func main() {
 	}
 	defer pool.Close()
 
-	app := &App{db: pool}
+	app := &App{
+		db:         pool,
+		ffmpegPath: os.Getenv("FB_FFMPEG"),
+	}
 	if err := app.initSchema(ctx); err != nil {
 		log.Fatalf("init schema: %v", err)
 	}

@@ -345,16 +345,41 @@ const baseTmpl = `<!DOCTYPE html>
     </div>
     <div class="modal-body" id="modal-body">
       <img id="modal-img" src="" alt="" style="display:none">
-      <video id="modal-video" src="" controls style="display:none"></video>
+      <video id="modal-video" controls style="display:none;max-width:90vw;max-height:78vh"></video>
       <iframe id="modal-pdf" src="" style="display:none"></iframe>
       <pre id="modal-text" style="display:none"></pre>
     </div>
+    <div id="modal-video-controls" style="display:none;justify-content:center;gap:12px;padding:10px;background:#0d1117;border-top:1px solid #30363d;flex-shrink:0">
+      <button class="btn btn-edit btn-sm" onclick="seekVideo(-15)">&#9664;&#9664; 15s</button>
+      <button class="btn btn-edit btn-sm" onclick="seekVideo(15)">15s &#9654;&#9654;</button>
+    </div>
   </div>
 </div>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.4"></script>
 <script>
 var modal = document.getElementById('preview-modal');
 function browseDir(el) {
   window.location = '/browse?dir=' + encodeURIComponent(el.dataset.dir);
+}
+function attachVideo(videoEl, hlsUrl, directUrl) {
+  if (videoEl.hlsInstance) { videoEl.hlsInstance.destroy(); videoEl.hlsInstance = null; }
+  if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+    var hls = new Hls();
+    hls.on(Hls.Events.ERROR, function(event, data) {
+      if (data.fatal) { hls.destroy(); videoEl.src = directUrl; videoEl.load(); }
+    });
+    hls.loadSource(hlsUrl);
+    hls.attachMedia(videoEl);
+    videoEl.hlsInstance = hls;
+  } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+    videoEl.src = hlsUrl; videoEl.load();
+  } else {
+    videoEl.src = directUrl; videoEl.load();
+  }
+}
+function seekVideo(secs) {
+  var v = document.getElementById('modal-video');
+  v.currentTime = Math.max(0, v.currentTime + secs);
 }
 function openPreview(el) {
   var path = el.dataset.path;
@@ -366,14 +391,17 @@ function openPreview(el) {
   var video = document.getElementById('modal-video');
   var pdf   = document.getElementById('modal-pdf');
   var txt   = document.getElementById('modal-text');
+  var ctrl  = document.getElementById('modal-video-controls');
   img.style.display = video.style.display = pdf.style.display = txt.style.display = 'none';
-  img.src = ''; video.src = ''; pdf.src = '';
+  ctrl.style.display = 'none';
+  img.src = ''; pdf.src = '';
   if (type === 'photo') {
     img.src = fileUrl;
     img.style.display = 'block';
   } else if (type === 'video') {
-    video.src = fileUrl;
+    attachVideo(video, '/hls/playlist?path=' + encodeURIComponent(path), fileUrl);
     video.style.display = 'block';
+    ctrl.style.display = 'flex';
   } else if (type === 'pdf') {
     pdf.src = fileUrl;
     pdf.style.display = 'block';
@@ -387,7 +415,10 @@ function openPreview(el) {
 }
 function closePreview() {
   modal.classList.remove('open');
-  document.getElementById('modal-video').src = '';
+  var video = document.getElementById('modal-video');
+  if (video.hlsInstance) { video.hlsInstance.destroy(); video.hlsInstance = null; }
+  video.src = '';
+  document.getElementById('modal-video-controls').style.display = 'none';
 }
 document.addEventListener('keydown', function(e){ if(e.key==='Escape') closePreview(); });
 document.addEventListener('submit', function(e) {

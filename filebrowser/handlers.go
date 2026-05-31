@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -280,4 +283,104 @@ func (a *App) handlePathDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/paths", http.StatusFound)
+}
+
+const hlsSegmentSec = 6
+
+func (a *App) handleHLSPlaylist(w http.ResponseWriter, r *http.Request) {
+	if a.ffmpegPath == "" {
+		http.Error(w, "transcoding not configured", http.StatusServiceUnavailable)
+		return
+	}
+	rawPath := r.URL.Query().Get("path")
+	if rawPath == "" {
+		http.NotFound(w, r)
+		return
+	}
+	absPath := filepath.Clean(rawPath)
+	if !a.isAllowedPath(r, absPath) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	ffprobePath := filepath.Join(filepath.Dir(a.ffmpegPath), "ffprobe")
+	out, err := exec.CommandContext(r.Context(), ffprobePath,
+		"-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", absPath,
+	).Output()
+	if err != nil {
+		http.Error(w, "could not probe video", http.StatusInternalServerError)
+		return
+	}
+	duration, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
+	if err != nil || duration <= 0 {
+		http.Error(w, "invalid duration", http.StatusInternalServerError)
+		return
+	}
+	encodedPath := url.QueryEscape(absPath)
+	var b strings.Builder
+	b.WriteString("#EXTM3U\n#EXT-X-VERSION:3\n")
+	fmt.Fprintf(&b, "#EXT-X-TARGETDURATION:%d\n", hlsSegmentSec)
+	b.WriteString("#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n")
+	fullSegments := int(duration) / hlsSegmentSec
+	lastDur := duration - float64(fullSegments*hlsSegmentSec)
+	for i := range fullSegments {
+		if i > 0 {
+			b.WriteString("#EXT-X-DISCONTINUITY\n")
+		}
+		fmt.Fprintf(&b, "#EXTINF:%d.000,\n/hls/segment?path=%s&n=%d\n", hlsSegmentSec, encodedPath, i)
+	}
+	if lastDur > 0.05 {
+		if fullSegments > 0 {
+			b.WriteString("#EXT-X-DISCONTINUITY\n")
+		}
+		fmt.Fprintf(&b, "#EXTINF:%.3f,\n/hls/segment?path=%s&n=%d\n", lastDur, encodedPath, fullSegments)
+	}
+	b.WriteString("#EXT-X-ENDLIST\n")
+	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+	w.Write([]byte(b.String()))
+}
+
+func (a *App) handleHLSSegment(w http.ResponseWriter, r *http.Request) {
+	if a.ffmpegPath == "" {
+		http.Error(w, "transcoding not configured", http.StatusServiceUnavailable)
+		return
+	}
+	rawPath := r.URL.Query().Get("path")
+	nStr := r.URL.Query().Get("n")
+	if rawPath == "" || nStr == "" {
+		http.NotFound(w, r)
+		return
+	}
+	absPath := filepath.Clean(rawPath)
+	if !a.isAllowedPath(r, absPath) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	n, err := strconv.Atoi(nStr)
+	if err != nil || n < 0 {
+		http.NotFound(w, r)
+		return
+	}
+	startSec := n * hlsSegmentSec
+	cmd := exec.CommandContext(r.Context(), a.ffmpegPath,
+		"-y",
+		"-ss", strconv.Itoa(startSec),
+		"-i", absPath,
+		"-t", strconv.Itoa(hlsSegmentSec),
+		"-c:v", "libx264", "-crf", "23", "-preset", "fast",
+		"-profile:v", "main", "-level", "4.0",
+		"-pix_fmt", "yuv420p",
+		"-bf", "0",
+		"-vf", "scale='min(1280,iw)':-2",
+		"-b:v", "3000k", "-maxrate", "3000k", "-bufsize", "6000k",
+		"-c:a", "aac", "-b:a", "128k",
+		"-muxdelay", "0", "-muxpreload", "0",
+		"-f", "mpegts", "pipe:1",
+	)
+	var stderr bytes.Buffer
+	cmd.Stdout = w
+	cmd.Stderr = &stderr
+	w.Header().Set("Content-Type", "video/mp2t")
+	if err := cmd.Run(); err != nil {
+		log.Printf("transcode segment %s/%d: %v\n%s", absPath, n, err, stderr.String())
+	}
 }

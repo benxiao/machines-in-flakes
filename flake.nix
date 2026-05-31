@@ -533,7 +533,7 @@
               })
               (makeGoService {
                 pname = "filebrowser";
-                version = "0.1.0";
+                version = "0.2.0";
                 src = ./filebrowser;
                 # same pgx/v5 deps as fpv-manager and kanban
                 vendorHash = "sha256-Qs23BHgrlK0P5BREEzS5Y/2G7mL1pcSd1k3z8NUw/mM=";
@@ -542,7 +542,9 @@
                 listenPort = ":10094";
                 dbDsnEnvVar = "FB_DB_DSN";
                 dbName = "filebrowser";
-                extraEnv = { };
+                extraEnv = {
+                  FB_FFMPEG = "${unstable.ffmpeg-full}/bin/ffmpeg";
+                };
               })
               ({ lib, ... }: {
                 # run as rxiao so it can read user-owned files and directories
