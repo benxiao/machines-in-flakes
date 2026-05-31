@@ -1,0 +1,283 @@
+package main
+
+import (
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+)
+
+var photoExts = map[string]bool{
+	".jpg": true, ".jpeg": true, ".png": true, ".gif": true,
+	".webp": true, ".bmp": true, ".tiff": true, ".heic": true,
+}
+var videoExts = map[string]bool{
+	".mp4": true, ".mkv": true, ".avi": true, ".mov": true,
+	".wmv": true, ".webm": true, ".flv": true, ".m4v": true,
+}
+var textExts = map[string]bool{
+	".txt": true, ".md": true, ".json": true, ".yaml": true, ".yml": true,
+	".toml": true, ".xml": true, ".html": true, ".css": true, ".js": true,
+	".go": true, ".py": true, ".sh": true, ".csv": true, ".log": true,
+}
+
+func classifyExt(ext string) string {
+	ext = strings.ToLower(ext)
+	switch {
+	case photoExts[ext]:
+		return "photo"
+	case videoExts[ext]:
+		return "video"
+	case ext == ".pdf":
+		return "pdf"
+	case textExts[ext]:
+		return "text"
+	default:
+		return "other"
+	}
+}
+
+func httpErr(w http.ResponseWriter, err error, code int) {
+	log.Printf("http error: %v", err)
+	http.Error(w, http.StatusText(code), code)
+}
+
+func parseID(r *http.Request) (int64, bool) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	return id, err == nil && id > 0
+}
+
+func formatSize(n int64) string {
+	const (
+		kb = 1024
+		mb = 1024 * kb
+		gb = 1024 * mb
+	)
+	switch {
+	case n >= gb:
+		return fmt.Sprintf("%.1f GB", float64(n)/gb)
+	case n >= mb:
+		return fmt.Sprintf("%.1f MB", float64(n)/mb)
+	case n >= kb:
+		return fmt.Sprintf("%.1f KB", float64(n)/kb)
+	default:
+		return fmt.Sprintf("%d B", n)
+	}
+}
+
+// isAllowedPath checks that absPath is equal to or under one of the indexed roots.
+func (a *App) isAllowedPath(r *http.Request, absPath string) bool {
+	var count int
+	err := a.db.QueryRow(r.Context(), `
+		SELECT COUNT(*) FROM indexed_paths
+		WHERE $1 = path OR starts_with($1, path || '/')
+	`, absPath).Scan(&count)
+	return err == nil && count > 0
+}
+
+func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	dirParam := r.URL.Query().Get("dir")
+
+	if dirParam == "" {
+		rows, err := a.db.Query(ctx, `SELECT id, path FROM indexed_paths ORDER BY path`)
+		if err != nil {
+			httpErr(w, err, 500)
+			return
+		}
+		defer rows.Close()
+		var cards []RootCard
+		for rows.Next() {
+			var c RootCard
+			if err := rows.Scan(&c.ID, &c.Path); err != nil {
+				continue
+			}
+			cards = append(cards, c)
+		}
+		render(w, "browse_root", BrowseRootPage{ActiveTab: "browse", Cards: cards})
+		return
+	}
+
+	dirParam = filepath.Clean(dirParam)
+	if !a.isAllowedPath(r, dirParam) {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Find the indexed root this dir belongs to (for breadcrumb)
+	var rootPath string
+	a.db.QueryRow(ctx, `
+		SELECT path FROM indexed_paths
+		WHERE $1 = path OR starts_with($1, path || '/')
+		ORDER BY length(path) DESC
+		LIMIT 1
+	`, dirParam).Scan(&rootPath)
+
+	entries, err := os.ReadDir(dirParam)
+	if err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+
+	var subdirs []SubdirRow
+	var files []FileRow
+	for _, e := range entries {
+		if e.IsDir() {
+			subdirs = append(subdirs, SubdirRow{
+				AbsPath: filepath.Join(dirParam, e.Name()),
+				Name:    e.Name(),
+			})
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			log.Printf("stat %s/%s: %v", dirParam, e.Name(), err)
+			continue
+		}
+		ext := filepath.Ext(e.Name())
+		files = append(files, FileRow{
+			AbsPath:    filepath.Join(dirParam, e.Name()),
+			Filename:   e.Name(),
+			Extension:  strings.ToLower(ext),
+			FileType:   classifyExt(ext),
+			SizeBytes:  info.Size(),
+			Size:       formatSize(info.Size()),
+			ModifiedAt: info.ModTime().Format("2006-01-02 15:04"),
+		})
+	}
+	sort.Slice(subdirs, func(i, j int) bool { return subdirs[i].Name < subdirs[j].Name })
+	sort.Slice(files, func(i, j int) bool {
+		return strings.ToLower(files[i].Filename) < strings.ToLower(files[j].Filename)
+	})
+
+	render(w, "browse_dir", BrowseDirPage{
+		ActiveTab:   "browse",
+		Dir:         dirParam,
+		DirName:     filepath.Base(dirParam),
+		Breadcrumbs: buildBreadcrumb(dirParam, rootPath),
+		Subdirs:     subdirs,
+		Files:       files,
+	})
+}
+
+func buildBreadcrumb(dir, root string) []Breadcrumb {
+	crumbs := []Breadcrumb{{Name: filepath.Base(root), Path: root}}
+	if dir == root {
+		crumbs[0].Current = true
+		return crumbs
+	}
+	rel, _ := filepath.Rel(root, dir)
+	cur := root
+	parts := strings.Split(rel, string(filepath.Separator))
+	for i, part := range parts {
+		cur = filepath.Join(cur, part)
+		crumbs = append(crumbs, Breadcrumb{
+			Name:    part,
+			Path:    cur,
+			Current: i == len(parts)-1,
+		})
+	}
+	return crumbs
+}
+
+func (a *App) handleServeFile(w http.ResponseWriter, r *http.Request) {
+	rawPath := r.URL.Query().Get("path")
+	if rawPath == "" {
+		http.NotFound(w, r)
+		return
+	}
+	absPath := filepath.Clean(rawPath)
+	if !a.isAllowedPath(r, absPath) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	info, err := os.Stat(absPath)
+	if err != nil || info.IsDir() {
+		http.NotFound(w, r)
+		return
+	}
+	filename := filepath.Base(absPath)
+	fileType := classifyExt(filepath.Ext(filename))
+	switch fileType {
+	case "photo", "pdf", "video", "text":
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, filename))
+	default:
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	}
+	http.ServeFile(w, r, absPath)
+}
+
+func (a *App) handlePathsList(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.db.Query(r.Context(), `SELECT id, path FROM indexed_paths ORDER BY path`)
+	if err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	defer rows.Close()
+	var paths []PathRow
+	for rows.Next() {
+		var p PathRow
+		if err := rows.Scan(&p.ID, &p.Path); err != nil {
+			continue
+		}
+		paths = append(paths, p)
+	}
+	render(w, "paths", PathsPage{ActiveTab: "paths", Paths: paths})
+}
+
+func (a *App) handlePathAdd(w http.ResponseWriter, r *http.Request) {
+	r.ParseForm()
+	path := strings.TrimSpace(r.FormValue("path"))
+	if path == "" {
+		http.Redirect(w, r, "/paths", http.StatusFound)
+		return
+	}
+	path = filepath.Clean(path)
+	info, err := os.Stat(path)
+	if err != nil {
+		a.renderPathsWithError(w, r, fmt.Sprintf("%q: path not found", path))
+		return
+	}
+	if !info.IsDir() {
+		a.renderPathsWithError(w, r, fmt.Sprintf("%q is not a directory", path))
+		return
+	}
+	_, err = a.db.Exec(r.Context(), `INSERT INTO indexed_paths (path) VALUES ($1) ON CONFLICT DO NOTHING`, path)
+	if err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	http.Redirect(w, r, "/paths", http.StatusFound)
+}
+
+func (a *App) renderPathsWithError(w http.ResponseWriter, r *http.Request, errMsg string) {
+	rows, _ := a.db.Query(r.Context(), `SELECT id, path FROM indexed_paths ORDER BY path`)
+	var paths []PathRow
+	if rows != nil {
+		defer rows.Close()
+		for rows.Next() {
+			var p PathRow
+			rows.Scan(&p.ID, &p.Path)
+			paths = append(paths, p)
+		}
+	}
+	render(w, "paths", PathsPage{ActiveTab: "paths", Paths: paths, Error: errMsg})
+}
+
+func (a *App) handlePathDelete(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	_, err := a.db.Exec(r.Context(), `DELETE FROM indexed_paths WHERE id=$1`, id)
+	if err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	http.Redirect(w, r, "/paths", http.StatusFound)
+}
