@@ -1,13 +1,13 @@
 {
   description = "all my machines in flakes";
-  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-25.11";
+  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-26.05";
   inputs.nixpkgs-unstable.url = "github:nixos/nixpkgs/nixpkgs-unstable";
   inputs.nixpkgs-master.url = "github:nixos/nixpkgs/master";
 
   inputs.nixos-hardware.url = "github:NixOS/nixos-hardware/master";
   inputs.vscode-server.url = "github:msteen/nixos-vscode-server";
   inputs.home-manager = {
-    url = "github:nix-community/home-manager/release-25.11";
+    url = "github:nix-community/home-manager/release-26.05";
     inputs.nixpkgs.follows = "nixpkgs";
   };
   outputs = { self, nixpkgs, nixpkgs-unstable, nixpkgs-master, nixos-hardware, vscode-server, home-manager }:
@@ -201,6 +201,7 @@
               swapDevices = [{ device = swapDevice; }];
               boot.zfs.extraPools = extraPools;
               boot.zfs.forceImportAll = true;
+              boot.zfs.forceImportRoot = true;
             });
 
           # Factory for local Go web services backed by PostgreSQL.
@@ -273,9 +274,7 @@
                       hardware.ledger.enable = true;
 
                       boot.loader.systemd-boot.enable = true;
-                      boot.initrd.preLVMCommands = ''
-                        export LVM_SUPPRESS_FD_WARNINGS=1
-                      '';
+
                       boot.extraModprobeConfig = ''
                           options zfs zfs_arc_max=8884901888
                         '';
