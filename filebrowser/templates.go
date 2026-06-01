@@ -453,23 +453,25 @@ var modal = document.getElementById('preview-modal');
 function browseDir(el) {
   window.location = '/browse?dir=' + encodeURIComponent(el.dataset.dir);
 }
-function attachVideo(videoEl, hlsUrl, directUrl, seekTo) {
+// onReady(videoEl) is called once the player is ready for seeking:
+// for hls.js that's after MANIFEST_PARSED; for others after loadedmetadata.
+function attachVideo(videoEl, hlsUrl, directUrl, onReady) {
   if (videoEl.hlsInstance) { videoEl.hlsInstance.destroy(); videoEl.hlsInstance = null; }
   if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-    var cfg = (seekTo > 1) ? {startPosition: seekTo} : {};
-    var hls = new Hls(cfg);
+    var hls = new Hls();
     hls.on(Hls.Events.ERROR, function(event, data) {
       if (data.fatal) { hls.destroy(); videoEl.src = directUrl; videoEl.load(); }
     });
+    if (onReady) hls.on(Hls.Events.MANIFEST_PARSED, function() { onReady(videoEl); });
     hls.loadSource(hlsUrl);
     hls.attachMedia(videoEl);
     videoEl.hlsInstance = hls;
   } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
     videoEl.src = hlsUrl; videoEl.load();
-    if (seekTo > 1) videoEl.addEventListener('loadedmetadata', function() { videoEl.currentTime = seekTo; }, {once: true});
+    if (onReady) videoEl.addEventListener('loadedmetadata', function() { onReady(videoEl); }, {once: true});
   } else {
     videoEl.src = directUrl; videoEl.load();
-    if (seekTo > 1) videoEl.addEventListener('loadedmetadata', function() { videoEl.currentTime = seekTo; }, {once: true});
+    if (onReady) videoEl.addEventListener('loadedmetadata', function() { onReady(videoEl); }, {once: true});
   }
 }
 function seekActiveMedia(secs) {
@@ -904,17 +906,26 @@ function startPlaylistItem(idx, seekTo) {
   var media;
   if (item.FileType === 'video') {
     v.style.display = 'block'; media = v;
-    attachVideo(v, '/hls/playlist?path=' + encodeURIComponent(item.Path), fileUrl, seekTo);
+    attachVideo(v, '/hls/playlist?path=' + encodeURIComponent(item.Path), fileUrl, function(el) {
+      if (seekTo > 1) {
+        el.currentTime = seekTo;
+        el.addEventListener('seeked', function() { el.pause(); }, {once: true});
+      } else {
+        el.pause();
+      }
+    });
   } else {
     a.style.display = 'block'; media = a;
     a.src = fileUrl; a.load();
-    if (seekTo > 1) a.addEventListener('loadedmetadata', function() { a.currentTime = seekTo; }, {once: true});
+    a.addEventListener('loadedmetadata', function() {
+      if (seekTo > 1) {
+        a.currentTime = seekTo;
+        a.addEventListener('seeked', function() { a.pause(); }, {once: true});
+      } else {
+        a.pause();
+      }
+    }, {once: true});
   }
-  // Show a frozen frame at the correct position; don't auto-play on load.
-  media.addEventListener('canplay', function onCP() {
-    media.removeEventListener('canplay', onCP);
-    media.pause();
-  });
   media.addEventListener('ended', function() { savePlState(); startPlaylistItem(plCurrentIdx + 1, 0); }, {once: true});
   media.addEventListener('timeupdate', function onTU() {
     var cur = getPlMedia();
