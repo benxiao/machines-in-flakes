@@ -475,7 +475,7 @@ const baseTmpl = `<!DOCTYPE html>
       <span class="modal-close" onclick="closePreview()">&times;</span>
     </div>
     <div class="modal-body" id="modal-body">
-      <div id="modal-zoom-wrap" style="display:none;width:100%;height:100%;overflow:hidden;position:relative;cursor:grab;touch-action:none;min-height:200px">
+      <div id="modal-zoom-wrap" style="display:none;flex:1;align-self:stretch;min-height:0;overflow:hidden;position:relative;cursor:grab;touch-action:none">
         <img id="modal-img" src="" alt="" style="position:absolute;top:0;left:0;transform-origin:0 0;user-select:none;-webkit-user-select:none;pointer-events:none">
       </div>
       <video id="modal-video" controls style="display:none;max-width:90vw;max-height:78vh"></video>
@@ -588,9 +588,12 @@ function izZoomAt(cx, cy, factor) {
 function izInit(wrap, img) {
   iz.scale = 1; iz.tx = 0; iz.ty = 0; iz.dragging = false; iz.lastT = null;
   var doFit = function() {
-    iz.fitScale = Math.min(wrap.clientWidth / img.naturalWidth, wrap.clientHeight / img.naturalHeight);
-    iz.fitScale = Math.min(iz.fitScale, 1);
-    izFit();
+    // defer one frame so the wrap has been painted and clientWidth/Height are real
+    requestAnimationFrame(function() {
+      iz.fitScale = Math.min(wrap.clientWidth / img.naturalWidth, wrap.clientHeight / img.naturalHeight);
+      iz.fitScale = Math.min(iz.fitScale, 1);
+      izFit();
+    });
   };
   if (img.complete && img.naturalWidth) doFit();
   else img.addEventListener('load', doFit, {once:true});
@@ -667,13 +670,17 @@ function openPreview(el) {
   ctrl.style.display = hint.style.display = 'none';
   badge.textContent = '';
   img.src = ''; pdf.src = '';
-  document.getElementById('modal-body').style.overflow = '';
-  if (video.dataset.resumePath) { if (video.hlsInstance) { video.hlsInstance.destroy(); video.hlsInstance = null; } video.src = ''; video.dataset.resumePath = ''; }
+  var mb2 = document.getElementById('modal-body');
+  mb2.style.overflow = ''; mb2.style.alignItems = ''; mb2.style.flexDirection = '';
+  if (video.dataset.resumePath){ if (video.hlsInstance) { video.hlsInstance.destroy(); video.hlsInstance = null; } video.src = ''; video.dataset.resumePath = ''; }
   if (audio.dataset.resumePath) { audio.pause(); audio.src = ''; audio.dataset.resumePath = ''; }
   if (type === 'photo') {
-    document.getElementById('modal-body').style.overflow = 'hidden';
+    var mb = document.getElementById('modal-body');
+    mb.style.overflow = 'hidden';
+    mb.style.alignItems = 'stretch';
+    mb.style.flexDirection = 'column';
     img.src = fileUrl;
-    wrap.style.display = 'block';
+    wrap.style.display = 'flex';
     hint.style.display = 'block';
     izInit(wrap, img);
   } else if (type === 'video') {
