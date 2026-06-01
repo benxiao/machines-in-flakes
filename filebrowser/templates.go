@@ -255,13 +255,13 @@ tr:hover td { background: #161b22; }
 .grid-thumb { width:88px; height:66px; overflow:hidden; border-radius:4px; margin-bottom:6px; background:#0d1117; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
 .grid-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
 .grid-icon { width:88px; height:66px; display:flex; align-items:center; justify-content:center; margin-bottom:6px; flex-shrink:0; }
-.grid-name { font-size:11px; line-height:1.3; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; max-width:104px; width:100%; word-break:break-word; }
+.grid-name { font-size:12px; line-height:1.3; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; max-width:104px; width:100%; word-break:break-word; }
 .grid-plays { position:absolute; top:6px; right:6px; font-size:10px; background:rgba(0,0,0,0.6); color:#c9d1d9; border-radius:4px; padding:1px 4px; }
 .grid-chk { position:absolute; top:6px; left:6px; opacity:0; transition:opacity 0.1s; }
 .grid-card.grid-checked .grid-chk { opacity:1; }
 .grid-card.grid-checked { border-color:#58a6ff; background:#1c2128; }
 .pl-layout { display: flex; gap: 16px; align-items: flex-start; }
-.pl-sidebar { width: 32%; min-width: 200px; max-height: 80vh; overflow-y: auto; border: 1px solid #30363d; border-radius: 6px; }
+.pl-sidebar { width: 32%; max-height: 80vh; overflow-y: auto; border: 1px solid #30363d; border-radius: 6px; }
 .pl-player { flex: 1; min-width: 0; }
 .pl-player video, .pl-player audio { width: 100%; max-height: 70vh; display: block; background: #000; }
 .pl-item { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #21262d; cursor: pointer; }
@@ -414,6 +414,27 @@ input:focus, select:focus { outline: none; border-color: #58a6ff; }
   .section-header { flex-wrap: wrap; gap: 8px; }
   .btn { min-height: 44px; padding: 10px 16px; }
   .btn-sm { min-height: 36px; padding: 6px 12px; font-size: 13px; }
+  /* Hide non-essential table columns on small screens */
+  table th:nth-child(4), table td:nth-child(4),
+  table th:nth-child(5), table td:nth-child(5),
+  table th:nth-child(6), table td:nth-child(6) { display: none; }
+  /* Modal: let media fill the screen width */
+  .modal-box { max-width: 100vw; max-height: 100vh; border-radius: 0; }
+  .modal-body video { max-width: 100vw; max-height: 52vh; }
+  .modal-body audio { width: 90vw; }
+  .modal-body iframe { width: 98vw; height: 72vh; }
+  .modal-body pre { max-width: 96vw; max-height: 60vh; font-size: 12px; }
+  .modal-body img { max-width: 96vw; max-height: 70vh; }
+  /* Grid: slightly smaller cards, 2+ per row always comfortable */
+  .view-grid { grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 4px; }
+  .grid-thumb, .grid-icon { width: 74px; height: 56px; }
+  /* Bulk-select bar: tighter on narrow screens */
+  #sel-bar { padding: 8px 12px; gap: 6px; }
+  #sel-pl { padding: 8px; font-size: 14px; }
+  /* View toggle: compact */
+  .btn-view { padding: 4px 8px; font-size: 12px; }
+  /* Prevent iOS auto-zoom on form inputs */
+  input[type=text], input[type=password], select { font-size: 16px; }
 }
 `
 
@@ -439,8 +460,8 @@ const baseTmpl = `<!DOCTYPE html>
   <a href="/playlists"  {{if eq .ActiveTab "playlists"}}class="active"{{end}}>Playlists</a>
   <a href="/users"      {{if eq .ActiveTab "users"}}class="active"{{end}}>Users</a>
   <a href="/paths"      {{if eq .ActiveTab "paths"}}class="active"{{end}}>Paths</a>
-  <form action="/logout" method="post" style="margin:0;margin-left:auto;display:flex;align-items:center;padding:0 4px">
-    <button type="submit" style="background:transparent;border:1px solid #30363d;color:#8b949e;padding:4px 12px;border-radius:6px;font-size:13px;cursor:pointer;line-height:1.4">Logout</button>
+  <form action="/logout" method="post" style="margin:0;margin-left:auto;display:flex;align-items:center;padding:0 4px;flex-shrink:0">
+    <button type="submit" style="background:transparent;border:1px solid #30363d;color:#8b949e;padding:4px 12px;border-radius:6px;font-size:13px;cursor:pointer;line-height:1.4;white-space:nowrap">Logout</button>
   </form>
 </nav>
 <main>
