@@ -241,6 +241,22 @@ tr:hover td { background: #161b22; }
 .badge-audio   { background: rgba(188,96,255,0.15); color: #bc60ff; border: 1px solid rgba(188,96,255,0.4); }
 .badge-dir     { background: rgba(88,166,255,0.12); color: #58a6ff; border: 1px solid rgba(88,166,255,0.3); }
 .sel-spacer { height: 60px; }
+.view-toggle { display:flex; gap:4px; }
+.btn-view { background:transparent; border:1px solid #30363d; color:#8b949e; border-radius:6px; padding:4px 10px; font-size:13px; cursor:pointer; line-height:1.4; }
+.btn-view:hover { background:#21262d; color:#c9d1d9; }
+.btn-view.active { background:#21262d; border-color:#58a6ff; color:#c9d1d9; }
+.view-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(110px,1fr)); gap:6px; }
+.grid-card { display:flex; flex-direction:column; align-items:center; padding:10px 6px 8px; border:1px solid transparent; border-radius:6px; cursor:pointer; text-align:center; background:transparent; color:#c9d1d9; text-decoration:none; position:relative; user-select:none; }
+.grid-card:hover { background:#161b22; border-color:#30363d; }
+.grid-card:hover .grid-chk { opacity:1; }
+.grid-thumb { width:88px; height:66px; overflow:hidden; border-radius:4px; margin-bottom:6px; background:#0d1117; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.grid-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+.grid-icon { width:88px; height:66px; display:flex; align-items:center; justify-content:center; margin-bottom:6px; flex-shrink:0; }
+.grid-name { font-size:11px; line-height:1.3; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; max-width:104px; width:100%; word-break:break-word; }
+.grid-plays { position:absolute; top:6px; right:6px; font-size:10px; background:rgba(0,0,0,0.6); color:#c9d1d9; border-radius:4px; padding:1px 4px; }
+.grid-chk { position:absolute; top:6px; left:6px; opacity:0; transition:opacity 0.1s; }
+.grid-card.grid-checked .grid-chk { opacity:1; }
+.grid-card.grid-checked { border-color:#58a6ff; background:#1c2128; }
 .pl-layout { display: flex; gap: 16px; align-items: flex-start; }
 .pl-sidebar { width: 32%; min-width: 200px; max-height: 80vh; overflow-y: auto; border: 1px solid #30363d; border-radius: 6px; }
 .pl-player { flex: 1; min-width: 0; }
@@ -615,16 +631,23 @@ const browseRootTmpl = `{{define "content"}}
 
 const browseDirTmpl = `{{define "content"}}
 <script>window.PLAYLISTS = {{.PlaylistsJSON}};</script>
-<div class="breadcrumb">
-  {{range $i, $b := .Breadcrumbs}}
-  {{if $i}}<span class="sep">/</span>{{end}}
-  {{if $b.Current}}<span class="current">{{$b.Name}}</span>
-  {{else}}<a href="{{browseURL $b.Path}}">{{$b.Name}}</a>{{end}}
-  {{end}}
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+  <div class="breadcrumb" style="margin-bottom:0">
+    {{range $i, $b := .Breadcrumbs}}
+    {{if $i}}<span class="sep">/</span>{{end}}
+    {{if $b.Current}}<span class="current">{{$b.Name}}</span>
+    {{else}}<a href="{{browseURL $b.Path}}">{{$b.Name}}</a>{{end}}
+    {{end}}
+  </div>
+  <div class="view-toggle">
+    <button id="btn-list" class="btn-view" onclick="setView('list')" title="List view">&#9776; List</button>
+    <button id="btn-grid" class="btn-view" onclick="setView('grid')" title="Grid view">&#8859; Grid</button>
+  </div>
 </div>
 {{if and (not .Subdirs) (not .Files)}}
 <p class="muted">This directory is empty.</p>
 {{else}}
+<div id="view-list">
 <div class="table-wrap">
 <table>
 <thead><tr>
@@ -672,6 +695,54 @@ const browseDirTmpl = `{{define "content"}}
 </tbody>
 </table>
 </div>
+</div>
+<div id="view-grid" class="view-grid" style="display:none">
+{{range .Subdirs}}
+<div class="grid-card" data-dir="{{.AbsPath}}" onclick="browseDir(this)">
+  <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>
+  <div class="grid-name">{{.Name}}</div>
+</div>
+{{end}}
+{{range .Files}}
+{{if eq .FileType "photo"}}
+<div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="photo" onclick="gridClick(event,this)">
+  {{if gt .WatchCount 0}}<span class="grid-plays">{{.WatchCount}}×</span>{{end}}
+  <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
+  <div class="grid-thumb"><img src="{{fileURL .AbsPath}}" loading="lazy" alt="{{.Filename}}"></div>
+  <div class="grid-name">{{.Filename}}</div>
+</div>
+{{else if eq .FileType "video"}}
+<div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="video" onclick="gridClick(event,this)">
+  {{if gt .WatchCount 0}}<span class="grid-plays">{{.WatchCount}}×</span>{{end}}
+  <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
+  <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="17" y1="7" x2="22" y2="7"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="2" y1="17" x2="7" y2="17"/></svg></div>
+  <div class="grid-name">{{.Filename}}</div>
+</div>
+{{else if eq .FileType "audio"}}
+<div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="audio" onclick="gridClick(event,this)">
+  {{if gt .WatchCount 0}}<span class="grid-plays">{{.WatchCount}}×</span>{{end}}
+  <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
+  <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#bc60ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>
+  <div class="grid-name">{{.Filename}}</div>
+</div>
+{{else if eq .FileType "pdf"}}
+<div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="pdf" onclick="gridClick(event,this)">
+  <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#f85149" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>
+  <div class="grid-name">{{.Filename}}</div>
+</div>
+{{else if eq .FileType "text"}}
+<div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="text" onclick="gridClick(event,this)">
+  <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#d29922" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg></div>
+  <div class="grid-name">{{.Filename}}</div>
+</div>
+{{else}}
+<a class="grid-card" href="{{fileURL .AbsPath}}">
+  <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#8b949e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
+  <div class="grid-name">{{.Filename}}</div>
+</a>
+{{end}}
+{{end}}
+</div>
 {{end}}
 <div class="sel-spacer"></div>
 <div id="sel-bar" style="display:none;position:fixed;bottom:0;left:0;right:0;background:#161b22;border-top:1px solid #30363d;padding:12px 24px;z-index:200;align-items:center;gap:12px;flex-wrap:wrap">
@@ -708,6 +779,27 @@ function clearSelection() {
   if (selAll) { selAll.checked = false; selAll.indeterminate = false; }
   updateSelBar();
 }
+function setView(v) {
+  document.getElementById('view-list').style.display = v === 'list' ? '' : 'none';
+  document.getElementById('view-grid').style.display = v === 'grid' ? 'grid' : 'none';
+  document.getElementById('btn-list').classList.toggle('active', v === 'list');
+  document.getElementById('btn-grid').classList.toggle('active', v === 'grid');
+  try { localStorage.setItem('fb_view', v); } catch(e) {}
+}
+function gridClick(event, el) {
+  var chk = el.querySelector('.grid-chk');
+  if (chk && chk.checked) { chk.checked = false; el.classList.remove('grid-checked'); updateSelBar(); return; }
+  openPreview(el);
+}
+function gridCheck(event, chk) {
+  var card = chk.closest('.grid-card');
+  if (card) card.classList.toggle('grid-checked', chk.checked);
+  updateSelBar();
+}
+(function() {
+  var v = 'list'; try { v = localStorage.getItem('fb_view') || 'list'; } catch(e) {}
+  setView(v);
+})();
 function addSelectedToPlaylist() {
   var plId = document.getElementById('sel-pl').value;
   if (!plId) { document.getElementById('sel-pl').focus(); return; }
