@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"html/template"
 	"log"
 	"net/http"
@@ -21,12 +22,45 @@ type RootCard struct {
 }
 
 type BrowseDirPage struct {
-	ActiveTab   string
-	Dir         string
-	DirName     string
-	Breadcrumbs []Breadcrumb
-	Subdirs     []SubdirRow
-	Files       []FileRow
+	ActiveTab     string
+	Dir           string
+	DirName       string
+	Breadcrumbs   []Breadcrumb
+	Subdirs       []SubdirRow
+	Files         []FileRow
+	PlaylistsJSON template.JS
+}
+
+type PlaylistRow struct {
+	ID        int64
+	Name      string
+	ItemCount int
+}
+
+type PlaylistItem struct {
+	ID       int64
+	Path     string
+	Name     string
+	FileType string
+}
+
+type PlaylistState struct {
+	CurrentIndex int
+	PositionSec  float64
+}
+
+type PlaylistsPage struct {
+	ActiveTab string
+	Playlists []PlaylistRow
+	Error     string
+}
+
+type PlaylistDetailPage struct {
+	ActiveTab string
+	ID        int64
+	Name      string
+	Items     []PlaylistItem
+	State     PlaylistState
 }
 
 type Breadcrumb struct {
@@ -75,6 +109,10 @@ func initTemplates() {
 		"fileURL": func(path string) template.URL {
 			return template.URL("/file?path=" + url.QueryEscape(path))
 		},
+		"toJSON": func(v any) template.JS {
+			b, _ := json.Marshal(v)
+			return template.JS(b)
+		},
 	}
 	base := template.Must(template.New("base").Funcs(funcMap).Parse(baseTmpl))
 	add := func(name, content string) {
@@ -88,6 +126,8 @@ func initTemplates() {
 	add("browse_root", browseRootTmpl)
 	add("browse_dir", browseDirTmpl)
 	add("paths", pathsTmpl)
+	add("playlists", playlistsTmpl)
+	add("playlist_detail", playlistDetailTmpl)
 }
 
 func render(w http.ResponseWriter, name string, data any) {
@@ -176,7 +216,24 @@ tr:hover td { background: #161b22; }
 .badge-pdf     { background: rgba(248,81,73,0.15);  color: #f85149; border: 1px solid rgba(248,81,73,0.4); }
 .badge-text    { background: rgba(210,153,34,0.15); color: #d29922; border: 1px solid rgba(210,153,34,0.4); }
 .badge-other   { background: rgba(139,148,158,0.15);color: #8b949e; border: 1px solid rgba(139,148,158,0.4); }
+.badge-audio   { background: rgba(188,96,255,0.15); color: #bc60ff; border: 1px solid rgba(188,96,255,0.4); }
 .badge-dir     { background: rgba(88,166,255,0.12); color: #58a6ff; border: 1px solid rgba(88,166,255,0.3); }
+.pl-layout { display: flex; gap: 16px; align-items: flex-start; }
+.pl-sidebar { width: 32%; min-width: 200px; max-height: 80vh; overflow-y: auto; border: 1px solid #30363d; border-radius: 6px; }
+.pl-player { flex: 1; min-width: 0; }
+.pl-player video, .pl-player audio { width: 100%; max-height: 70vh; display: block; background: #000; }
+.pl-item { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #21262d; cursor: pointer; }
+.pl-item:last-child { border-bottom: none; }
+.pl-item:hover { background: #161b22; }
+.pl-item.active { background: rgba(88,166,255,0.1); border-left: 3px solid #58a6ff; padding-left: 9px; }
+.pl-item-name { flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-controls { display: flex; gap: 10px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+.pl-title { font-size: 14px; color: #c9d1d9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 8px; min-height: 1.5em; }
+.pl-badge { color: #8b949e; font-size: 12px; }
+@media (max-width: 768px) {
+  .pl-layout { flex-direction: column; }
+  .pl-sidebar { width: 100%; max-height: 40vh; }
+}
 .btn {
   display: inline-block;
   padding: 6px 14px;
@@ -323,6 +380,7 @@ const baseTmpl = `<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>File Browser</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <style>` + css + `</style>
 </head>
 <body>
@@ -332,8 +390,9 @@ const baseTmpl = `<!DOCTYPE html>
   </span>
 </header>
 <nav>
-  <a href="/browse" {{if eq .ActiveTab "browse"}}class="active"{{end}}>Browse</a>
-  <a href="/paths"  {{if eq .ActiveTab "paths"}}class="active"{{end}}>Paths</a>
+  <a href="/browse"     {{if eq .ActiveTab "browse"}}class="active"{{end}}>Browse</a>
+  <a href="/playlists"  {{if eq .ActiveTab "playlists"}}class="active"{{end}}>Playlists</a>
+  <a href="/paths"      {{if eq .ActiveTab "paths"}}class="active"{{end}}>Paths</a>
 </nav>
 <main>
 {{template "content" .}}
@@ -347,12 +406,13 @@ const baseTmpl = `<!DOCTYPE html>
     <div class="modal-body" id="modal-body">
       <img id="modal-img" src="" alt="" style="display:none">
       <video id="modal-video" controls style="display:none;max-width:90vw;max-height:78vh"></video>
+      <audio id="modal-audio" controls style="display:none;width:90vw;max-width:600px"></audio>
       <iframe id="modal-pdf" src="" style="display:none"></iframe>
       <pre id="modal-text" style="display:none"></pre>
     </div>
-    <div id="modal-video-controls" style="display:none;justify-content:center;align-items:center;gap:12px;padding:10px;background:#0d1117;border-top:1px solid #30363d;flex-shrink:0">
-      <button class="btn btn-edit btn-sm" onclick="seekVideo(-15)">&#9664;&#9664; 15s</button>
-      <button class="btn btn-edit btn-sm" onclick="seekVideo(15)">15s &#9654;&#9654;</button>
+    <div id="modal-media-controls" style="display:none;justify-content:center;align-items:center;gap:12px;padding:10px;background:#0d1117;border-top:1px solid #30363d;flex-shrink:0">
+      <button id="modal-seek-back" class="btn btn-edit btn-sm" onclick="seekActiveMedia(-15)">&#9664;&#9664; 15s</button>
+      <button id="modal-seek-fwd" class="btn btn-edit btn-sm" onclick="seekActiveMedia(15)">15s &#9654;&#9654;</button>
       <span id="modal-resume-badge" style="color:#8b949e;font-size:12px;margin-left:8px"></span>
     </div>
   </div>
@@ -379,9 +439,11 @@ function attachVideo(videoEl, hlsUrl, directUrl) {
     videoEl.src = directUrl; videoEl.load();
   }
 }
-function seekVideo(secs) {
+function seekActiveMedia(secs) {
   var v = document.getElementById('modal-video');
-  v.currentTime = Math.max(0, v.currentTime + secs);
+  if (v && v.style.display !== 'none') { v.currentTime = Math.max(0, v.currentTime + secs); return; }
+  var a = document.getElementById('modal-audio');
+  if (a && a.style.display !== 'none') { a.currentTime = Math.max(0, a.currentTime + secs); }
 }
 function fmtTime(s) {
   s = Math.floor(s); var m = Math.floor(s / 60); s = s % 60;
@@ -394,6 +456,36 @@ function saveVideoPos(path, time, completed) {
     body: JSON.stringify({path: path, position: time, completed: !!completed})
   });
 }
+function attachMediaResume(mediaEl, path, badge, countWord) {
+  mediaEl.dataset.resumePath = path;
+  mediaEl._lastSave = 0;
+  fetch('/video/position?path=' + encodeURIComponent(path))
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.position > 1) {
+        var doSeek = function() { mediaEl.currentTime = d.position; };
+        if (mediaEl.readyState >= 1) doSeek();
+        else mediaEl.addEventListener('loadedmetadata', doSeek, {once: true});
+        badge.textContent = 'Resumed from ' + fmtTime(d.position);
+        if (d.watch_count > 0) badge.textContent += ' · ' + countWord + ' ' + d.watch_count + '×';
+      } else if (d.watch_count > 0) {
+        badge.textContent = countWord.charAt(0).toUpperCase() + countWord.slice(1) + ' ' + d.watch_count + '×';
+      }
+    });
+  mediaEl.addEventListener('timeupdate', function onTU() {
+    if (mediaEl.dataset.resumePath !== path) { mediaEl.removeEventListener('timeupdate', onTU); return; }
+    var now = Date.now();
+    if (now - (mediaEl._lastSave || 0) > 5000 && mediaEl.currentTime > 1) {
+      mediaEl._lastSave = now;
+      saveVideoPos(path, mediaEl.currentTime, false);
+    }
+  });
+  mediaEl.addEventListener('ended', function() {
+    saveVideoPos(path, 0, true);
+    mediaEl.currentTime = 0;
+    badge.textContent = '';
+  }, {once: true});
+}
 function openPreview(el) {
   var path = el.dataset.path;
   var name = el.dataset.name;
@@ -402,53 +494,35 @@ function openPreview(el) {
   document.getElementById('modal-title').textContent = name;
   var img   = document.getElementById('modal-img');
   var video = document.getElementById('modal-video');
+  var audio = document.getElementById('modal-audio');
   var pdf   = document.getElementById('modal-pdf');
   var txt   = document.getElementById('modal-text');
-  var ctrl  = document.getElementById('modal-video-controls');
+  var ctrl  = document.getElementById('modal-media-controls');
   var badge = document.getElementById('modal-resume-badge');
-  img.style.display = video.style.display = pdf.style.display = txt.style.display = 'none';
+  var seekBack = document.getElementById('modal-seek-back');
+  var seekFwd  = document.getElementById('modal-seek-fwd');
+  img.style.display = video.style.display = audio.style.display = pdf.style.display = txt.style.display = 'none';
   ctrl.style.display = 'none';
   badge.textContent = '';
   img.src = ''; pdf.src = '';
+  if (video.dataset.resumePath) { if (video.hlsInstance) { video.hlsInstance.destroy(); video.hlsInstance = null; } video.src = ''; video.dataset.resumePath = ''; }
+  if (audio.dataset.resumePath) { audio.pause(); audio.src = ''; audio.dataset.resumePath = ''; }
   if (type === 'photo') {
     img.src = fileUrl;
     img.style.display = 'block';
   } else if (type === 'video') {
-    video.dataset.resumePath = path;
-    video._lastSave = 0;
+    seekBack.style.display = ''; seekFwd.style.display = '';
     attachVideo(video, '/hls/playlist?path=' + encodeURIComponent(path), fileUrl);
     video.style.display = 'block';
     ctrl.style.display = 'flex';
-    // Fetch saved position and watch count.
-    fetch('/video/position?path=' + encodeURIComponent(path))
-      .then(function(r) { return r.json(); })
-      .then(function(d) {
-        if (d.position > 1) {
-          var doSeek = function() { video.currentTime = d.position; };
-          if (video.readyState >= 1) { doSeek(); } else {
-            video.addEventListener('loadedmetadata', doSeek, {once: true});
-          }
-          badge.textContent = 'Resumed from ' + fmtTime(d.position);
-          if (d.watch_count > 0) badge.textContent += ' · watched ' + d.watch_count + '×';
-        } else if (d.watch_count > 0) {
-          badge.textContent = 'Watched ' + d.watch_count + '×';
-        }
-      });
-    // Save position periodically.
-    video.addEventListener('timeupdate', function onTU() {
-      if (video.dataset.resumePath !== path) { video.removeEventListener('timeupdate', onTU); return; }
-      var now = Date.now();
-      if (now - (video._lastSave || 0) > 5000 && video.currentTime > 1) {
-        video._lastSave = now;
-        saveVideoPos(path, video.currentTime, false);
-      }
-    });
-    // On completion: increment counter, reset to beginning.
-    video.addEventListener('ended', function() {
-      saveVideoPos(path, 0, true);
-      video.currentTime = 0;
-      badge.textContent = '';
-    }, {once: true});
+    attachMediaResume(video, path, badge, 'watched');
+  } else if (type === 'audio') {
+    seekBack.style.display = 'none'; seekFwd.style.display = 'none';
+    audio.src = fileUrl;
+    audio.load();
+    audio.style.display = 'block';
+    ctrl.style.display = 'flex';
+    attachMediaResume(audio, path, badge, 'listened');
   } else if (type === 'pdf') {
     pdf.src = fileUrl;
     pdf.style.display = 'block';
@@ -463,20 +537,64 @@ function openPreview(el) {
 function closePreview() {
   modal.classList.remove('open');
   var video = document.getElementById('modal-video');
-  if (video.dataset.resumePath && video.currentTime > 1) {
-    saveVideoPos(video.dataset.resumePath, video.currentTime, false);
-  }
-  video.dataset.resumePath = '';
+  var audio = document.getElementById('modal-audio');
+  if (video.dataset.resumePath && video.currentTime > 1) saveVideoPos(video.dataset.resumePath, video.currentTime, false);
+  if (audio.dataset.resumePath && audio.currentTime > 1) saveVideoPos(audio.dataset.resumePath, audio.currentTime, false);
+  video.dataset.resumePath = ''; audio.dataset.resumePath = '';
   document.getElementById('modal-resume-badge').textContent = '';
   if (video.hlsInstance) { video.hlsInstance.destroy(); video.hlsInstance = null; }
   video.src = '';
-  document.getElementById('modal-video-controls').style.display = 'none';
+  audio.pause(); audio.src = ''; audio.style.display = 'none';
+  document.getElementById('modal-media-controls').style.display = 'none';
 }
+// Add-to-playlist dropdown
+var _atpPath = null, _atpEl = null;
+function toggleAddToPlaylist(event, path) {
+  event.stopPropagation();
+  if (_atpEl) { _atpEl.remove(); _atpEl = null; }
+  if (_atpPath === path) { _atpPath = null; return; }
+  _atpPath = path;
+  var btn = event.currentTarget;
+  var dd = document.createElement('div');
+  dd.style.cssText = 'position:fixed;background:#161b22;border:1px solid #30363d;border-radius:6px;padding:4px 0;z-index:300;min-width:160px;box-shadow:0 4px 12px rgba(0,0,0,0.6)';
+  var pls = window.PLAYLISTS || [];
+  if (pls.length === 0) {
+    dd.innerHTML = '<div style="padding:8px 12px;color:#8b949e;font-size:13px">No playlists yet</div>';
+  } else {
+    pls.forEach(function(pl) {
+      var item = document.createElement('button');
+      item.className = 'btn btn-edit';
+      item.style.cssText = 'display:block;width:100%;text-align:left;border:none;border-radius:0;padding:7px 14px;font-size:13px';
+      item.textContent = pl.name || pl.Name;
+      var plId = pl.id || pl.ID;
+      item.onclick = function(e) {
+        e.stopPropagation();
+        fetch('/playlists/' + plId + '/items', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({path: path})
+        }).then(function() {
+          btn.textContent = '✓'; btn.style.color = '#3fb950';
+          setTimeout(function() { btn.textContent = '+'; btn.style.color = ''; }, 1500);
+          closeATP();
+        });
+      };
+      dd.appendChild(item);
+    });
+  }
+  var rect = btn.getBoundingClientRect();
+  dd.style.top = (rect.bottom + 2) + 'px';
+  dd.style.left = rect.left + 'px';
+  document.body.appendChild(dd);
+  _atpEl = dd;
+}
+function closeATP() { if (_atpEl) { _atpEl.remove(); _atpEl = null; } _atpPath = null; }
+document.addEventListener('click', function(e) { if (_atpEl && !_atpEl.contains(e.target)) closeATP(); });
 document.addEventListener('keydown', function(e){ if(e.key==='Escape') closePreview(); });
 document.addEventListener('submit', function(e) {
   var action = e.target.getAttribute('action') || '';
   if (action.indexOf('/delete') !== -1) {
-    if (!confirm('Remove this path? The file index will be deleted.')) e.preventDefault();
+    if (!confirm('Remove this? This cannot be undone.')) e.preventDefault();
   }
 });
 </script>
@@ -504,6 +622,7 @@ const browseRootTmpl = `{{define "content"}}
 {{end}}`
 
 const browseDirTmpl = `{{define "content"}}
+<script>window.PLAYLISTS = {{.PlaylistsJSON}};</script>
 <div class="breadcrumb">
   {{range $i, $b := .Breadcrumbs}}
   {{if $i}}<span class="sep">/</span>{{end}}
@@ -521,7 +640,8 @@ const browseDirTmpl = `{{define "content"}}
   <th>Type</th>
   <th>Size</th>
   <th>Modified</th>
-  <th>Watched</th>
+  <th>Plays</th>
+  <th></th>
 </tr></thead>
 <tbody>
 {{range .Subdirs}}
@@ -533,6 +653,7 @@ const browseDirTmpl = `{{define "content"}}
   <td class="muted">—</td>
   <td class="muted">—</td>
   <td class="muted">—</td>
+  <td></td>
 </tr>
 {{end}}
 {{range .Files}}
@@ -543,6 +664,7 @@ const browseDirTmpl = `{{define "content"}}
   <td class="muted">{{.Size}}</td>
   <td class="muted">{{.ModifiedAt}}</td>
   <td class="muted">—</td>
+  <td></td>
 </tr>
 {{else}}
 <tr class="file-row" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="{{.FileType}}" onclick="openPreview(this)">
@@ -550,7 +672,8 @@ const browseDirTmpl = `{{define "content"}}
   <td><span class="badge badge-{{.FileType}}">{{upper .FileType}}</span></td>
   <td class="muted">{{.Size}}</td>
   <td class="muted">{{.ModifiedAt}}</td>
-  <td>{{if and (eq .FileType "video") (gt .WatchCount 0)}}<span class="badge badge-video">{{.WatchCount}}×</span>{{else}}<span class="muted">—</span>{{end}}</td>
+  <td>{{if and (or (eq .FileType "video") (eq .FileType "audio")) (gt .WatchCount 0)}}<span class="badge badge-{{.FileType}}">{{.WatchCount}}×</span>{{else}}<span class="muted">—</span>{{end}}</td>
+  <td class="actions-cell">{{if or (eq .FileType "video") (eq .FileType "audio")}}<button class="btn btn-edit btn-sm" onclick="event.stopPropagation();toggleAddToPlaylist(event,'{{.AbsPath}}')">+</button>{{end}}</td>
 </tr>
 {{end}}
 {{end}}
@@ -606,4 +729,184 @@ const pathsTmpl = `{{define "content"}}
     </form>
   </div>
 </div>
+{{end}}`
+
+const playlistsTmpl = `{{define "content"}}
+<div class="page-header">
+  <div class="page-header-left">
+    <h2>Playlists</h2>
+    <div class="summary">Manage video and audio playlists</div>
+  </div>
+</div>
+{{if .Error}}<div class="error-box">{{.Error}}</div>{{end}}
+{{if .Playlists}}
+<div class="section">
+<div class="table-wrap">
+<table>
+<thead><tr>
+  <th>Name</th>
+  <th>Items</th>
+  <th></th>
+</tr></thead>
+<tbody>
+{{range .Playlists}}
+<tr>
+  <td><a href="/playlists/{{.ID}}">{{.Name}}</a></td>
+  <td class="muted">{{.ItemCount}}</td>
+  <td class="actions-cell">
+    <form class="inline" action="/playlists/{{.ID}}/delete" method="post">
+      <button class="btn btn-danger btn-sm" type="submit">Delete</button>
+    </form>
+  </td>
+</tr>
+{{end}}
+</tbody>
+</table>
+</div>
+</div>
+{{end}}
+<div class="section">
+  <div class="section-header"><h3>New Playlist</h3></div>
+  <div class="form-page">
+    <form action="/playlists" method="post">
+      <div class="form-group">
+        <label>Name</label>
+        <input type="text" name="name" placeholder="My playlist" autofocus>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" type="submit">Create</button>
+      </div>
+    </form>
+  </div>
+</div>
+{{end}}`
+
+const playlistDetailTmpl = `{{define "content"}}
+<script>
+var PLAYLIST_ID = {{.ID}};
+var PLAYLIST_ITEMS = {{toJSON .Items}};
+var PLAYLIST_STATE = {{toJSON .State}};
+</script>
+<div class="page-header">
+  <div class="page-header-left">
+    <h2>{{.Name}}</h2>
+  </div>
+  <div>
+    <a href="/playlists" class="btn btn-edit btn-sm">&#8592; Playlists</a>
+  </div>
+</div>
+{{if not .Items}}
+<p class="muted">No items yet. Browse to a video or audio file and click <strong>+</strong> to add it.</p>
+{{else}}
+<div class="pl-layout">
+  <div class="pl-sidebar">
+    <div id="pl-item-list">
+    {{range $i, $it := .Items}}
+    <div class="pl-item{{if eq $i $.State.CurrentIndex}} active{{end}}" onclick="startPlaylistItem({{$i}}, 0)">
+      <span class="pl-item-name">{{$it.Name}}</span>
+      <span class="badge badge-{{$it.FileType}}" style="flex-shrink:0">{{upper $it.FileType}}</span>
+      <button class="btn btn-danger btn-sm" style="flex-shrink:0;padding:2px 7px" onclick="event.stopPropagation();removePlaylistItem({{$it.ID}})">&#x2715;</button>
+    </div>
+    {{end}}
+    </div>
+  </div>
+  <div class="pl-player">
+    <div class="pl-title" id="pl-title"></div>
+    <video id="pl-video" controls style="display:none"></video>
+    <audio id="pl-audio" controls style="display:none"></audio>
+    <div class="pl-controls">
+      <button class="btn btn-edit btn-sm" onclick="plPrev()">&#9664; Prev</button>
+      <button class="btn btn-edit btn-sm" onclick="plNext()">Next &#9654;</button>
+      <span class="pl-badge" id="pl-badge"></span>
+    </div>
+  </div>
+</div>
+{{end}}
+<script>
+var plLastSave = 0;
+var plCurrentIdx = (PLAYLIST_STATE && PLAYLIST_STATE.CurrentIndex) || 0;
+function getPlMedia() {
+  var v = document.getElementById('pl-video'), a = document.getElementById('pl-audio');
+  if (v && v.style.display !== 'none') return v;
+  if (a && a.style.display !== 'none') return a;
+  return null;
+}
+function savePlState() {
+  var media = getPlMedia();
+  fetch('/playlists/' + PLAYLIST_ID + '/state', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({current_index: plCurrentIdx, position_sec: media ? media.currentTime : 0})
+  });
+}
+function startPlaylistItem(idx, seekTo) {
+  if (!PLAYLIST_ITEMS || idx < 0 || idx >= PLAYLIST_ITEMS.length) return;
+  plCurrentIdx = idx;
+  document.querySelectorAll('.pl-item').forEach(function(r, i) { r.classList.toggle('active', i === idx); });
+  var rows = document.querySelectorAll('.pl-item');
+  if (rows[idx]) rows[idx].scrollIntoView({block: 'nearest'});
+  var item = PLAYLIST_ITEMS[idx];
+  var fileUrl = '/file?path=' + encodeURIComponent(item.Path);
+  var v = document.getElementById('pl-video'), a = document.getElementById('pl-audio');
+  document.getElementById('pl-title').textContent = item.Name;
+  document.getElementById('pl-badge').textContent = seekTo > 1 ? 'Resumed from ' + fmtTime(seekTo) : '';
+  if (v.hlsInstance) { v.hlsInstance.destroy(); v.hlsInstance = null; }
+  v.pause(); v.src = ''; v.style.display = 'none';
+  a.pause(); a.src = ''; a.style.display = 'none';
+  var media;
+  if (item.FileType === 'video') {
+    v.style.display = 'block'; media = v;
+    attachVideo(v, '/hls/playlist?path=' + encodeURIComponent(item.Path), fileUrl);
+  } else {
+    a.style.display = 'block'; media = a;
+    a.src = fileUrl; a.load();
+  }
+  if (seekTo > 1) media.addEventListener('loadedmetadata', function() { media.currentTime = seekTo; }, {once: true});
+  media.addEventListener('ended', function() { savePlState(); startPlaylistItem(plCurrentIdx + 1, 0); }, {once: true});
+  media.addEventListener('timeupdate', function onTU() {
+    var cur = getPlMedia();
+    if (!cur || cur !== media) { media.removeEventListener('timeupdate', onTU); return; }
+    var now = Date.now();
+    if (now - plLastSave > 5000 && cur.currentTime > 1) { plLastSave = now; savePlState(); }
+  });
+}
+function plPrev() { savePlState(); startPlaylistItem(plCurrentIdx - 1, 0); }
+function plNext() { savePlState(); startPlaylistItem(plCurrentIdx + 1, 0); }
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function removePlaylistItem(itemId) {
+  fetch('/playlists/' + PLAYLIST_ID + '/items/' + itemId + '/delete', {method: 'POST'})
+    .then(function(r) {
+      if (!r.ok) return;
+      var removedIdx = PLAYLIST_ITEMS.findIndex(function(it) { return it.ID === itemId; });
+      if (removedIdx === -1) return;
+      PLAYLIST_ITEMS.splice(removedIdx, 1);
+      renderPlSidebar();
+      if (PLAYLIST_ITEMS.length === 0) {
+        document.getElementById('pl-title').textContent = '';
+        var v = document.getElementById('pl-video'), a = document.getElementById('pl-audio');
+        if (v.hlsInstance) { v.hlsInstance.destroy(); v.hlsInstance = null; }
+        v.pause(); v.src = ''; v.style.display = 'none';
+        a.pause(); a.src = ''; a.style.display = 'none';
+      } else if (removedIdx < plCurrentIdx) {
+        plCurrentIdx--;
+      } else if (removedIdx === plCurrentIdx) {
+        startPlaylistItem(Math.min(plCurrentIdx, PLAYLIST_ITEMS.length - 1), 0);
+      }
+    });
+}
+function renderPlSidebar() {
+  document.getElementById('pl-item-list').innerHTML = PLAYLIST_ITEMS.map(function(item, i) {
+    return '<div class="pl-item' + (i === plCurrentIdx ? ' active' : '') + '" onclick="startPlaylistItem(' + i + ',0)">' +
+      '<span class="pl-item-name">' + escHtml(item.Name) + '</span>' +
+      '<span class="badge badge-' + item.FileType + '" style="flex-shrink:0">' + item.FileType.toUpperCase() + '</span>' +
+      '<button class="btn btn-danger btn-sm" style="flex-shrink:0;padding:2px 7px" onclick="event.stopPropagation();removePlaylistItem(' + item.ID + ')">&#x2715;</button>' +
+      '</div>';
+  }).join('');
+}
+window.addEventListener('beforeunload', savePlState);
+if (PLAYLIST_ITEMS && PLAYLIST_ITEMS.length > 0) {
+  startPlaylistItem(Math.min((PLAYLIST_STATE && PLAYLIST_STATE.CurrentIndex) || 0, PLAYLIST_ITEMS.length - 1),
+                   (PLAYLIST_STATE && PLAYLIST_STATE.PositionSec) || 0);
+}
+</script>
 {{end}}`

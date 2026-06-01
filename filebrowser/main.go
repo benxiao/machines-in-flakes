@@ -39,6 +39,23 @@ CREATE TABLE IF NOT EXISTS video_positions (
 	watch_count  BIGINT NOT NULL DEFAULT 0,
 	updated_at   TIMESTAMPTZ DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS playlists (
+	id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+	name       TEXT NOT NULL,
+	created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS playlist_items (
+	id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+	playlist_id BIGINT NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+	path        TEXT NOT NULL,
+	UNIQUE (playlist_id, path)
+);
+CREATE TABLE IF NOT EXISTS playlist_state (
+	playlist_id   BIGINT PRIMARY KEY REFERENCES playlists(id) ON DELETE CASCADE,
+	current_index INT NOT NULL DEFAULT 0,
+	position_sec  DOUBLE PRECISION NOT NULL DEFAULT 0,
+	updated_at    TIMESTAMPTZ DEFAULT now()
+);
 `
 
 func (a *App) initSchema(ctx context.Context) error {
@@ -47,6 +64,11 @@ func (a *App) initSchema(ctx context.Context) error {
 }
 
 func (a *App) registerRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /favicon.svg", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/svg+xml")
+		w.Header().Set("Cache-Control", "max-age=86400")
+		w.Write([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`))
+	})
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)
@@ -63,6 +85,14 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /paths", a.handlePathsList)
 	mux.HandleFunc("POST /paths", a.handlePathAdd)
 	mux.HandleFunc("POST /paths/{id}/delete", a.handlePathDelete)
+	mux.HandleFunc("GET /playlists", a.handlePlaylistList)
+	mux.HandleFunc("POST /playlists", a.handlePlaylistCreate)
+	mux.HandleFunc("GET /playlists/{id}", a.handlePlaylistDetail)
+	mux.HandleFunc("POST /playlists/{id}/delete", a.handlePlaylistDelete)
+	mux.HandleFunc("POST /playlists/{id}/items", a.handlePlaylistItemAdd)
+	mux.HandleFunc("POST /playlists/{id}/items/{item_id}/delete", a.handlePlaylistItemDelete)
+	mux.HandleFunc("GET /playlists/{id}/state", a.handleGetPlaylistState)
+	mux.HandleFunc("POST /playlists/{id}/state", a.handleSavePlaylistState)
 }
 
 func main() {

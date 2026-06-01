@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"net/url"
@@ -23,6 +24,10 @@ var videoExts = map[string]bool{
 	".mp4": true, ".mkv": true, ".avi": true, ".mov": true,
 	".wmv": true, ".webm": true, ".flv": true, ".m4v": true,
 }
+var audioExts = map[string]bool{
+	".mp3": true, ".flac": true, ".ogg": true, ".wav": true,
+	".aac": true, ".m4a": true, ".opus": true, ".wma": true,
+}
 var textExts = map[string]bool{
 	".txt": true, ".md": true, ".json": true, ".yaml": true, ".yml": true,
 	".toml": true, ".xml": true, ".html": true, ".css": true, ".js": true,
@@ -36,6 +41,8 @@ func classifyExt(ext string) string {
 		return "photo"
 	case videoExts[ext]:
 		return "video"
+	case audioExts[ext]:
+		return "audio"
 	case ext == ".pdf":
 		return "pdf"
 	case textExts[ext]:
@@ -158,15 +165,15 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		return strings.ToLower(files[i].Filename) < strings.ToLower(files[j].Filename)
 	})
 
-	// Batch-fetch watch counts for video files.
-	var videoPaths []string
+	// Batch-fetch watch counts for video and audio files.
+	var mediaPaths []string
 	for _, f := range files {
-		if f.FileType == "video" {
-			videoPaths = append(videoPaths, f.AbsPath)
+		if f.FileType == "video" || f.FileType == "audio" {
+			mediaPaths = append(mediaPaths, f.AbsPath)
 		}
 	}
-	if len(videoPaths) > 0 {
-		wcRows, err := a.db.Query(ctx, `SELECT path, watch_count FROM video_positions WHERE path = ANY($1)`, videoPaths)
+	if len(mediaPaths) > 0 {
+		wcRows, err := a.db.Query(ctx, `SELECT path, watch_count FROM video_positions WHERE path = ANY($1)`, mediaPaths)
 		if err == nil {
 			wc := make(map[string]int64)
 			for wcRows.Next() {
@@ -178,20 +185,35 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 			}
 			wcRows.Close()
 			for i := range files {
-				if files[i].FileType == "video" {
+				if files[i].FileType == "video" || files[i].FileType == "audio" {
 					files[i].WatchCount = wc[files[i].AbsPath]
 				}
 			}
 		}
 	}
 
+	// Fetch playlists for "add to playlist" dropdown.
+	plRows, _ := a.db.Query(ctx, `SELECT id, name FROM playlists ORDER BY name`)
+	var pls []PlaylistRow
+	if plRows != nil {
+		for plRows.Next() {
+			var pl PlaylistRow
+			if plRows.Scan(&pl.ID, &pl.Name) == nil {
+				pls = append(pls, pl)
+			}
+		}
+		plRows.Close()
+	}
+	plJSON, _ := json.Marshal(pls)
+
 	render(w, "browse_dir", BrowseDirPage{
-		ActiveTab:   "browse",
-		Dir:         dirParam,
-		DirName:     filepath.Base(dirParam),
-		Breadcrumbs: buildBreadcrumb(dirParam, rootPath),
-		Subdirs:     subdirs,
-		Files:       files,
+		ActiveTab:    "browse",
+		Dir:          dirParam,
+		DirName:      filepath.Base(dirParam),
+		Breadcrumbs:  buildBreadcrumb(dirParam, rootPath),
+		Subdirs:      subdirs,
+		Files:        files,
+		PlaylistsJSON: template.JS(plJSON),
 	})
 }
 
@@ -311,6 +333,184 @@ func (a *App) handlePathDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/paths", http.StatusFound)
+}
+
+// ---- Playlist handlers ----
+
+type playlistStateResp struct {
+	CurrentIndex int     `json:"current_index"`
+	PositionSec  float64 `json:"position_sec"`
+}
+
+type playlistStateReq struct {
+	CurrentIndex int     `json:"current_index"`
+	PositionSec  float64 `json:"position_sec"`
+}
+
+type playlistItemAddReq struct {
+	Path string `json:"path"`
+}
+
+func (a *App) handlePlaylistList(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.db.Query(r.Context(), `
+		SELECT p.id, p.name, COUNT(pi.id) AS item_count
+		FROM playlists p
+		LEFT JOIN playlist_items pi ON pi.playlist_id = p.id
+		GROUP BY p.id, p.name
+		ORDER BY p.name
+	`)
+	if err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	defer rows.Close()
+	var pls []PlaylistRow
+	for rows.Next() {
+		var pl PlaylistRow
+		if rows.Scan(&pl.ID, &pl.Name, &pl.ItemCount) == nil {
+			pls = append(pls, pl)
+		}
+	}
+	render(w, "playlists", PlaylistsPage{ActiveTab: "playlists", Playlists: pls})
+}
+
+func (a *App) handlePlaylistCreate(w http.ResponseWriter, r *http.Request) {
+	r.ParseForm()
+	name := strings.TrimSpace(r.FormValue("name"))
+	if name == "" {
+		http.Redirect(w, r, "/playlists", http.StatusFound)
+		return
+	}
+	var id int64
+	err := a.db.QueryRow(r.Context(), `INSERT INTO playlists (name) VALUES ($1) RETURNING id`, name).Scan(&id)
+	if err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	http.Redirect(w, r, fmt.Sprintf("/playlists/%d", id), http.StatusFound)
+}
+
+func (a *App) handlePlaylistDetail(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	var name string
+	if err := a.db.QueryRow(r.Context(), `SELECT name FROM playlists WHERE id = $1`, id).Scan(&name); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	itemRows, err := a.db.Query(r.Context(), `SELECT id, path FROM playlist_items WHERE playlist_id = $1 ORDER BY id`, id)
+	if err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	defer itemRows.Close()
+	var items []PlaylistItem
+	for itemRows.Next() {
+		var it PlaylistItem
+		if itemRows.Scan(&it.ID, &it.Path) == nil {
+			it.Name = filepath.Base(it.Path)
+			it.FileType = classifyExt(filepath.Ext(it.Path))
+			items = append(items, it)
+		}
+	}
+	var state PlaylistState
+	a.db.QueryRow(r.Context(), `SELECT current_index, position_sec FROM playlist_state WHERE playlist_id = $1`, id).Scan(&state.CurrentIndex, &state.PositionSec)
+	render(w, "playlist_detail", PlaylistDetailPage{ActiveTab: "playlists", ID: id, Name: name, Items: items, State: state})
+}
+
+func (a *App) handlePlaylistDelete(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if _, err := a.db.Exec(r.Context(), `DELETE FROM playlists WHERE id = $1`, id); err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	http.Redirect(w, r, "/playlists", http.StatusFound)
+}
+
+func (a *App) handlePlaylistItemAdd(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	var req playlistItemAddReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	absPath := filepath.Clean(req.Path)
+	if !a.isAllowedPath(r, absPath) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if _, err := a.db.Exec(r.Context(), `INSERT INTO playlist_items (playlist_id, path) VALUES ($1, $2) ON CONFLICT DO NOTHING`, id, absPath); err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handlePlaylistItemDelete(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	itemID, err := strconv.ParseInt(r.PathValue("item_id"), 10, 64)
+	if err != nil || itemID <= 0 {
+		http.NotFound(w, r)
+		return
+	}
+	if _, err := a.db.Exec(r.Context(), `DELETE FROM playlist_items WHERE id = $1 AND playlist_id = $2`, itemID, id); err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleGetPlaylistState(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	var resp playlistStateResp
+	a.db.QueryRow(r.Context(), `SELECT current_index, position_sec FROM playlist_state WHERE playlist_id = $1`, id).Scan(&resp.CurrentIndex, &resp.PositionSec)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+func (a *App) handleSavePlaylistState(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	var req playlistStateReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	_, err := a.db.Exec(r.Context(), `
+		INSERT INTO playlist_state (playlist_id, current_index, position_sec, updated_at)
+		VALUES ($1, $2, $3, now())
+		ON CONFLICT (playlist_id) DO UPDATE
+		  SET current_index = EXCLUDED.current_index,
+		      position_sec  = EXCLUDED.position_sec,
+		      updated_at    = now()
+	`, id, req.CurrentIndex, req.PositionSec)
+	if err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 const hlsSegmentSec = 6
