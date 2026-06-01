@@ -1087,7 +1087,7 @@ var PLAYLIST_STATE = {{toJSON .State}};
     </div>
     <div id="pl-item-list">
     {{range $i, $it := .Items}}
-    <div class="pl-item{{if eq $i $.State.CurrentIndex}} active{{end}}" onclick="startPlaylistItem({{$i}}, 0)">
+    <div class="pl-item{{if eq $i $.State.CurrentIndex}} active{{end}}" onclick="startPlaylistItem({{$i}}, 0, true)">
       <span class="pl-item-name">{{$it.Name}}</span>
       <span class="badge badge-{{$it.FileType}}" style="flex-shrink:0">{{upper $it.FileType}}</span>
       <button class="btn btn-danger btn-sm" style="flex-shrink:0;padding:2px 7px" onclick="event.stopPropagation();removePlaylistItem({{$it.ID}})">&#x2715;</button>
@@ -1124,7 +1124,8 @@ function savePlState() {
     body: JSON.stringify({current_index: plCurrentIdx, position_sec: media ? media.currentTime : 0})
   });
 }
-function startPlaylistItem(idx, seekTo) {
+function plPlay(el) { var p = el.play(); if (p && p.catch) p.catch(function(){}); }
+function startPlaylistItem(idx, seekTo, autoplay) {
   if (!PLAYLIST_ITEMS || idx < 0 || idx >= PLAYLIST_ITEMS.length) return;
   plCurrentIdx = idx;
   document.querySelectorAll('.pl-item').forEach(function(r, i) { r.classList.toggle('active', i === idx); });
@@ -1139,38 +1140,46 @@ function startPlaylistItem(idx, seekTo) {
   v.pause(); v.src = ''; v.style.display = 'none';
   a.pause(); a.src = ''; a.style.display = 'none';
   var media;
+  var startPlayback = function(el) {
+    if (seekTo > 1) {
+      el.currentTime = seekTo;
+      el.addEventListener('seeked', function() { if (autoplay) plPlay(el); else el.pause(); }, {once: true});
+    } else if (autoplay) {
+      plPlay(el);
+    } else {
+      el.pause();
+    }
+  };
   if (item.FileType === 'video') {
     v.style.display = 'block'; media = v;
-    attachVideo(v, '/hls/playlist?path=' + encodeURIComponent(item.Path), fileUrl, function(el) {
-      if (seekTo > 1) {
-        el.currentTime = seekTo;
-        el.addEventListener('seeked', function() { el.pause(); }, {once: true});
-      } else {
-        el.pause();
-      }
-    });
+    attachVideo(v, '/hls/playlist?path=' + encodeURIComponent(item.Path), fileUrl, startPlayback);
   } else {
     a.style.display = 'block'; media = a;
     a.src = fileUrl; a.load();
-    a.addEventListener('loadedmetadata', function() {
-      if (seekTo > 1) {
-        a.currentTime = seekTo;
-        a.addEventListener('seeked', function() { a.pause(); }, {once: true});
-      } else {
-        a.pause();
-      }
-    }, {once: true});
+    a.addEventListener('loadedmetadata', function() { startPlayback(a); }, {once: true});
   }
-  media.addEventListener('ended', function() { savePlState(); startPlaylistItem(plCurrentIdx + 1, 0); }, {once: true});
+  // Advance to the next item when this one finishes. Guard so the native
+  // 'ended' event and the near-end safety net below can't double-fire.
+  var advanced = false;
+  var plAdvance = function() {
+    if (advanced) return;
+    advanced = true;
+    savePlState();
+    startPlaylistItem(plCurrentIdx + 1, 0, true);
+  };
+  media.addEventListener('ended', plAdvance, {once: true});
   media.addEventListener('timeupdate', function onTU() {
     var cur = getPlMedia();
     if (!cur || cur !== media) { media.removeEventListener('timeupdate', onTU); return; }
     var now = Date.now();
     if (now - plLastSave > 5000 && cur.currentTime > 1) { plLastSave = now; savePlState(); }
+    // HLS VOD sometimes doesn't fire 'ended' if declared duration slightly
+    // exceeds the actual media; advance when we reach the very end.
+    if (media.duration && isFinite(media.duration) && media.currentTime >= media.duration - 0.3) plAdvance();
   });
 }
-function plPrev() { savePlState(); startPlaylistItem(plCurrentIdx - 1, 0); }
-function plNext() { savePlState(); startPlaylistItem(plCurrentIdx + 1, 0); }
+function plPrev() { savePlState(); startPlaylistItem(plCurrentIdx - 1, 0, true); }
+function plNext() { savePlState(); startPlaylistItem(plCurrentIdx + 1, 0, true); }
 function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function removePlaylistItem(itemId) {
   fetch('/playlists/' + PLAYLIST_ID + '/items/' + itemId + '/delete', {method: 'POST'})
@@ -1189,13 +1198,13 @@ function removePlaylistItem(itemId) {
       } else if (removedIdx < plCurrentIdx) {
         plCurrentIdx--;
       } else if (removedIdx === plCurrentIdx) {
-        startPlaylistItem(Math.min(plCurrentIdx, PLAYLIST_ITEMS.length - 1), 0);
+        startPlaylistItem(Math.min(plCurrentIdx, PLAYLIST_ITEMS.length - 1), 0, true);
       }
     });
 }
 function renderPlSidebar() {
   document.getElementById('pl-item-list').innerHTML = PLAYLIST_ITEMS.map(function(item, i) {
-    return '<div class="pl-item' + (i === plCurrentIdx ? ' active' : '') + '" onclick="startPlaylistItem(' + i + ',0)">' +
+    return '<div class="pl-item' + (i === plCurrentIdx ? ' active' : '') + '" onclick="startPlaylistItem(' + i + ',0,true)">' +
       '<span class="pl-item-name">' + escHtml(item.Name) + '</span>' +
       '<span class="badge badge-' + item.FileType + '" style="flex-shrink:0">' + item.FileType.toUpperCase() + '</span>' +
       '<button class="btn btn-danger btn-sm" style="flex-shrink:0;padding:2px 7px" onclick="event.stopPropagation();removePlaylistItem(' + item.ID + ')">&#x2715;</button>' +

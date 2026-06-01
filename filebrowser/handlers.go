@@ -619,6 +619,10 @@ func (a *App) handlePlaylistDetail(w http.ResponseWriter, r *http.Request) {
 			items = append(items, it)
 		}
 	}
+	// Order items by filename (case-insensitive), so playback follows name order.
+	sort.Slice(items, func(i, j int) bool {
+		return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name)
+	})
 	var state PlaylistState
 	a.db.QueryRow(r.Context(), `SELECT current_index, position_sec FROM playlist_state WHERE playlist_id = $1`, id).Scan(&state.CurrentIndex, &state.PositionSec)
 	render(w, "playlist_detail", PlaylistDetailPage{ActiveTab: "playlists", ID: id, Name: name, Items: items, State: state})
