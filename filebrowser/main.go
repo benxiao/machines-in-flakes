@@ -33,6 +33,12 @@ CREATE TABLE IF NOT EXISTS indexed_paths (
 	id   BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
 	path TEXT NOT NULL UNIQUE
 );
+CREATE TABLE IF NOT EXISTS video_positions (
+	path         TEXT PRIMARY KEY,
+	position_sec DOUBLE PRECISION NOT NULL DEFAULT 0,
+	watch_count  BIGINT NOT NULL DEFAULT 0,
+	updated_at   TIMESTAMPTZ DEFAULT now()
+);
 `
 
 func (a *App) initSchema(ctx context.Context) error {
@@ -52,6 +58,8 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /file", a.handleServeFile)
 	mux.HandleFunc("GET /hls/playlist", a.handleHLSPlaylist)
 	mux.HandleFunc("GET /hls/segment", a.handleHLSSegment)
+	mux.HandleFunc("GET /video/position", a.handleGetVideoPosition)
+	mux.HandleFunc("POST /video/position", a.handleSaveVideoPosition)
 	mux.HandleFunc("GET /paths", a.handlePathsList)
 	mux.HandleFunc("POST /paths", a.handlePathAdd)
 	mux.HandleFunc("POST /paths/{id}/delete", a.handlePathDelete)

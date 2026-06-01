@@ -533,7 +533,7 @@
               })
               (makeGoService {
                 pname = "filebrowser";
-                version = "0.2.0";
+                version = "0.3.0";
                 src = ./filebrowser;
                 # same pgx/v5 deps as fpv-manager and kanban
                 vendorHash = "sha256-Qs23BHgrlK0P5BREEzS5Y/2G7mL1pcSd1k3z8NUw/mM=";

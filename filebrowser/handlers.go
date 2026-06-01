@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -156,6 +157,33 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 	sort.Slice(files, func(i, j int) bool {
 		return strings.ToLower(files[i].Filename) < strings.ToLower(files[j].Filename)
 	})
+
+	// Batch-fetch watch counts for video files.
+	var videoPaths []string
+	for _, f := range files {
+		if f.FileType == "video" {
+			videoPaths = append(videoPaths, f.AbsPath)
+		}
+	}
+	if len(videoPaths) > 0 {
+		wcRows, err := a.db.Query(ctx, `SELECT path, watch_count FROM video_positions WHERE path = ANY($1)`, videoPaths)
+		if err == nil {
+			wc := make(map[string]int64)
+			for wcRows.Next() {
+				var p string
+				var c int64
+				if wcRows.Scan(&p, &c) == nil {
+					wc[p] = c
+				}
+			}
+			wcRows.Close()
+			for i := range files {
+				if files[i].FileType == "video" {
+					files[i].WatchCount = wc[files[i].AbsPath]
+				}
+			}
+		}
+	}
 
 	render(w, "browse_dir", BrowseDirPage{
 		ActiveTab:   "browse",
@@ -337,6 +365,76 @@ func (a *App) handleHLSPlaylist(w http.ResponseWriter, r *http.Request) {
 	b.WriteString("#EXT-X-ENDLIST\n")
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	w.Write([]byte(b.String()))
+}
+
+type videoPositionResp struct {
+	Position   float64 `json:"position"`
+	WatchCount int64   `json:"watch_count"`
+}
+
+type videoPositionReq struct {
+	Path      string  `json:"path"`
+	Position  float64 `json:"position"`
+	Completed bool    `json:"completed"`
+}
+
+func (a *App) handleGetVideoPosition(w http.ResponseWriter, r *http.Request) {
+	rawPath := r.URL.Query().Get("path")
+	if rawPath == "" {
+		http.NotFound(w, r)
+		return
+	}
+	absPath := filepath.Clean(rawPath)
+	if !a.isAllowedPath(r, absPath) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	var resp videoPositionResp
+	err := a.db.QueryRow(r.Context(),
+		`SELECT position_sec, watch_count FROM video_positions WHERE path = $1`, absPath,
+	).Scan(&resp.Position, &resp.WatchCount)
+	if err != nil {
+		resp = videoPositionResp{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+func (a *App) handleSaveVideoPosition(w http.ResponseWriter, r *http.Request) {
+	var req videoPositionReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	absPath := filepath.Clean(req.Path)
+	if !a.isAllowedPath(r, absPath) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	var err error
+	if req.Completed {
+		_, err = a.db.Exec(r.Context(), `
+			INSERT INTO video_positions (path, position_sec, watch_count, updated_at)
+			VALUES ($1, 0, 1, now())
+			ON CONFLICT (path) DO UPDATE
+			  SET position_sec = 0,
+			      watch_count  = video_positions.watch_count + 1,
+			      updated_at   = now()
+		`, absPath)
+	} else {
+		_, err = a.db.Exec(r.Context(), `
+			INSERT INTO video_positions (path, position_sec, updated_at)
+			VALUES ($1, $2, now())
+			ON CONFLICT (path) DO UPDATE
+			  SET position_sec = EXCLUDED.position_sec,
+			      updated_at   = now()
+		`, absPath, req.Position)
+	}
+	if err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *App) handleHLSSegment(w http.ResponseWriter, r *http.Request) {

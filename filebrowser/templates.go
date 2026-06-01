@@ -48,6 +48,7 @@ type FileRow struct {
 	SizeBytes  int64
 	Size       string
 	ModifiedAt string
+	WatchCount int64
 }
 
 type PathsPage struct {
@@ -349,9 +350,10 @@ const baseTmpl = `<!DOCTYPE html>
       <iframe id="modal-pdf" src="" style="display:none"></iframe>
       <pre id="modal-text" style="display:none"></pre>
     </div>
-    <div id="modal-video-controls" style="display:none;justify-content:center;gap:12px;padding:10px;background:#0d1117;border-top:1px solid #30363d;flex-shrink:0">
+    <div id="modal-video-controls" style="display:none;justify-content:center;align-items:center;gap:12px;padding:10px;background:#0d1117;border-top:1px solid #30363d;flex-shrink:0">
       <button class="btn btn-edit btn-sm" onclick="seekVideo(-15)">&#9664;&#9664; 15s</button>
       <button class="btn btn-edit btn-sm" onclick="seekVideo(15)">15s &#9654;&#9654;</button>
+      <span id="modal-resume-badge" style="color:#8b949e;font-size:12px;margin-left:8px"></span>
     </div>
   </div>
 </div>
@@ -381,6 +383,17 @@ function seekVideo(secs) {
   var v = document.getElementById('modal-video');
   v.currentTime = Math.max(0, v.currentTime + secs);
 }
+function fmtTime(s) {
+  s = Math.floor(s); var m = Math.floor(s / 60); s = s % 60;
+  return m + ':' + (s < 10 ? '0' : '') + s;
+}
+function saveVideoPos(path, time, completed) {
+  fetch('/video/position', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({path: path, position: time, completed: !!completed})
+  });
+}
 function openPreview(el) {
   var path = el.dataset.path;
   var name = el.dataset.name;
@@ -392,16 +405,50 @@ function openPreview(el) {
   var pdf   = document.getElementById('modal-pdf');
   var txt   = document.getElementById('modal-text');
   var ctrl  = document.getElementById('modal-video-controls');
+  var badge = document.getElementById('modal-resume-badge');
   img.style.display = video.style.display = pdf.style.display = txt.style.display = 'none';
   ctrl.style.display = 'none';
+  badge.textContent = '';
   img.src = ''; pdf.src = '';
   if (type === 'photo') {
     img.src = fileUrl;
     img.style.display = 'block';
   } else if (type === 'video') {
+    video.dataset.resumePath = path;
+    video._lastSave = 0;
     attachVideo(video, '/hls/playlist?path=' + encodeURIComponent(path), fileUrl);
     video.style.display = 'block';
     ctrl.style.display = 'flex';
+    // Fetch saved position and watch count.
+    fetch('/video/position?path=' + encodeURIComponent(path))
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.position > 1) {
+          var doSeek = function() { video.currentTime = d.position; };
+          if (video.readyState >= 1) { doSeek(); } else {
+            video.addEventListener('loadedmetadata', doSeek, {once: true});
+          }
+          badge.textContent = 'Resumed from ' + fmtTime(d.position);
+          if (d.watch_count > 0) badge.textContent += ' · watched ' + d.watch_count + '×';
+        } else if (d.watch_count > 0) {
+          badge.textContent = 'Watched ' + d.watch_count + '×';
+        }
+      });
+    // Save position periodically.
+    video.addEventListener('timeupdate', function onTU() {
+      if (video.dataset.resumePath !== path) { video.removeEventListener('timeupdate', onTU); return; }
+      var now = Date.now();
+      if (now - (video._lastSave || 0) > 5000 && video.currentTime > 1) {
+        video._lastSave = now;
+        saveVideoPos(path, video.currentTime, false);
+      }
+    });
+    // On completion: increment counter, reset to beginning.
+    video.addEventListener('ended', function() {
+      saveVideoPos(path, 0, true);
+      video.currentTime = 0;
+      badge.textContent = '';
+    }, {once: true});
   } else if (type === 'pdf') {
     pdf.src = fileUrl;
     pdf.style.display = 'block';
@@ -416,6 +463,11 @@ function openPreview(el) {
 function closePreview() {
   modal.classList.remove('open');
   var video = document.getElementById('modal-video');
+  if (video.dataset.resumePath && video.currentTime > 1) {
+    saveVideoPos(video.dataset.resumePath, video.currentTime, false);
+  }
+  video.dataset.resumePath = '';
+  document.getElementById('modal-resume-badge').textContent = '';
   if (video.hlsInstance) { video.hlsInstance.destroy(); video.hlsInstance = null; }
   video.src = '';
   document.getElementById('modal-video-controls').style.display = 'none';
@@ -469,6 +521,7 @@ const browseDirTmpl = `{{define "content"}}
   <th>Type</th>
   <th>Size</th>
   <th>Modified</th>
+  <th>Watched</th>
 </tr></thead>
 <tbody>
 {{range .Subdirs}}
@@ -477,6 +530,7 @@ const browseDirTmpl = `{{define "content"}}
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:6px"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>{{.Name}}
   </td>
   <td><span class="badge badge-dir">DIR</span></td>
+  <td class="muted">—</td>
   <td class="muted">—</td>
   <td class="muted">—</td>
 </tr>
@@ -488,6 +542,7 @@ const browseDirTmpl = `{{define "content"}}
   <td><span class="badge badge-{{.FileType}}">{{upper .FileType}}</span></td>
   <td class="muted">{{.Size}}</td>
   <td class="muted">{{.ModifiedAt}}</td>
+  <td class="muted">—</td>
 </tr>
 {{else}}
 <tr class="file-row" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="{{.FileType}}" onclick="openPreview(this)">
@@ -495,6 +550,7 @@ const browseDirTmpl = `{{define "content"}}
   <td><span class="badge badge-{{.FileType}}">{{upper .FileType}}</span></td>
   <td class="muted">{{.Size}}</td>
   <td class="muted">{{.ModifiedAt}}</td>
+  <td>{{if and (eq .FileType "video") (gt .WatchCount 0)}}<span class="badge badge-video">{{.WatchCount}}×</span>{{else}}<span class="muted">—</span>{{end}}</td>
 </tr>
 {{end}}
 {{end}}
