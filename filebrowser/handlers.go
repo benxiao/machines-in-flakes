@@ -750,18 +750,15 @@ func (a *App) handleHLSPlaylist(w http.ResponseWriter, r *http.Request) {
 	b.WriteString("#EXTM3U\n#EXT-X-VERSION:3\n")
 	fmt.Fprintf(&b, "#EXT-X-TARGETDURATION:%d\n", hlsSegmentSec)
 	b.WriteString("#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n")
+	// Segments carry continuous timestamps (see -output_ts_offset in the
+	// segment handler), so the playlist is one continuous timeline with no
+	// discontinuity markers — required for reliable seeking.
 	fullSegments := int(duration) / hlsSegmentSec
 	lastDur := duration - float64(fullSegments*hlsSegmentSec)
 	for i := range fullSegments {
-		if i > 0 {
-			b.WriteString("#EXT-X-DISCONTINUITY\n")
-		}
 		fmt.Fprintf(&b, "#EXTINF:%d.000,\n/hls/segment?path=%s&n=%d\n", hlsSegmentSec, encodedPath, i)
 	}
 	if lastDur > 0.05 {
-		if fullSegments > 0 {
-			b.WriteString("#EXT-X-DISCONTINUITY\n")
-		}
 		fmt.Fprintf(&b, "#EXTINF:%.3f,\n/hls/segment?path=%s&n=%d\n", lastDur, encodedPath, fullSegments)
 	}
 	b.WriteString("#EXT-X-ENDLIST\n")
@@ -873,6 +870,10 @@ func (a *App) handleHLSSegment(w http.ResponseWriter, r *http.Request) {
 		"-vf", "scale='min(1280,iw)':-2",
 		"-b:v", "3000k", "-maxrate", "3000k", "-bufsize", "6000k",
 		"-c:a", "aac", "-b:a", "128k",
+		// Shift this segment's timestamps so segment n starts at n*6s,
+		// giving a single continuous timeline across all segments (no
+		// per-segment discontinuity). This is what makes seeking reliable.
+		"-output_ts_offset", strconv.Itoa(startSec),
 		"-muxdelay", "0", "-muxpreload", "0",
 		"-f", "mpegts", "pipe:1",
 	)
