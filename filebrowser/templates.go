@@ -453,10 +453,11 @@ var modal = document.getElementById('preview-modal');
 function browseDir(el) {
   window.location = '/browse?dir=' + encodeURIComponent(el.dataset.dir);
 }
-function attachVideo(videoEl, hlsUrl, directUrl) {
+function attachVideo(videoEl, hlsUrl, directUrl, seekTo) {
   if (videoEl.hlsInstance) { videoEl.hlsInstance.destroy(); videoEl.hlsInstance = null; }
   if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-    var hls = new Hls();
+    var cfg = (seekTo > 1) ? {startPosition: seekTo} : {};
+    var hls = new Hls(cfg);
     hls.on(Hls.Events.ERROR, function(event, data) {
       if (data.fatal) { hls.destroy(); videoEl.src = directUrl; videoEl.load(); }
     });
@@ -465,8 +466,10 @@ function attachVideo(videoEl, hlsUrl, directUrl) {
     videoEl.hlsInstance = hls;
   } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
     videoEl.src = hlsUrl; videoEl.load();
+    if (seekTo > 1) videoEl.addEventListener('loadedmetadata', function() { videoEl.currentTime = seekTo; }, {once: true});
   } else {
     videoEl.src = directUrl; videoEl.load();
+    if (seekTo > 1) videoEl.addEventListener('loadedmetadata', function() { videoEl.currentTime = seekTo; }, {once: true});
   }
 }
 function seekActiveMedia(secs) {
@@ -840,10 +843,10 @@ var PLAYLIST_STATE = {{toJSON .State}};
 <p class="muted">No items yet. Browse to a video or audio file and click <strong>+</strong> to add it.</p>
 {{else}}
 <div class="pl-layout" id="pl-layout">
-  <div class="pl-sidebar" id="pl-sidebar">
+  <div class="pl-sidebar collapsed" id="pl-sidebar">
     <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid #30363d">
       <span style="font-size:12px;color:#8b949e;font-weight:500;text-transform:uppercase;letter-spacing:0.5px">Playlist</span>
-      <button onclick="togglePlSidebar()" style="background:transparent;border:none;color:#8b949e;cursor:pointer;font-size:16px;line-height:1;padding:0 2px" title="Collapse">&#x276E;</button>
+      <button onclick="togglePlSidebar()" style="background:transparent;border:none;color:#8b949e;cursor:pointer;font-size:16px;line-height:1;padding:0 2px" title="Expand">&#x276F;</button>
     </div>
     <div id="pl-item-list">
     {{range $i, $it := .Items}}
@@ -901,12 +904,17 @@ function startPlaylistItem(idx, seekTo) {
   var media;
   if (item.FileType === 'video') {
     v.style.display = 'block'; media = v;
-    attachVideo(v, '/hls/playlist?path=' + encodeURIComponent(item.Path), fileUrl);
+    attachVideo(v, '/hls/playlist?path=' + encodeURIComponent(item.Path), fileUrl, seekTo);
   } else {
     a.style.display = 'block'; media = a;
     a.src = fileUrl; a.load();
+    if (seekTo > 1) a.addEventListener('loadedmetadata', function() { a.currentTime = seekTo; }, {once: true});
   }
-  if (seekTo > 1) media.addEventListener('loadedmetadata', function() { media.currentTime = seekTo; }, {once: true});
+  // Show a frozen frame at the correct position; don't auto-play on load.
+  media.addEventListener('canplay', function onCP() {
+    media.removeEventListener('canplay', onCP);
+    media.pause();
+  });
   media.addEventListener('ended', function() { savePlState(); startPlaylistItem(plCurrentIdx + 1, 0); }, {once: true});
   media.addEventListener('timeupdate', function onTU() {
     var cur = getPlMedia();
