@@ -975,10 +975,15 @@ function togglePlSidebar() {
   btn.title = sb.classList.contains('collapsed') ? 'Expand' : 'Collapse';
 }
 window.addEventListener('beforeunload', savePlState);
-if (PLAYLIST_ITEMS && PLAYLIST_ITEMS.length > 0) {
-  startPlaylistItem(Math.min((PLAYLIST_STATE && PLAYLIST_STATE.CurrentIndex) || 0, PLAYLIST_ITEMS.length - 1),
-                   (PLAYLIST_STATE && PLAYLIST_STATE.PositionSec) || 0);
-}
+// This inline script runs during body parse, BEFORE hls.js and the base
+// script (attachVideo/fmtTime) load further down the page. Defer the
+// initial autostart until DOMContentLoaded so those are defined.
+document.addEventListener('DOMContentLoaded', function() {
+  if (PLAYLIST_ITEMS && PLAYLIST_ITEMS.length > 0) {
+    startPlaylistItem(Math.min((PLAYLIST_STATE && PLAYLIST_STATE.CurrentIndex) || 0, PLAYLIST_ITEMS.length - 1),
+                     (PLAYLIST_STATE && PLAYLIST_STATE.PositionSec) || 0);
+  }
+});
 </script>
 {{end}}`
 
