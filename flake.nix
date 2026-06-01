@@ -548,9 +548,10 @@
                 extraEnv = {
                   FB_FFMPEG = "${unstable.ffmpeg-full}/bin/ffmpeg";
                 };
-                # Secrets file must exist on the host: /etc/filebrowser-secrets
-                # Contents: FB_ADMIN_USERNAME=admin\nFB_ADMIN_PASSWORD=your-password
-                environmentFile = "/etc/filebrowser-secrets";
+                # Create filebrowser/.env (gitignored) with:
+                #   FB_ADMIN_USERNAME=admin
+                #   FB_ADMIN_PASSWORD=your-password
+                environmentFile = "/home/rxiao/machines-in-flakes/filebrowser/.env";
               })
               ({ lib, ... }: {
                 # run as rxiao so it can read user-owned files and directories
