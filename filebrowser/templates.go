@@ -260,6 +260,7 @@ tr:hover td { background: #161b22; }
 .grid-chk { position:absolute; top:6px; left:6px; opacity:0; transition:opacity 0.1s; }
 .grid-card.grid-checked .grid-chk { opacity:1; }
 .grid-card.grid-checked { border-color:#58a6ff; background:#1c2128; }
+#modal-zoom-wrap.iz-grabbing { cursor: grabbing; }
 .pl-layout { display: flex; gap: 16px; align-items: flex-start; }
 .pl-sidebar { width: 32%; max-height: 80vh; overflow-y: auto; border: 1px solid #30363d; border-radius: 6px; }
 .pl-player { flex: 1; min-width: 0; }
@@ -474,12 +475,15 @@ const baseTmpl = `<!DOCTYPE html>
       <span class="modal-close" onclick="closePreview()">&times;</span>
     </div>
     <div class="modal-body" id="modal-body">
-      <img id="modal-img" src="" alt="" style="display:none">
+      <div id="modal-zoom-wrap" style="display:none;width:100%;height:100%;overflow:hidden;position:relative;cursor:grab;touch-action:none;min-height:200px">
+        <img id="modal-img" src="" alt="" style="position:absolute;top:0;left:0;transform-origin:0 0;user-select:none;-webkit-user-select:none;pointer-events:none">
+      </div>
       <video id="modal-video" controls style="display:none;max-width:90vw;max-height:78vh"></video>
       <audio id="modal-audio" controls style="display:none;width:90vw;max-width:600px"></audio>
       <iframe id="modal-pdf" src="" style="display:none"></iframe>
       <pre id="modal-text" style="display:none"></pre>
     </div>
+    <div id="modal-iz-hint" style="display:none;color:#8b949e;font-size:11px;text-align:center;padding:4px 0;flex-shrink:0;background:#0d1117;border-top:1px solid #21262d">Scroll or pinch to zoom &middot; drag to pan &middot; double-click to zoom&thinsp;/&thinsp;fit</div>
     <div id="modal-media-controls" style="display:none;justify-content:center;align-items:center;gap:12px;padding:10px;background:#0d1117;border-top:1px solid #30363d;flex-shrink:0">
       <button id="modal-seek-back" class="btn btn-edit btn-sm" onclick="seekActiveMedia(-15)">&#9664;&#9664; 15s</button>
       <button id="modal-seek-fwd" class="btn btn-edit btn-sm" onclick="seekActiveMedia(15)">15s &#9654;&#9654;</button>
@@ -561,30 +565,117 @@ function attachMediaResume(mediaEl, path, badge, countWord) {
     badge.textContent = '';
   }, {once: true});
 }
+// ---- Image zoom/pan ----
+var iz = {scale:1, fitScale:1, tx:0, ty:0, dragging:false, lx:0, ly:0, lastT:null};
+function izApply() {
+  document.getElementById('modal-img').style.transform = 'translate('+iz.tx+'px,'+iz.ty+'px) scale('+iz.scale+')';
+}
+function izFit() {
+  var wrap = document.getElementById('modal-zoom-wrap');
+  var img  = document.getElementById('modal-img');
+  iz.scale = iz.fitScale;
+  iz.tx = (wrap.clientWidth  - img.naturalWidth  * iz.scale) / 2;
+  iz.ty = (wrap.clientHeight - img.naturalHeight * iz.scale) / 2;
+  izApply();
+}
+function izZoomAt(cx, cy, factor) {
+  var ns = Math.min(Math.max(iz.scale * factor, iz.fitScale * 0.9), 8);
+  iz.tx = cx - (cx - iz.tx) * ns / iz.scale;
+  iz.ty = cy - (cy - iz.ty) * ns / iz.scale;
+  iz.scale = ns;
+  izApply();
+}
+function izInit(wrap, img) {
+  iz.scale = 1; iz.tx = 0; iz.ty = 0; iz.dragging = false; iz.lastT = null;
+  var doFit = function() {
+    iz.fitScale = Math.min(wrap.clientWidth / img.naturalWidth, wrap.clientHeight / img.naturalHeight);
+    iz.fitScale = Math.min(iz.fitScale, 1);
+    izFit();
+  };
+  if (img.complete && img.naturalWidth) doFit();
+  else img.addEventListener('load', doFit, {once:true});
+  if (!wrap._izBound) {
+    wrap._izBound = true;
+    wrap.addEventListener('wheel', function(e) {
+      e.preventDefault();
+      var r = wrap.getBoundingClientRect();
+      izZoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? 1.12 : 1/1.12);
+    }, {passive:false});
+    wrap.addEventListener('mousedown', function(e) {
+      iz.dragging = true; iz.lx = e.clientX; iz.ly = e.clientY;
+      wrap.classList.add('iz-grabbing');
+    });
+    wrap.addEventListener('dblclick', function(e) {
+      var r = wrap.getBoundingClientRect();
+      if (Math.abs(iz.scale - iz.fitScale) < 0.05) izZoomAt(e.clientX - r.left, e.clientY - r.top, 2 / iz.fitScale);
+      else izFit();
+    });
+    wrap.addEventListener('touchstart', function(e) { e.preventDefault(); iz.lastT = Array.from(e.touches).map(function(t){return {clientX:t.clientX,clientY:t.clientY};}); }, {passive:false});
+    wrap.addEventListener('touchmove', function(e) {
+      e.preventDefault();
+      var r = wrap.getBoundingClientRect(), lt = iz.lastT;
+      if (e.touches.length === 2 && lt && lt.length === 2) {
+        var d1 = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        var d2 = Math.hypot(lt[0].clientX - lt[1].clientX, lt[0].clientY - lt[1].clientY);
+        var mx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - r.left;
+        var my = (e.touches[0].clientY + e.touches[1].clientY) / 2 - r.top;
+        if (d2 > 0) izZoomAt(mx, my, d1 / d2);
+        iz.tx += mx - ((lt[0].clientX + lt[1].clientX) / 2 - r.left);
+        iz.ty += my - ((lt[0].clientY + lt[1].clientY) / 2 - r.top);
+        izApply();
+      } else if (e.touches.length === 1 && lt && lt.length === 1) {
+        iz.tx += e.touches[0].clientX - lt[0].clientX;
+        iz.ty += e.touches[0].clientY - lt[0].clientY;
+        izApply();
+      }
+      iz.lastT = Array.from(e.touches).map(function(t){return {clientX:t.clientX,clientY:t.clientY};});
+    }, {passive:false});
+  }
+}
+document.addEventListener('mousemove', function(e) {
+  if (!iz.dragging) return;
+  iz.tx += e.clientX - iz.lx; iz.ty += e.clientY - iz.ly;
+  iz.lx = e.clientX; iz.ly = e.clientY;
+  izApply();
+});
+document.addEventListener('mouseup', function() {
+  if (!iz.dragging) return;
+  iz.dragging = false;
+  var w = document.getElementById('modal-zoom-wrap');
+  if (w) w.classList.remove('iz-grabbing');
+});
+// ---- End image zoom ----
+
 function openPreview(el) {
   var path = el.dataset.path;
   var name = el.dataset.name;
   var type = el.dataset.type;
   var fileUrl = '/file?path=' + encodeURIComponent(path);
   document.getElementById('modal-title').textContent = name;
+  var wrap  = document.getElementById('modal-zoom-wrap');
   var img   = document.getElementById('modal-img');
   var video = document.getElementById('modal-video');
   var audio = document.getElementById('modal-audio');
   var pdf   = document.getElementById('modal-pdf');
   var txt   = document.getElementById('modal-text');
   var ctrl  = document.getElementById('modal-media-controls');
+  var hint  = document.getElementById('modal-iz-hint');
   var badge = document.getElementById('modal-resume-badge');
   var seekBack = document.getElementById('modal-seek-back');
   var seekFwd  = document.getElementById('modal-seek-fwd');
-  img.style.display = video.style.display = audio.style.display = pdf.style.display = txt.style.display = 'none';
-  ctrl.style.display = 'none';
+  wrap.style.display = video.style.display = audio.style.display = pdf.style.display = txt.style.display = 'none';
+  ctrl.style.display = hint.style.display = 'none';
   badge.textContent = '';
   img.src = ''; pdf.src = '';
+  document.getElementById('modal-body').style.overflow = '';
   if (video.dataset.resumePath) { if (video.hlsInstance) { video.hlsInstance.destroy(); video.hlsInstance = null; } video.src = ''; video.dataset.resumePath = ''; }
   if (audio.dataset.resumePath) { audio.pause(); audio.src = ''; audio.dataset.resumePath = ''; }
   if (type === 'photo') {
+    document.getElementById('modal-body').style.overflow = 'hidden';
     img.src = fileUrl;
-    img.style.display = 'block';
+    wrap.style.display = 'block';
+    hint.style.display = 'block';
+    izInit(wrap, img);
   } else if (type === 'video') {
     seekBack.style.display = ''; seekFwd.style.display = '';
     attachVideo(video, '/hls/playlist?path=' + encodeURIComponent(path), fileUrl);
@@ -621,6 +712,12 @@ function closePreview() {
   video.src = '';
   audio.pause(); audio.src = ''; audio.style.display = 'none';
   document.getElementById('modal-media-controls').style.display = 'none';
+  // Reset image zoom
+  document.getElementById('modal-zoom-wrap').style.display = 'none';
+  document.getElementById('modal-img').src = '';
+  document.getElementById('modal-iz-hint').style.display = 'none';
+  document.getElementById('modal-body').style.overflow = '';
+  iz.scale = 1; iz.tx = 0; iz.ty = 0; iz.dragging = false;
 }
 document.addEventListener('keydown', function(e){ if(e.key==='Escape') closePreview(); });
 document.addEventListener('submit', function(e) {
