@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -713,6 +714,57 @@ func (a *App) handleSavePlaylistState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+const thumbCacheDir = "/var/lib/filebrowser/thumbs"
+
+func (a *App) handleThumbnail(w http.ResponseWriter, r *http.Request) {
+	rawPath := r.URL.Query().Get("path")
+	if rawPath == "" {
+		http.NotFound(w, r)
+		return
+	}
+	absPath := filepath.Clean(rawPath)
+	if !a.isAllowedPath(r, absPath) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	h := sha256.Sum256([]byte(absPath))
+	cacheFile := filepath.Join(thumbCacheDir, hex.EncodeToString(h[:])+".jpg")
+
+	if _, err := os.Stat(cacheFile); err == nil {
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Header().Set("Cache-Control", "max-age=86400")
+		http.ServeFile(w, r, cacheFile)
+		return
+	}
+
+	if a.ffmpegPath == "" {
+		http.Error(w, "transcoding not configured", http.StatusServiceUnavailable)
+		return
+	}
+	if err := os.MkdirAll(thumbCacheDir, 0755); err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+
+	cmd := exec.CommandContext(r.Context(), a.ffmpegPath,
+		"-y", "-ss", "10", "-i", absPath,
+		"-vframes", "1", "-vf", "scale=320:-2",
+		"-q:v", "5", "-f", "image2", cacheFile,
+	)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		log.Printf("thumbnail %s: %v %s", absPath, err, stderr.String())
+		http.Error(w, "thumbnail generation failed", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("Cache-Control", "max-age=86400")
+	http.ServeFile(w, r, cacheFile)
 }
 
 const hlsSegmentSec = 6

@@ -132,6 +132,9 @@ func initTemplates() {
 			b, _ := json.Marshal(v)
 			return template.JS(b)
 		},
+		"thumbURL": func(path string) template.URL {
+			return template.URL("/thumbnail?path=" + url.QueryEscape(path))
+		},
 	}
 	base := template.Must(template.New("base").Funcs(funcMap).Parse(baseTmpl))
 	add := func(name, content string) {
@@ -715,7 +718,13 @@ const browseDirTmpl = `{{define "content"}}
 <div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="video" onclick="gridClick(event,this)">
   {{if gt .WatchCount 0}}<span class="grid-plays">{{.WatchCount}}×</span>{{end}}
   <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
-  <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="17" y1="7" x2="22" y2="7"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="2" y1="17" x2="7" y2="17"/></svg></div>
+  <div class="grid-thumb">
+    <img src="{{thumbURL .AbsPath}}" loading="lazy" alt="" style="width:100%;height:100%;object-fit:cover;display:block"
+         onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+    <div style="display:none;width:100%;height:100%;align-items:center;justify-content:center">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="17" y1="7" x2="22" y2="7"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="2" y1="17" x2="7" y2="17"/></svg>
+    </div>
+  </div>
   <div class="grid-name">{{.Filename}}</div>
 </div>
 {{else if eq .FileType "audio"}}

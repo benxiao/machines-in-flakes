@@ -90,6 +90,7 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	})
 	mux.HandleFunc("GET /browse", a.handleBrowse)
 	mux.HandleFunc("GET /file", a.handleServeFile)
+	mux.HandleFunc("GET /thumbnail", a.handleThumbnail)
 	mux.HandleFunc("GET /hls/playlist", a.handleHLSPlaylist)
 	mux.HandleFunc("GET /hls/segment", a.handleHLSSegment)
 	mux.HandleFunc("GET /video/position", a.handleGetVideoPosition)
