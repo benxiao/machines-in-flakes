@@ -68,6 +68,10 @@ CREATE TABLE IF NOT EXISTS sessions (
 	expires_at TIMESTAMPTZ NOT NULL,
 	created_at TIMESTAMPTZ DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS settings (
+	key   TEXT PRIMARY KEY,
+	value TEXT NOT NULL
+);
 `
 
 func (a *App) initSchema(ctx context.Context) error {
@@ -95,7 +99,8 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /hls/segment", a.handleHLSSegment)
 	mux.HandleFunc("GET /video/position", a.handleGetVideoPosition)
 	mux.HandleFunc("POST /video/position", a.handleSaveVideoPosition)
-	mux.HandleFunc("GET /paths", a.handlePathsList)
+	mux.HandleFunc("GET /settings", a.handleSettingsPage)
+	mux.HandleFunc("POST /settings", a.handleSettingsSave)
 	mux.HandleFunc("POST /paths", a.handlePathAdd)
 	mux.HandleFunc("POST /paths/{id}/delete", a.handlePathDelete)
 	mux.HandleFunc("GET /playlists", a.handlePlaylistList)

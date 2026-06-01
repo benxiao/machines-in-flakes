@@ -312,21 +312,11 @@ func (a *App) handlePathAdd(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, err, 500)
 		return
 	}
-	http.Redirect(w, r, "/paths", http.StatusFound)
+	http.Redirect(w, r, "/settings", http.StatusFound)
 }
 
 func (a *App) renderPathsWithError(w http.ResponseWriter, r *http.Request, errMsg string) {
-	rows, _ := a.db.Query(r.Context(), `SELECT id, path FROM indexed_paths ORDER BY path`)
-	var paths []PathRow
-	if rows != nil {
-		defer rows.Close()
-		for rows.Next() {
-			var p PathRow
-			rows.Scan(&p.ID, &p.Path)
-			paths = append(paths, p)
-		}
-	}
-	render(w, "paths", PathsPage{ActiveTab: "paths", Paths: paths, Error: errMsg})
+	http.Redirect(w, r, "/settings?err="+url.QueryEscape(errMsg), http.StatusFound)
 }
 
 func (a *App) handlePathDelete(w http.ResponseWriter, r *http.Request) {
@@ -340,7 +330,7 @@ func (a *App) handlePathDelete(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, err, 500)
 		return
 	}
-	http.Redirect(w, r, "/paths", http.StatusFound)
+	http.Redirect(w, r, "/settings", http.StatusFound)
 }
 
 // ---- Auth ----
@@ -780,7 +770,117 @@ func (a *App) handleThumbnail(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, cacheFile)
 }
 
-const hlsSegmentSec = 6
+// ---- Transcoding settings ----
+
+type TranscodeSettings struct {
+	CRF        int
+	Preset     string
+	MaxWidth   int
+	VideoKbps  int
+	AudioKbps  int
+	SegmentSec int
+}
+
+var validPresets = map[string]bool{
+	"ultrafast": true, "superfast": true, "veryfast": true, "faster": true,
+	"fast": true, "medium": true, "slow": true, "slower": true, "veryslow": true,
+}
+
+func (a *App) getTranscodeSettings(ctx context.Context) TranscodeSettings {
+	s := TranscodeSettings{CRF: 23, Preset: "fast", MaxWidth: 1280, VideoKbps: 3000, AudioKbps: 128, SegmentSec: 6}
+	rows, err := a.db.Query(ctx, `SELECT key, value FROM settings`)
+	if err != nil {
+		return s
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var k, v string
+		if rows.Scan(&k, &v) != nil {
+			continue
+		}
+		switch k {
+		case "transcode_crf":
+			if n, err := strconv.Atoi(v); err == nil && n >= 0 && n <= 51 {
+				s.CRF = n
+			}
+		case "transcode_preset":
+			if validPresets[v] {
+				s.Preset = v
+			}
+		case "transcode_max_width":
+			if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+				s.MaxWidth = n
+			}
+		case "transcode_video_kbps":
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				s.VideoKbps = n
+			}
+		case "transcode_audio_kbps":
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				s.AudioKbps = n
+			}
+		case "transcode_segment_sec":
+			if n, err := strconv.Atoi(v); err == nil && n >= 2 && n <= 60 {
+				s.SegmentSec = n
+			}
+		}
+	}
+	return s
+}
+
+// ---- Settings page handlers ----
+
+func (a *App) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.db.Query(r.Context(), `SELECT id, path FROM indexed_paths ORDER BY path`)
+	if err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	defer rows.Close()
+	var paths []PathRow
+	for rows.Next() {
+		var p PathRow
+		if rows.Scan(&p.ID, &p.Path) == nil {
+			paths = append(paths, p)
+		}
+	}
+	s := a.getTranscodeSettings(r.Context())
+	savedOK := r.URL.Query().Get("saved") == "1"
+	pathErr := r.URL.Query().Get("err")
+	render(w, "settings", SettingsPage{
+		ActiveTab: "settings",
+		Paths:     paths,
+		PathError: pathErr,
+		Settings:  s,
+		SavedOK:   savedOK,
+	})
+}
+
+func (a *App) handleSettingsSave(w http.ResponseWriter, r *http.Request) {
+	r.ParseForm()
+	updates := map[string]string{
+		"transcode_crf":        r.FormValue("crf"),
+		"transcode_preset":     r.FormValue("preset"),
+		"transcode_max_width":  r.FormValue("max_width"),
+		"transcode_video_kbps": r.FormValue("video_kbps"),
+		"transcode_audio_kbps": r.FormValue("audio_kbps"),
+		"transcode_segment_sec": r.FormValue("segment_sec"),
+	}
+	for k, v := range updates {
+		if v == "" {
+			continue
+		}
+		_, err := a.db.Exec(r.Context(), `
+			INSERT INTO settings (key, value) VALUES ($1, $2)
+			ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+		`, k, v)
+		if err != nil {
+			httpErr(w, err, 500)
+			return
+		}
+	}
+	http.Redirect(w, r, "/settings?saved=1", http.StatusFound)
+}
 
 func (a *App) handleHLSPlaylist(w http.ResponseWriter, r *http.Request) {
 	if a.ffmpegPath == "" {
@@ -810,18 +910,17 @@ func (a *App) handleHLSPlaylist(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid duration", http.StatusInternalServerError)
 		return
 	}
+	ts := a.getTranscodeSettings(r.Context())
+	segSec := ts.SegmentSec
 	encodedPath := url.QueryEscape(absPath)
 	var b strings.Builder
 	b.WriteString("#EXTM3U\n#EXT-X-VERSION:3\n")
-	fmt.Fprintf(&b, "#EXT-X-TARGETDURATION:%d\n", hlsSegmentSec)
+	fmt.Fprintf(&b, "#EXT-X-TARGETDURATION:%d\n", segSec)
 	b.WriteString("#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n")
-	// Segments carry continuous timestamps (see -output_ts_offset in the
-	// segment handler), so the playlist is one continuous timeline with no
-	// discontinuity markers — required for reliable seeking.
-	fullSegments := int(duration) / hlsSegmentSec
-	lastDur := duration - float64(fullSegments*hlsSegmentSec)
+	fullSegments := int(duration) / segSec
+	lastDur := duration - float64(fullSegments*segSec)
 	for i := range fullSegments {
-		fmt.Fprintf(&b, "#EXTINF:%d.000,\n/hls/segment?path=%s&n=%d\n", hlsSegmentSec, encodedPath, i)
+		fmt.Fprintf(&b, "#EXTINF:%d.000,\n/hls/segment?path=%s&n=%d\n", segSec, encodedPath, i)
 	}
 	if lastDur > 0.05 {
 		fmt.Fprintf(&b, "#EXTINF:%.3f,\n/hls/segment?path=%s&n=%d\n", lastDur, encodedPath, fullSegments)
@@ -922,26 +1021,33 @@ func (a *App) handleHLSSegment(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	startSec := n * hlsSegmentSec
-	cmd := exec.CommandContext(r.Context(), a.ffmpegPath,
+	ts := a.getTranscodeSettings(r.Context())
+	startSec := n * ts.SegmentSec
+	vbr := fmt.Sprintf("%dk", ts.VideoKbps)
+	abr := fmt.Sprintf("%dk", ts.AudioKbps)
+	args := []string{
 		"-y",
 		"-ss", strconv.Itoa(startSec),
 		"-i", absPath,
-		"-t", strconv.Itoa(hlsSegmentSec),
-		"-c:v", "libx264", "-crf", "23", "-preset", "fast",
+		"-t", strconv.Itoa(ts.SegmentSec),
+		"-c:v", "libx264",
+		"-crf", strconv.Itoa(ts.CRF),
+		"-preset", ts.Preset,
 		"-profile:v", "main", "-level", "4.0",
 		"-pix_fmt", "yuv420p",
 		"-bf", "0",
-		"-vf", "scale='min(1280,iw)':-2",
-		"-b:v", "3000k", "-maxrate", "3000k", "-bufsize", "6000k",
-		"-c:a", "aac", "-b:a", "128k",
-		// Shift this segment's timestamps so segment n starts at n*6s,
-		// giving a single continuous timeline across all segments (no
-		// per-segment discontinuity). This is what makes seeking reliable.
+	}
+	if ts.MaxWidth > 0 {
+		args = append(args, "-vf", fmt.Sprintf("scale='min(%d,iw)':-2", ts.MaxWidth))
+	}
+	args = append(args,
+		"-b:v", vbr, "-maxrate", vbr, "-bufsize", fmt.Sprintf("%dk", ts.VideoKbps*2),
+		"-c:a", "aac", "-b:a", abr,
 		"-output_ts_offset", strconv.Itoa(startSec),
 		"-muxdelay", "0", "-muxpreload", "0",
 		"-f", "mpegts", "pipe:1",
 	)
+	cmd := exec.CommandContext(r.Context(), a.ffmpegPath, args...)
 	var stderr bytes.Buffer
 	cmd.Stdout = w
 	cmd.Stderr = &stderr

@@ -97,6 +97,14 @@ type PathRow struct {
 	Path string
 }
 
+type SettingsPage struct {
+	ActiveTab string
+	Paths     []PathRow
+	PathError string
+	Settings  TranscodeSettings
+	SavedOK   bool
+}
+
 type LoginPage struct {
 	Error string
 	Next  string
@@ -151,6 +159,7 @@ func initTemplates() {
 	add("playlists", playlistsTmpl)
 	add("playlist_detail", playlistDetailTmpl)
 	add("users", usersTmpl)
+	add("settings", settingsTmpl)
 	// login uses its own standalone template (no nav/base)
 	pages["login"] = template.Must(template.New("login").Funcs(funcMap).Parse(loginTmpl))
 }
@@ -463,7 +472,7 @@ const baseTmpl = `<!DOCTYPE html>
   <a href="/browse"     {{if eq .ActiveTab "browse"}}class="active"{{end}}>Browse</a>
   <a href="/playlists"  {{if eq .ActiveTab "playlists"}}class="active"{{end}}>Playlists</a>
   <a href="/users"      {{if eq .ActiveTab "users"}}class="active"{{end}}>Users</a>
-  <a href="/paths"      {{if eq .ActiveTab "paths"}}class="active"{{end}}>Paths</a>
+  <a href="/settings"   {{if eq .ActiveTab "settings"}}class="active"{{end}}>Settings</a>
   <form action="/logout" method="post" style="margin:0;margin-left:auto;display:flex;align-items:center;padding:0 4px;flex-shrink:0">
     <button type="submit" style="background:transparent;border:1px solid #30363d;color:#8b949e;padding:4px 12px;border-radius:6px;font-size:13px;cursor:pointer;line-height:1.4;white-space:nowrap">Logout</button>
   </form>
@@ -1328,6 +1337,96 @@ const usersTmpl = `{{define "content"}}
       </div>
       <div class="form-actions">
         <button class="btn btn-primary" type="submit">Add User</button>
+      </div>
+    </form>
+  </div>
+</div>
+{{end}}`
+
+const settingsTmpl = `{{define "content"}}
+<div class="page-header">
+  <div class="page-header-left">
+    <h2>Settings</h2>
+  </div>
+</div>
+{{if .PathError}}<div class="error-box">{{.PathError}}</div>{{end}}
+{{if .SavedOK}}<div style="color:#3fb950;font-size:13px;margin-bottom:16px;padding:10px 14px;background:rgba(63,185,80,0.1);border-radius:6px;border:1px solid rgba(63,185,80,0.3)">Transcoding settings saved.</div>{{end}}
+<div class="section">
+  <div class="section-header"><h3>Browseable Paths</h3></div>
+  {{if .Paths}}
+  <div class="table-wrap" style="margin-bottom:16px">
+  <table>
+  <thead><tr><th>Path</th><th></th></tr></thead>
+  <tbody>
+  {{range .Paths}}
+  <tr>
+    <td><a href="{{browseURL .Path}}">{{.Path}}</a></td>
+    <td class="actions-cell">
+      <form class="inline" action="/paths/{{.ID}}/delete" method="post">
+        <button class="btn btn-danger btn-sm" type="submit">Remove</button>
+      </form>
+    </td>
+  </tr>
+  {{end}}
+  </tbody>
+  </table>
+  </div>
+  {{end}}
+  <div class="form-page">
+    <form action="/paths" method="post">
+      <div class="form-group">
+        <label>Add directory path</label>
+        <input type="text" name="path" placeholder="/home/rxiao/videos" autocomplete="off">
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" type="submit">Add Path</button>
+      </div>
+    </form>
+  </div>
+</div>
+<div class="section">
+  <div class="section-header"><h3>Video Transcoding</h3></div>
+  <div class="form-page" style="max-width:680px">
+    <form action="/settings" method="post">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 24px">
+        <div class="form-group">
+          <label>Quality (CRF) <span class="muted" style="font-weight:normal">— lower = better, 18–28 typical</span></label>
+          <input type="number" name="crf" value="{{.Settings.CRF}}" min="0" max="51">
+        </div>
+        <div class="form-group">
+          <label>Encode preset <span class="muted" style="font-weight:normal">— slower = smaller file</span></label>
+          <select name="preset">
+            <option value="ultrafast"{{if eq .Settings.Preset "ultrafast"}} selected{{end}}>ultrafast</option>
+            <option value="superfast"{{if eq .Settings.Preset "superfast"}} selected{{end}}>superfast</option>
+            <option value="veryfast"{{if eq .Settings.Preset "veryfast"}} selected{{end}}>veryfast</option>
+            <option value="faster"{{if eq .Settings.Preset "faster"}} selected{{end}}>faster</option>
+            <option value="fast"{{if eq .Settings.Preset "fast"}} selected{{end}}>fast</option>
+            <option value="medium"{{if eq .Settings.Preset "medium"}} selected{{end}}>medium</option>
+            <option value="slow"{{if eq .Settings.Preset "slow"}} selected{{end}}>slow</option>
+            <option value="slower"{{if eq .Settings.Preset "slower"}} selected{{end}}>slower</option>
+            <option value="veryslow"{{if eq .Settings.Preset "veryslow"}} selected{{end}}>veryslow</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Max width (px) <span class="muted" style="font-weight:normal">— 0 = no limit</span></label>
+          <input type="number" name="max_width" value="{{.Settings.MaxWidth}}" min="0" step="2">
+        </div>
+        <div class="form-group">
+          <label>Segment duration (s)</label>
+          <input type="number" name="segment_sec" value="{{.Settings.SegmentSec}}" min="2" max="60">
+        </div>
+        <div class="form-group">
+          <label>Video bitrate (kbps)</label>
+          <input type="number" name="video_kbps" value="{{.Settings.VideoKbps}}" min="100">
+        </div>
+        <div class="form-group">
+          <label>Audio bitrate (kbps)</label>
+          <input type="number" name="audio_kbps" value="{{.Settings.AudioKbps}}" min="32">
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" type="submit">Save</button>
+        <span class="muted" style="font-size:12px">Changes apply to new HLS segments immediately.</span>
       </div>
     </form>
   </div>
