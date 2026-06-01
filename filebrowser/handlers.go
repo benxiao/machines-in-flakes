@@ -207,12 +207,13 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 	plJSON, _ := json.Marshal(pls)
 
 	render(w, "browse_dir", BrowseDirPage{
-		ActiveTab:    "browse",
-		Dir:          dirParam,
-		DirName:      filepath.Base(dirParam),
-		Breadcrumbs:  buildBreadcrumb(dirParam, rootPath),
-		Subdirs:      subdirs,
-		Files:        files,
+		ActiveTab:     "browse",
+		Dir:           dirParam,
+		DirName:       filepath.Base(dirParam),
+		Breadcrumbs:   buildBreadcrumb(dirParam, rootPath),
+		Subdirs:       subdirs,
+		Files:         files,
+		Playlists:     pls,
 		PlaylistsJSON: template.JS(plJSON),
 	})
 }

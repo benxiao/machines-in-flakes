@@ -28,6 +28,7 @@ type BrowseDirPage struct {
 	Breadcrumbs   []Breadcrumb
 	Subdirs       []SubdirRow
 	Files         []FileRow
+	Playlists     []PlaylistRow
 	PlaylistsJSON template.JS
 }
 
@@ -218,6 +219,7 @@ tr:hover td { background: #161b22; }
 .badge-other   { background: rgba(139,148,158,0.15);color: #8b949e; border: 1px solid rgba(139,148,158,0.4); }
 .badge-audio   { background: rgba(188,96,255,0.15); color: #bc60ff; border: 1px solid rgba(188,96,255,0.4); }
 .badge-dir     { background: rgba(88,166,255,0.12); color: #58a6ff; border: 1px solid rgba(88,166,255,0.3); }
+.sel-spacer { height: 60px; }
 .pl-layout { display: flex; gap: 16px; align-items: flex-start; }
 .pl-sidebar { width: 32%; min-width: 200px; max-height: 80vh; overflow-y: auto; border: 1px solid #30363d; border-radius: 6px; }
 .pl-player { flex: 1; min-width: 0; }
@@ -547,49 +549,6 @@ function closePreview() {
   audio.pause(); audio.src = ''; audio.style.display = 'none';
   document.getElementById('modal-media-controls').style.display = 'none';
 }
-// Add-to-playlist dropdown
-var _atpPath = null, _atpEl = null;
-function toggleAddToPlaylist(event, path) {
-  event.stopPropagation();
-  if (_atpEl) { _atpEl.remove(); _atpEl = null; }
-  if (_atpPath === path) { _atpPath = null; return; }
-  _atpPath = path;
-  var btn = event.currentTarget;
-  var dd = document.createElement('div');
-  dd.style.cssText = 'position:fixed;background:#161b22;border:1px solid #30363d;border-radius:6px;padding:4px 0;z-index:300;min-width:160px;box-shadow:0 4px 12px rgba(0,0,0,0.6)';
-  var pls = window.PLAYLISTS || [];
-  if (pls.length === 0) {
-    dd.innerHTML = '<div style="padding:8px 12px;color:#8b949e;font-size:13px">No playlists yet</div>';
-  } else {
-    pls.forEach(function(pl) {
-      var item = document.createElement('button');
-      item.className = 'btn btn-edit';
-      item.style.cssText = 'display:block;width:100%;text-align:left;border:none;border-radius:0;padding:7px 14px;font-size:13px';
-      item.textContent = pl.name || pl.Name;
-      var plId = pl.id || pl.ID;
-      item.onclick = function(e) {
-        e.stopPropagation();
-        fetch('/playlists/' + plId + '/items', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({path: path})
-        }).then(function() {
-          btn.textContent = '✓'; btn.style.color = '#3fb950';
-          setTimeout(function() { btn.textContent = '+'; btn.style.color = ''; }, 1500);
-          closeATP();
-        });
-      };
-      dd.appendChild(item);
-    });
-  }
-  var rect = btn.getBoundingClientRect();
-  dd.style.top = (rect.bottom + 2) + 'px';
-  dd.style.left = rect.left + 'px';
-  document.body.appendChild(dd);
-  _atpEl = dd;
-}
-function closeATP() { if (_atpEl) { _atpEl.remove(); _atpEl = null; } _atpPath = null; }
-document.addEventListener('click', function(e) { if (_atpEl && !_atpEl.contains(e.target)) closeATP(); });
 document.addEventListener('keydown', function(e){ if(e.key==='Escape') closePreview(); });
 document.addEventListener('submit', function(e) {
   var action = e.target.getAttribute('action') || '';
@@ -636,16 +595,17 @@ const browseDirTmpl = `{{define "content"}}
 <div class="table-wrap">
 <table>
 <thead><tr>
+  <th style="width:32px"><input type="checkbox" id="sel-all" onchange="toggleSelectAll(this)" style="cursor:pointer"></th>
   <th>Name</th>
   <th>Type</th>
   <th>Size</th>
   <th>Modified</th>
   <th>Plays</th>
-  <th></th>
 </tr></thead>
 <tbody>
 {{range .Subdirs}}
 <tr class="dir-row" data-dir="{{.AbsPath}}" onclick="browseDir(this)">
+  <td></td>
   <td>
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:6px"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>{{.Name}}
   </td>
@@ -653,27 +613,26 @@ const browseDirTmpl = `{{define "content"}}
   <td class="muted">—</td>
   <td class="muted">—</td>
   <td class="muted">—</td>
-  <td></td>
 </tr>
 {{end}}
 {{range .Files}}
 {{if eq .FileType "other"}}
 <tr>
+  <td></td>
   <td><a href="{{fileURL .AbsPath}}">{{.Filename}}</a></td>
   <td><span class="badge badge-{{.FileType}}">{{upper .FileType}}</span></td>
   <td class="muted">{{.Size}}</td>
   <td class="muted">{{.ModifiedAt}}</td>
   <td class="muted">—</td>
-  <td></td>
 </tr>
 {{else}}
 <tr class="file-row" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="{{.FileType}}" onclick="openPreview(this)">
+  <td>{{if or (eq .FileType "video") (eq .FileType "audio")}}<input type="checkbox" class="row-check" value="{{.AbsPath}}" onchange="updateSelBar()" onclick="event.stopPropagation()" style="cursor:pointer">{{end}}</td>
   <td>{{.Filename}}</td>
   <td><span class="badge badge-{{.FileType}}">{{upper .FileType}}</span></td>
   <td class="muted">{{.Size}}</td>
   <td class="muted">{{.ModifiedAt}}</td>
   <td>{{if and (or (eq .FileType "video") (eq .FileType "audio")) (gt .WatchCount 0)}}<span class="badge badge-{{.FileType}}">{{.WatchCount}}×</span>{{else}}<span class="muted">—</span>{{end}}</td>
-  <td class="actions-cell">{{if or (eq .FileType "video") (eq .FileType "audio")}}<button class="btn btn-edit btn-sm" onclick="event.stopPropagation();toggleAddToPlaylist(event,'{{.AbsPath}}')">+</button>{{end}}</td>
 </tr>
 {{end}}
 {{end}}
@@ -681,6 +640,60 @@ const browseDirTmpl = `{{define "content"}}
 </table>
 </div>
 {{end}}
+<div class="sel-spacer"></div>
+<div id="sel-bar" style="display:none;position:fixed;bottom:0;left:0;right:0;background:#161b22;border-top:1px solid #30363d;padding:12px 24px;z-index:200;align-items:center;gap:12px;flex-wrap:wrap">
+  <span id="sel-count" style="color:#c9d1d9;font-size:14px;white-space:nowrap"></span>
+  <select id="sel-pl" style="background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;font-size:13px;padding:5px 8px">
+    <option value="">Add to playlist...</option>
+    {{range .Playlists}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+  </select>
+  <button class="btn btn-primary btn-sm" onclick="addSelectedToPlaylist()">Add to Playlist</button>
+  <button class="btn btn-edit btn-sm" onclick="clearSelection()">&#x2715; Clear</button>
+  <span id="sel-ok" style="display:none;color:#3fb950;font-size:13px"></span>
+</div>
+<script>
+function updateSelBar() {
+  var checks = document.querySelectorAll('.row-check:checked');
+  var bar = document.getElementById('sel-bar');
+  var count = document.getElementById('sel-count');
+  bar.style.display = checks.length > 0 ? 'flex' : 'none';
+  count.textContent = checks.length + ' item' + (checks.length === 1 ? '' : 's') + ' selected';
+  var all = document.querySelectorAll('.row-check');
+  var selAll = document.getElementById('sel-all');
+  if (selAll) {
+    selAll.indeterminate = checks.length > 0 && checks.length < all.length;
+    selAll.checked = all.length > 0 && checks.length === all.length;
+  }
+}
+function toggleSelectAll(cb) {
+  document.querySelectorAll('.row-check').forEach(function(c) { c.checked = cb.checked; });
+  updateSelBar();
+}
+function clearSelection() {
+  document.querySelectorAll('.row-check').forEach(function(c) { c.checked = false; });
+  var selAll = document.getElementById('sel-all');
+  if (selAll) { selAll.checked = false; selAll.indeterminate = false; }
+  updateSelBar();
+}
+function addSelectedToPlaylist() {
+  var plId = document.getElementById('sel-pl').value;
+  if (!plId) { document.getElementById('sel-pl').focus(); return; }
+  var paths = Array.from(document.querySelectorAll('.row-check:checked')).map(function(c) { return c.value; });
+  if (paths.length === 0) return;
+  Promise.all(paths.map(function(path) {
+    return fetch('/playlists/' + plId + '/items', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path: path})
+    });
+  })).then(function() {
+    var ok = document.getElementById('sel-ok');
+    ok.textContent = paths.length + ' item' + (paths.length === 1 ? '' : 's') + ' added';
+    ok.style.display = 'inline';
+    setTimeout(function() { ok.style.display = 'none'; clearSelection(); }, 1500);
+  });
+}
+</script>
 {{end}}`
 
 const pathsTmpl = `{{define "content"}}
