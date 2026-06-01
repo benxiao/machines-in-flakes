@@ -97,6 +97,24 @@ type PathRow struct {
 	Path string
 }
 
+type LoginPage struct {
+	Error string
+	Next  string
+}
+
+type UsersPage struct {
+	ActiveTab  string
+	Users      []UserRow
+	CurrentUID int64
+	Error      string
+}
+
+type UserRow struct {
+	ID        int64
+	Username  string
+	CreatedAt string
+}
+
 // ---- Template engine ----
 
 var pages map[string]*template.Template
@@ -129,6 +147,9 @@ func initTemplates() {
 	add("paths", pathsTmpl)
 	add("playlists", playlistsTmpl)
 	add("playlist_detail", playlistDetailTmpl)
+	add("users", usersTmpl)
+	// login uses its own standalone template (no nav/base)
+	pages["login"] = template.Must(template.New("login").Funcs(funcMap).Parse(loginTmpl))
 }
 
 func render(w http.ResponseWriter, name string, data any) {
@@ -232,6 +253,9 @@ tr:hover td { background: #161b22; }
 .pl-controls { display: flex; gap: 10px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
 .pl-title { font-size: 14px; color: #c9d1d9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 8px; min-height: 1.5em; }
 .pl-badge { color: #8b949e; font-size: 12px; }
+.pl-sidebar.collapsed { width: auto; min-width: 0; }
+.pl-sidebar.collapsed #pl-item-list { display: none; }
+.pl-sidebar.collapsed .pl-collapse-btn { transform: rotate(180deg); }
 @media (max-width: 768px) {
   .pl-layout { flex-direction: column; }
   .pl-sidebar { width: 100%; max-height: 40vh; }
@@ -394,7 +418,11 @@ const baseTmpl = `<!DOCTYPE html>
 <nav>
   <a href="/browse"     {{if eq .ActiveTab "browse"}}class="active"{{end}}>Browse</a>
   <a href="/playlists"  {{if eq .ActiveTab "playlists"}}class="active"{{end}}>Playlists</a>
+  <a href="/users"      {{if eq .ActiveTab "users"}}class="active"{{end}}>Users</a>
   <a href="/paths"      {{if eq .ActiveTab "paths"}}class="active"{{end}}>Paths</a>
+  <form action="/logout" method="post" style="margin:0;margin-left:auto;display:flex;align-items:center;padding:0 4px">
+    <button type="submit" style="background:transparent;border:1px solid #30363d;color:#8b949e;padding:4px 12px;border-radius:6px;font-size:13px;cursor:pointer;line-height:1.4">Logout</button>
+  </form>
 </nav>
 <main>
 {{template "content" .}}
@@ -811,8 +839,12 @@ var PLAYLIST_STATE = {{toJSON .State}};
 {{if not .Items}}
 <p class="muted">No items yet. Browse to a video or audio file and click <strong>+</strong> to add it.</p>
 {{else}}
-<div class="pl-layout">
-  <div class="pl-sidebar">
+<div class="pl-layout" id="pl-layout">
+  <div class="pl-sidebar" id="pl-sidebar">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid #30363d">
+      <span style="font-size:12px;color:#8b949e;font-weight:500;text-transform:uppercase;letter-spacing:0.5px">Playlist</span>
+      <button onclick="togglePlSidebar()" style="background:transparent;border:none;color:#8b949e;cursor:pointer;font-size:16px;line-height:1;padding:0 2px" title="Collapse">&#x276E;</button>
+    </div>
     <div id="pl-item-list">
     {{range $i, $it := .Items}}
     <div class="pl-item{{if eq $i $.State.CurrentIndex}} active{{end}}" onclick="startPlaylistItem({{$i}}, 0)">
@@ -916,10 +948,120 @@ function renderPlSidebar() {
       '</div>';
   }).join('');
 }
+function togglePlSidebar() {
+  var sb = document.getElementById('pl-sidebar');
+  var btn = sb.querySelector('button[onclick="togglePlSidebar()"]');
+  sb.classList.toggle('collapsed');
+  btn.innerHTML = sb.classList.contains('collapsed') ? '&#x276F;' : '&#x276E;';
+  btn.title = sb.classList.contains('collapsed') ? 'Expand' : 'Collapse';
+}
 window.addEventListener('beforeunload', savePlState);
 if (PLAYLIST_ITEMS && PLAYLIST_ITEMS.length > 0) {
   startPlaylistItem(Math.min((PLAYLIST_STATE && PLAYLIST_STATE.CurrentIndex) || 0, PLAYLIST_ITEMS.length - 1),
                    (PLAYLIST_STATE && PLAYLIST_STATE.PositionSec) || 0);
 }
 </script>
+{{end}}`
+
+// loginTmpl is a standalone page (no nav bar).
+const loginTmpl = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>File Browser — Login</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 14px; background: #0d1117; color: #c9d1d9; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+.login-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 32px; width: 100%; max-width: 360px; }
+.login-logo { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 600; color: #f0f6fc; margin-bottom: 28px; justify-content: center; }
+.form-group { margin-bottom: 16px; }
+label { display: block; font-size: 13px; color: #8b949e; margin-bottom: 4px; }
+input[type=text], input[type=password] { width: 100%; padding: 8px 10px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #c9d1d9; font-size: 14px; font-family: inherit; }
+input:focus { outline: none; border-color: #58a6ff; }
+.btn-primary { display: block; width: 100%; padding: 8px; background: #238636; border: 1px solid #2ea043; color: #fff; border-radius: 6px; font-size: 14px; font-weight: 500; cursor: pointer; margin-top: 20px; }
+.btn-primary:hover { background: #2ea043; }
+.error-box { color: #f85149; font-size: 13px; margin-bottom: 16px; padding: 10px 14px; background: rgba(248,81,73,0.1); border-radius: 6px; border: 1px solid rgba(248,81,73,0.3); }
+</style>
+</head>
+<body>
+<div class="login-card">
+  <div class="login-logo">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+    File Browser
+  </div>
+  {{if .Error}}<div class="error-box">{{.Error}}</div>{{end}}
+  <form action="/login" method="post">
+    <input type="hidden" name="next" value="{{.Next}}">
+    <div class="form-group">
+      <label>Username</label>
+      <input type="text" name="username" autofocus autocomplete="username">
+    </div>
+    <div class="form-group">
+      <label>Password</label>
+      <input type="password" name="password" autocomplete="current-password">
+    </div>
+    <button type="submit" class="btn-primary">Sign in</button>
+  </form>
+</div>
+</body>
+</html>`
+
+const usersTmpl = `{{define "content"}}
+<div class="page-header">
+  <div class="page-header-left">
+    <h2>Users</h2>
+    <div class="summary">Manage user accounts</div>
+  </div>
+</div>
+{{if .Error}}<div class="error-box">{{.Error}}</div>{{end}}
+{{if .Users}}
+<div class="section">
+<div class="table-wrap">
+<table>
+<thead><tr>
+  <th>Username</th>
+  <th>Joined</th>
+  <th></th>
+</tr></thead>
+<tbody>
+{{range .Users}}
+<tr>
+  <td>{{.Username}}</td>
+  <td class="muted">{{.CreatedAt}}</td>
+  <td class="actions-cell">
+    {{if eq .ID $.CurrentUID}}
+    <span class="muted" style="font-size:12px">current</span>
+    {{else}}
+    <form class="inline" action="/users/{{.ID}}/delete" method="post">
+      <button class="btn btn-danger btn-sm" type="submit">Delete</button>
+    </form>
+    {{end}}
+  </td>
+</tr>
+{{end}}
+</tbody>
+</table>
+</div>
+</div>
+{{end}}
+<div class="section">
+  <div class="section-header"><h3>Add User</h3></div>
+  <div class="form-page">
+    <form action="/users" method="post">
+      <div class="form-group">
+        <label>Username</label>
+        <input type="text" name="username" autofocus autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" name="password" autocomplete="new-password">
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" type="submit">Add User</button>
+      </div>
+    </form>
+  </div>
+</div>
 {{end}}`

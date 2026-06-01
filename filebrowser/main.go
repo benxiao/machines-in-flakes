@@ -56,6 +56,18 @@ CREATE TABLE IF NOT EXISTS playlist_state (
 	position_sec  DOUBLE PRECISION NOT NULL DEFAULT 0,
 	updated_at    TIMESTAMPTZ DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS users (
+	id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+	username      TEXT NOT NULL UNIQUE,
+	password_hash TEXT NOT NULL,
+	created_at    TIMESTAMPTZ DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS sessions (
+	token      TEXT PRIMARY KEY,
+	user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	expires_at TIMESTAMPTZ NOT NULL,
+	created_at TIMESTAMPTZ DEFAULT now()
+);
 `
 
 func (a *App) initSchema(ctx context.Context) error {
@@ -93,6 +105,9 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /playlists/{id}/items/{item_id}/delete", a.handlePlaylistItemDelete)
 	mux.HandleFunc("GET /playlists/{id}/state", a.handleGetPlaylistState)
 	mux.HandleFunc("POST /playlists/{id}/state", a.handleSavePlaylistState)
+	mux.HandleFunc("GET /users", a.handleUserList)
+	mux.HandleFunc("POST /users", a.handleUserCreate)
+	mux.HandleFunc("POST /users/{id}/delete", a.handleUserDelete)
 }
 
 func main() {
@@ -121,6 +136,7 @@ func main() {
 	if err := app.initSchema(ctx); err != nil {
 		log.Fatalf("init schema: %v", err)
 	}
+	app.bootstrapAdmin(ctx, os.Getenv("FB_ADMIN_USERNAME"), os.Getenv("FB_ADMIN_PASSWORD"))
 	initTemplates()
 
 	addr := os.Getenv("FB_LISTEN")
@@ -128,7 +144,10 @@ func main() {
 		addr = ":10094"
 	}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /login", app.handleLoginGet)
+	mux.HandleFunc("POST /login", app.handleLoginPost)
+	mux.HandleFunc("POST /logout", app.handleLogout)
 	app.registerRoutes(mux)
 	log.Printf("filebrowser listening on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, mux))
+	log.Fatal(http.ListenAndServe(addr, app.withAuth(mux)))
 }

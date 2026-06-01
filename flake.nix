@@ -219,7 +219,8 @@
             , dbDsnEnvVar
             , dbName
             , extraEnv ? { }
-            }: ({ pkgs, ... }:
+            , environmentFile ? null
+            }: ({ pkgs, lib, ... }:
             let
               svcUser = builtins.replaceStrings [ "-" ] [ "_" ] pname;
               pkg = pkgs.buildGoModule { inherit pname version src vendorHash; };
@@ -252,6 +253,8 @@
                   User = svcUser;
                   Group = svcUser;
                   StateDirectory = pname;
+                } // lib.optionalAttrs (environmentFile != null) {
+                  EnvironmentFile = environmentFile;
                 };
               };
             });
@@ -533,7 +536,7 @@
               })
               (makeGoService {
                 pname = "filebrowser";
-                version = "0.5.0";
+                version = "0.6.0";
                 src = ./filebrowser;
                 # same pgx/v5 deps as fpv-manager and kanban
                 vendorHash = "sha256-Qs23BHgrlK0P5BREEzS5Y/2G7mL1pcSd1k3z8NUw/mM=";
@@ -545,6 +548,9 @@
                 extraEnv = {
                   FB_FFMPEG = "${unstable.ffmpeg-full}/bin/ffmpeg";
                 };
+                # Secrets file must exist on the host: /etc/filebrowser-secrets
+                # Contents: FB_ADMIN_USERNAME=admin\nFB_ADMIN_PASSWORD=your-password
+                environmentFile = "/etc/filebrowser-secrets";
               })
               ({ lib, ... }: {
                 # run as rxiao so it can read user-owned files and directories
