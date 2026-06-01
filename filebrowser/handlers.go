@@ -744,16 +744,25 @@ func (a *App) handleThumbnail(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "transcoding not configured", http.StatusServiceUnavailable)
 		return
 	}
+
+	fileType := classifyExt(filepath.Ext(absPath))
+	var args []string
+	switch fileType {
+	case "video":
+		args = []string{"-y", "-ss", "10", "-i", absPath, "-vframes", "1", "-vf", "scale=320:-2", "-q:v", "5", "-f", "image2", cacheFile}
+	case "photo":
+		args = []string{"-y", "-i", absPath, "-vf", "scale=320:-2", "-q:v", "5", "-f", "image2", cacheFile}
+	default:
+		http.NotFound(w, r)
+		return
+	}
+
 	if err := os.MkdirAll(thumbCacheDir, 0755); err != nil {
 		httpErr(w, err, 500)
 		return
 	}
 
-	cmd := exec.CommandContext(r.Context(), a.ffmpegPath,
-		"-y", "-ss", "10", "-i", absPath,
-		"-vframes", "1", "-vf", "scale=320:-2",
-		"-q:v", "5", "-f", "image2", cacheFile,
-	)
+	cmd := exec.CommandContext(r.Context(), a.ffmpegPath, args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
