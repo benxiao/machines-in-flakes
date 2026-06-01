@@ -261,6 +261,9 @@ tr:hover td { background: #161b22; }
 .grid-card.grid-checked .grid-chk { opacity:1; }
 .grid-card.grid-checked { border-color:#58a6ff; background:#1c2128; }
 #modal-zoom-wrap.iz-grabbing { cursor: grabbing; }
+/* Zoomable image must render at natural size; the transform handles all sizing.
+   Override the .modal-body img max-width/height constraints below. */
+#modal-zoom-wrap img { max-width: none !important; max-height: none !important; width: auto; height: auto; }
 .pl-layout { display: flex; gap: 16px; align-items: flex-start; }
 .pl-sidebar { width: 32%; max-height: 80vh; overflow-y: auto; border: 1px solid #30363d; border-radius: 6px; }
 .pl-player { flex: 1; min-width: 0; }
@@ -475,7 +478,7 @@ const baseTmpl = `<!DOCTYPE html>
       <span class="modal-close" onclick="closePreview()">&times;</span>
     </div>
     <div class="modal-body" id="modal-body">
-      <div id="modal-zoom-wrap" style="display:none;flex:1;align-self:stretch;min-height:0;overflow:hidden;position:relative;cursor:grab;touch-action:none">
+      <div id="modal-zoom-wrap" style="display:none;overflow:hidden;position:relative;cursor:grab;touch-action:none">
         <img id="modal-img" src="" alt="" style="position:absolute;top:0;left:0;transform-origin:0 0;user-select:none;-webkit-user-select:none;pointer-events:none">
       </div>
       <video id="modal-video" controls style="display:none;max-width:90vw;max-height:78vh"></video>
@@ -610,7 +613,8 @@ function izInit(wrap, img) {
     });
     wrap.addEventListener('dblclick', function(e) {
       var r = wrap.getBoundingClientRect();
-      if (Math.abs(iz.scale - iz.fitScale) < 0.05) izZoomAt(e.clientX - r.left, e.clientY - r.top, 2 / iz.fitScale);
+      // Toggle between fit and 100% (actual pixels) at the click point.
+      if (Math.abs(iz.scale - iz.fitScale) < 0.01) izZoomAt(e.clientX - r.left, e.clientY - r.top, 1 / iz.scale);
       else izFit();
     });
     wrap.addEventListener('touchstart', function(e) { e.preventDefault(); iz.lastT = Array.from(e.touches).map(function(t){return {clientX:t.clientX,clientY:t.clientY};}); }, {passive:false});
@@ -670,17 +674,17 @@ function openPreview(el) {
   ctrl.style.display = hint.style.display = 'none';
   badge.textContent = '';
   img.src = ''; pdf.src = '';
-  var mb2 = document.getElementById('modal-body');
-  mb2.style.overflow = ''; mb2.style.alignItems = ''; mb2.style.flexDirection = '';
+  document.getElementById('modal-body').style.overflow = '';
   if (video.dataset.resumePath){ if (video.hlsInstance) { video.hlsInstance.destroy(); video.hlsInstance = null; } video.src = ''; video.dataset.resumePath = ''; }
   if (audio.dataset.resumePath) { audio.pause(); audio.src = ''; audio.dataset.resumePath = ''; }
   if (type === 'photo') {
-    var mb = document.getElementById('modal-body');
-    mb.style.overflow = 'hidden';
-    mb.style.alignItems = 'stretch';
-    mb.style.flexDirection = 'column';
+    // Give the wrap an explicit viewport size: the image is position:absolute
+    // so it contributes no intrinsic size, and a flex container would collapse.
+    document.getElementById('modal-body').style.overflow = 'hidden';
     img.src = fileUrl;
-    wrap.style.display = 'flex';
+    wrap.style.width = '90vw';
+    wrap.style.height = '82vh';
+    wrap.style.display = 'block';
     hint.style.display = 'block';
     izInit(wrap, img);
   } else if (type === 'video') {
