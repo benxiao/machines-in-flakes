@@ -893,7 +893,7 @@ const browseTmpl = `{{define "content"}}
       <td class="muted">—</td>
     </tr>
     {{else}}
-    <tr class="file-row" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="{{.FileType}}" onclick="openPreview(this)">
+    <tr class="file-row" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="{{.FileType}}" onclick="openPreview(this, true)">
       <td>{{if or (eq .FileType "video") (eq .FileType "audio")}}<input type="checkbox" class="row-check" value="{{.AbsPath}}" onchange="updateSelBar()" onclick="event.stopPropagation()" style="cursor:pointer">{{end}}</td>
       <td>{{.Filename}}</td>
       <td><span class="badge badge-{{.FileType}}">{{upper .FileType}}</span></td>
@@ -1041,7 +1041,7 @@ function setView(v) {
 function gridClick(event, el) {
   var chk = el.querySelector('.grid-chk');
   if (chk && chk.checked) { chk.checked = false; el.classList.remove('grid-checked'); updateSelBar(); return; }
-  openPreview(el);
+  openPreview(el, true);
 }
 function gridCheck(event, chk) {
   var card = chk.closest('.grid-card');
@@ -1144,7 +1144,7 @@ const recentTmpl = `{{define "content"}}
 </tr></thead>
 <tbody>
 {{range .Items}}
-<tr class="file-row" data-path="{{.Path}}" data-name="{{.Filename}}" data-type="{{.FileType}}" onclick="openPreview(this)">
+<tr class="file-row" data-path="{{.Path}}" data-name="{{.Filename}}" data-type="{{.FileType}}" onclick="openPreview(this, true)">
   <td>{{.Filename}}</td>
   <td><span class="badge badge-{{.FileType}}">{{upper .FileType}}</span></td>
   <td class="muted" style="font-size:12px;font-family:monospace">{{.Dir}}</td>
@@ -1159,7 +1159,7 @@ const recentTmpl = `{{define "content"}}
 <div id="view-grid" class="view-grid" style="display:none">
 {{range .Items}}
 {{if eq .FileType "video"}}
-<div class="grid-card" data-path="{{.Path}}" data-name="{{.Filename}}" data-type="video" onclick="openPreview(this)">
+<div class="grid-card" data-path="{{.Path}}" data-name="{{.Filename}}" data-type="video" onclick="openPreview(this, true)">
   {{if gt .WatchCount 0}}<span class="grid-plays">{{.WatchCount}}×</span>{{end}}
   <div class="grid-thumb">
     <img src="{{thumbURL .Path}}" loading="lazy" alt="" style="width:100%;height:100%;object-fit:cover;display:block"
@@ -1171,7 +1171,7 @@ const recentTmpl = `{{define "content"}}
   <div class="grid-name">{{.Filename}}</div>
 </div>
 {{else if eq .FileType "audio"}}
-<div class="grid-card" data-path="{{.Path}}" data-name="{{.Filename}}" data-type="audio" onclick="openPreview(this)">
+<div class="grid-card" data-path="{{.Path}}" data-name="{{.Filename}}" data-type="audio" onclick="openPreview(this, true)">
   {{if gt .WatchCount 0}}<span class="grid-plays">{{.WatchCount}}×</span>{{end}}
   {{if .AlbumArt}}
   <div class="grid-thumb">
