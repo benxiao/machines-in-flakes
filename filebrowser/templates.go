@@ -507,7 +507,8 @@ const baseTmpl = `<!DOCTYPE html>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4"></script>
 <script>
-var MOBILE = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+var _fo = false; try { _fo = !!localStorage.getItem('fb_force_original'); } catch(e) {}
+var MOBILE = !_fo && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 var modal = document.getElementById('preview-modal');
 function browseDir(el) {
   window.location = '/browse?dir=' + encodeURIComponent(el.dataset.dir);
@@ -1493,4 +1494,22 @@ const settingsTmpl = `{{define "content"}}
     </form>
   </div>
 </div>
+<div class="section">
+  <div class="section-header"><h3>Playback</h3></div>
+  <div class="form-page">
+    <div class="form-group" style="flex-direction:row;align-items:center;gap:10px;border:none;padding:0">
+      <input type="checkbox" id="cb-force-original" style="width:auto;cursor:pointer;margin:0"
+             onchange="var v=this.checked;try{v?localStorage.setItem('fb_force_original','1'):localStorage.removeItem('fb_force_original')}catch(e){}">
+      <label for="cb-force-original" style="cursor:pointer;margin:0;font-weight:normal">Force original video on all devices</label>
+    </div>
+    <p class="muted" style="font-size:12px;margin:6px 0 0">By default, mobile devices stream transcoded HLS video. Enable this to always play the original file regardless of device. Stored per-browser.</p>
+  </div>
+</div>
+<script>
+(function(){
+  var cb = document.getElementById('cb-force-original');
+  if (!cb) return;
+  try { cb.checked = !!localStorage.getItem('fb_force_original'); } catch(e) {}
+})();
+</script>
 {{end}}`
