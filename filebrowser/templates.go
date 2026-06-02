@@ -72,8 +72,9 @@ type Breadcrumb struct {
 }
 
 type SubdirRow struct {
-	AbsPath string
-	Name    string
+	AbsPath  string
+	Name     string
+	AlbumArt string // abs path of cover image inside this dir, empty if none
 }
 
 type FileRow struct {
@@ -851,7 +852,20 @@ const browseDirTmpl = `{{define "content"}}
 <div id="view-grid" class="view-grid" style="display:none">
 {{range .Subdirs}}
 <div class="grid-card" data-dir="{{.AbsPath}}" onclick="browseDir(this)">
+  {{if .AlbumArt}}
+  <div class="grid-thumb" style="position:relative">
+    <img src="{{thumbURL .AlbumArt}}" loading="lazy" alt="" style="width:100%;height:100%;object-fit:cover;display:block"
+         onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+    <div style="display:none;width:100%;height:100%;align-items:center;justify-content:center">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+    </div>
+    <div style="position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,0.55);border-radius:3px;padding:2px 3px;line-height:0" title="Folder">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+    </div>
+  </div>
+  {{else}}
   <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>
+  {{end}}
   <div class="grid-name">{{.Name}}</div>
 </div>
 {{end}}

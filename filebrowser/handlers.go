@@ -145,9 +145,11 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 	var files []FileRow
 	for _, e := range entries {
 		if e.IsDir() {
+			absDir := filepath.Join(dirParam, e.Name())
 			subdirs = append(subdirs, SubdirRow{
-				AbsPath: filepath.Join(dirParam, e.Name()),
-				Name:    e.Name(),
+				AbsPath:  absDir,
+				Name:     e.Name(),
+				AlbumArt: findAlbumArt(absDir),
 			})
 			continue
 		}
@@ -240,6 +242,32 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		PlaylistsJSON: template.JS(plJSON),
 		DirAlbumArt:   albumArt,
 	})
+}
+
+func findAlbumArt(dir string) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	var first string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(e.Name()))
+		if !photoExts[ext] {
+			continue
+		}
+		absPath := filepath.Join(dir, e.Name())
+		base := strings.ToLower(strings.TrimSuffix(e.Name(), filepath.Ext(e.Name())))
+		if base == "cover" || base == "folder" || base == "album" || base == "front" {
+			return absPath
+		}
+		if first == "" {
+			first = absPath
+		}
+	}
+	return first
 }
 
 func buildBreadcrumb(dir, root string) []Breadcrumb {
