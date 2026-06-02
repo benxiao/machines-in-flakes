@@ -1010,11 +1010,11 @@ function addSelectedToPlaylist() {
 // Build sorted media file list for dir auto-advance
 (function() {
   var seen = {}, arr = [];
-  document.querySelectorAll('[data-path][data-type]').forEach(function(el) {
-    var t = el.dataset.type, p = el.dataset.path;
-    if ((t === 'audio' || t === 'video') && p && !seen[p]) {
+  document.querySelectorAll('[data-type="audio"],[data-type="video"]').forEach(function(el) {
+    var p = el.dataset.path;
+    if (p && !seen[p]) {
       seen[p] = true;
-      arr.push({path: p, name: el.dataset.name || '', type: t});
+      arr.push({path: p, name: el.dataset.name || '', type: el.dataset.type});
     }
   });
   arr.sort(function(a, b) { return a.name.toLowerCase().localeCompare(b.name.toLowerCase()); });

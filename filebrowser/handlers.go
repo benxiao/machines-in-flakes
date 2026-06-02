@@ -201,21 +201,7 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Find cover image for album art (used in grid view for audio files).
-	var albumArt string
-	for _, f := range files {
-		if f.FileType != "photo" {
-			continue
-		}
-		base := strings.ToLower(strings.TrimSuffix(f.Filename, filepath.Ext(f.Filename)))
-		if base == "cover" || base == "folder" || base == "album" || base == "front" {
-			albumArt = f.AbsPath
-			break
-		}
-		if albumArt == "" {
-			albumArt = f.AbsPath
-		}
-	}
+	albumArt := findAlbumArt(dirParam)
 
 	// Fetch playlists for "add to playlist" dropdown.
 	plRows, _ := a.db.Query(ctx, `SELECT id, name FROM playlists ORDER BY name`)
@@ -259,7 +245,7 @@ func findAlbumArt(dir string) string {
 			continue
 		}
 		absPath := filepath.Join(dir, e.Name())
-		base := strings.ToLower(strings.TrimSuffix(e.Name(), filepath.Ext(e.Name())))
+		base := strings.ToLower(strings.TrimSuffix(e.Name(), ext))
 		if base == "cover" || base == "folder" || base == "album" || base == "front" {
 			return absPath
 		}
