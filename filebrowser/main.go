@@ -86,8 +86,10 @@ DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='settings' AND column_name='user_id') THEN
     ALTER TABLE settings ADD COLUMN user_id BIGINT REFERENCES users(id) ON DELETE CASCADE;
     UPDATE settings SET user_id = (SELECT id FROM users ORDER BY id LIMIT 1) WHERE user_id IS NULL;
-    ALTER TABLE settings DROP CONSTRAINT IF EXISTS settings_pkey;
-    ALTER TABLE settings ADD PRIMARY KEY (user_id, key);
+    IF NOT EXISTS (SELECT 1 FROM settings WHERE user_id IS NULL) THEN
+      ALTER TABLE settings DROP CONSTRAINT IF EXISTS settings_pkey;
+      ALTER TABLE settings ADD PRIMARY KEY (user_id, key);
+    END IF;
   END IF;
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='playlists' AND column_name='user_id') THEN
     ALTER TABLE playlists ADD COLUMN user_id BIGINT REFERENCES users(id) ON DELETE CASCADE;
@@ -96,8 +98,10 @@ DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='video_positions' AND column_name='user_id') THEN
     ALTER TABLE video_positions ADD COLUMN user_id BIGINT REFERENCES users(id) ON DELETE CASCADE;
     UPDATE video_positions SET user_id = (SELECT id FROM users ORDER BY id LIMIT 1) WHERE user_id IS NULL;
-    ALTER TABLE video_positions DROP CONSTRAINT IF EXISTS video_positions_pkey;
-    ALTER TABLE video_positions ADD PRIMARY KEY (user_id, path);
+    IF NOT EXISTS (SELECT 1 FROM video_positions WHERE user_id IS NULL) THEN
+      ALTER TABLE video_positions DROP CONSTRAINT IF EXISTS video_positions_pkey;
+      ALTER TABLE video_positions ADD PRIMARY KEY (user_id, path);
+    END IF;
   END IF;
 END $$;
 `

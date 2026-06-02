@@ -1029,8 +1029,11 @@ function clearSelection() {
   updateSelBar();
 }
 function setView(v) {
-  document.getElementById('view-list').style.display = v === 'list' ? '' : 'none';
-  document.getElementById('view-grid').style.display = v === 'grid' ? 'grid' : 'none';
+  var list = document.getElementById('view-list');
+  var grid = document.getElementById('view-grid');
+  if (!list || !grid) return;
+  list.style.display = v === 'list' ? '' : 'none';
+  grid.style.display = v === 'grid' ? 'grid' : 'none';
   document.getElementById('btn-list').classList.toggle('active', v === 'list');
   document.getElementById('btn-grid').classList.toggle('active', v === 'grid');
   try { localStorage.setItem('fb_view', v); } catch(e) {}
@@ -1189,8 +1192,11 @@ const recentTmpl = `{{define "content"}}
 {{end}}
 <script>
 function setView(v) {
-  document.getElementById('view-list').style.display = v === 'list' ? '' : 'none';
-  document.getElementById('view-grid').style.display = v === 'grid' ? 'grid' : 'none';
+  var list = document.getElementById('view-list');
+  var grid = document.getElementById('view-grid');
+  if (!list || !grid) return;
+  list.style.display = v === 'list' ? '' : 'none';
+  grid.style.display = v === 'grid' ? 'grid' : 'none';
   document.getElementById('btn-list').classList.toggle('active', v === 'list');
   document.getElementById('btn-grid').classList.toggle('active', v === 'grid');
   try { localStorage.setItem('fb_view', v); } catch(e) {}

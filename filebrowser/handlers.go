@@ -259,6 +259,7 @@ func (a *App) handleRecent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
+	artCache := make(map[string]string)
 	var items []RecentItem
 	for rows.Next() {
 		var path string
@@ -273,7 +274,12 @@ func (a *App) handleRecent(w http.ResponseWriter, r *http.Request) {
 		dir := filepath.Dir(path)
 		var art string
 		if ft == "audio" {
-			art = findAlbumArt(dir)
+			if cached, ok := artCache[dir]; ok {
+				art = cached
+			} else {
+				art = findAlbumArt(dir)
+				artCache[dir] = art
+			}
 		}
 		items = append(items, RecentItem{
 			Path:        path,
@@ -436,9 +442,13 @@ func (a *App) handlePathToggle(w http.ResponseWriter, r *http.Request) {
 	}
 	r.ParseForm()
 	enabled := r.FormValue("enabled") == "1"
-	_, err := a.db.Exec(r.Context(), `UPDATE indexed_paths SET enabled=$1 WHERE id=$2 AND user_id=$3`, enabled, id, uid(r))
+	tag, err := a.db.Exec(r.Context(), `UPDATE indexed_paths SET enabled=$1 WHERE id=$2 AND user_id=$3`, enabled, id, uid(r))
 	if err != nil {
 		httpErr(w, err, 500)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		http.NotFound(w, r)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -749,11 +759,6 @@ func (a *App) handlePlaylistItemAdd(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	var ownerID int64
-	if err := a.db.QueryRow(r.Context(), `SELECT user_id FROM playlists WHERE id = $1`, id).Scan(&ownerID); err != nil || ownerID != uid(r) {
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		return
-	}
 	var req playlistItemAddReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
@@ -764,7 +769,13 @@ func (a *App) handlePlaylistItemAdd(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
-	if _, err := a.db.Exec(r.Context(), `INSERT INTO playlist_items (playlist_id, path) VALUES ($1, $2) ON CONFLICT DO NOTHING`, id, absPath); err != nil {
+	// Ownership check is folded into the INSERT: if the playlist doesn't exist or doesn't
+	// belong to this user, the SELECT returns no rows and nothing is inserted.
+	if _, err := a.db.Exec(r.Context(), `
+		INSERT INTO playlist_items (playlist_id, path)
+		SELECT $1, $2 FROM playlists WHERE id = $1 AND user_id = $3
+		ON CONFLICT DO NOTHING
+	`, id, absPath, uid(r)); err != nil {
 		httpErr(w, err, 500)
 		return
 	}
@@ -777,17 +788,16 @@ func (a *App) handlePlaylistItemDelete(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	var ownerID int64
-	if err := a.db.QueryRow(r.Context(), `SELECT user_id FROM playlists WHERE id = $1`, id).Scan(&ownerID); err != nil || ownerID != uid(r) {
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		return
-	}
 	itemID, err := strconv.ParseInt(r.PathValue("item_id"), 10, 64)
 	if err != nil || itemID <= 0 {
 		http.NotFound(w, r)
 		return
 	}
-	if _, err := a.db.Exec(r.Context(), `DELETE FROM playlist_items WHERE id = $1 AND playlist_id = $2`, itemID, id); err != nil {
+	if _, err := a.db.Exec(r.Context(), `
+		DELETE FROM playlist_items
+		WHERE id = $1 AND playlist_id = $2
+		  AND EXISTS (SELECT 1 FROM playlists WHERE id = $2 AND user_id = $3)
+	`, itemID, id, uid(r)); err != nil {
 		httpErr(w, err, 500)
 		return
 	}
@@ -800,13 +810,13 @@ func (a *App) handleGetPlaylistState(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	var ownerID int64
-	if err := a.db.QueryRow(r.Context(), `SELECT user_id FROM playlists WHERE id = $1`, id).Scan(&ownerID); err != nil || ownerID != uid(r) {
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		return
-	}
 	var resp playlistStateResp
-	a.db.QueryRow(r.Context(), `SELECT current_index, position_sec FROM playlist_state WHERE playlist_id = $1`, id).Scan(&resp.CurrentIndex, &resp.PositionSec)
+	a.db.QueryRow(r.Context(), `
+		SELECT ps.current_index, ps.position_sec
+		FROM playlist_state ps
+		JOIN playlists p ON p.id = ps.playlist_id
+		WHERE ps.playlist_id = $1 AND p.user_id = $2
+	`, id, uid(r)).Scan(&resp.CurrentIndex, &resp.PositionSec)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 }
@@ -817,24 +827,21 @@ func (a *App) handleSavePlaylistState(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	var ownerID int64
-	if err := a.db.QueryRow(r.Context(), `SELECT user_id FROM playlists WHERE id = $1`, id).Scan(&ownerID); err != nil || ownerID != uid(r) {
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		return
-	}
 	var req playlistStateReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
+	// Ownership check folded into the INSERT: the SELECT subquery ensures the playlist
+	// belongs to this user before upserting state.
 	_, err := a.db.Exec(r.Context(), `
 		INSERT INTO playlist_state (playlist_id, current_index, position_sec, updated_at)
-		VALUES ($1, $2, $3, now())
+		SELECT $1, $2, $3, now() FROM playlists WHERE id = $1 AND user_id = $4
 		ON CONFLICT (playlist_id) DO UPDATE
 		  SET current_index = EXCLUDED.current_index,
 		      position_sec  = EXCLUDED.position_sec,
 		      updated_at    = now()
-	`, id, req.CurrentIndex, req.PositionSec)
+	`, id, req.CurrentIndex, req.PositionSec, uid(r))
 	if err != nil {
 		httpErr(w, err, 500)
 		return
