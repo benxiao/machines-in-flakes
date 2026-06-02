@@ -564,6 +564,10 @@ func (a *App) handleSearch(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("[]"))
 		return
 	}
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	if offset < 0 {
+		offset = 0
+	}
 	rows, err := a.db.Query(r.Context(), `
 		SELECT fi.dir_path,
 		       COUNT(*) AS match_count,
@@ -575,8 +579,8 @@ func (a *App) handleSearch(w http.ResponseWriter, r *http.Request) {
 		  AND ($3 = 'all' OR fi.file_type = $3)
 		GROUP BY fi.dir_path
 		ORDER BY COUNT(*) DESC, fi.dir_path
-		LIMIT 20
-	`, uid(r), q, typ)
+		LIMIT 20 OFFSET $4
+	`, uid(r), q, typ, offset)
 	if err != nil {
 		httpErr(w, err, 500)
 		return
