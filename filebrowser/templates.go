@@ -509,6 +509,7 @@ const baseTmpl = `<!DOCTYPE html>
 <script>
 var _fo = false; try { _fo = !!localStorage.getItem('fb_force_original'); } catch(e) {}
 var MOBILE = !_fo && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+var DEFAULT_VOL = 1; try { var _dv = parseFloat(localStorage.getItem('fb_default_volume')); if (!isNaN(_dv)) DEFAULT_VOL = Math.max(0, Math.min(1, _dv)); } catch(e) {}
 var modal = document.getElementById('preview-modal');
 function browseDir(el) {
   window.location = '/browse?dir=' + encodeURIComponent(el.dataset.dir);
@@ -719,6 +720,7 @@ function openPreview(el, autoplay) {
       video.load();
       if (autoplay) video.addEventListener('canplay', function() { video.play(); }, {once: true});
     }
+    video.volume = DEFAULT_VOL;
     video.style.display = 'block';
     ctrl.style.display = 'flex';
     attachMediaResume(video, path, badge, 'watched', _nv ? function() { openPreview({dataset: _nv}, true); } : null);
@@ -726,6 +728,7 @@ function openPreview(el, autoplay) {
     seekBack.style.display = 'none'; seekFwd.style.display = 'none';
     audio.src = fileUrl;
     audio.load();
+    audio.volume = DEFAULT_VOL;
     audio.style.display = 'block';
     ctrl.style.display = 'flex';
     if (autoplay) audio.addEventListener('canplay', function() { audio.play(); }, {once: true});
@@ -1218,6 +1221,7 @@ function startPlaylistItem(idx, seekTo, autoplay) {
     }
   };
   if (item.FileType === 'video') {
+    v.volume = DEFAULT_VOL;
     v.style.display = 'block'; media = v;
     if (MOBILE) {
       attachVideo(v, '/hls/playlist?path=' + encodeURIComponent(item.Path), fileUrl, startPlayback);
@@ -1226,6 +1230,7 @@ function startPlaylistItem(idx, seekTo, autoplay) {
       v.addEventListener('loadedmetadata', function() { startPlayback(v); }, {once: true});
     }
   } else {
+    a.volume = DEFAULT_VOL;
     a.style.display = 'block'; media = a;
     a.src = fileUrl; a.load();
     a.addEventListener('loadedmetadata', function() { startPlayback(a); }, {once: true});
@@ -1502,14 +1507,26 @@ const settingsTmpl = `{{define "content"}}
              onchange="var v=this.checked;try{v?localStorage.setItem('fb_force_original','1'):localStorage.removeItem('fb_force_original')}catch(e){}">
       <label for="cb-force-original" style="cursor:pointer;margin:0;font-weight:normal">Force original video on all devices</label>
     </div>
-    <p class="muted" style="font-size:12px;margin:6px 0 0">By default, mobile devices stream transcoded HLS video. Enable this to always play the original file regardless of device. Stored per-browser.</p>
+    <div class="form-group" style="flex-direction:row;align-items:center;gap:10px;border:none;padding:0;margin-top:12px">
+      <label for="vol-slider" style="margin:0;white-space:nowrap">Default volume: <span id="vol-display">100</span>%</label>
+      <input type="range" id="vol-slider" min="0" max="100" value="100" style="width:180px;cursor:pointer;accent-color:#58a6ff"
+             oninput="document.getElementById('vol-display').textContent=this.value"
+             onchange="try{localStorage.setItem('fb_default_volume',this.value/100)}catch(e){}">
+    </div>
+    <p class="muted" style="font-size:12px;margin:6px 0 0">By default, mobile devices stream transcoded HLS video. Enable this to always play the original file regardless of device. Settings stored per-browser.</p>
   </div>
 </div>
 <script>
 (function(){
-  var cb = document.getElementById('cb-force-original');
-  if (!cb) return;
-  try { cb.checked = !!localStorage.getItem('fb_force_original'); } catch(e) {}
+  try {
+    var cb = document.getElementById('cb-force-original');
+    if (cb) cb.checked = !!localStorage.getItem('fb_force_original');
+    var vol = parseFloat(localStorage.getItem('fb_default_volume'));
+    if (!isNaN(vol)) {
+      var sl = document.getElementById('vol-slider');
+      if (sl) { sl.value = Math.round(vol * 100); document.getElementById('vol-display').textContent = sl.value; }
+    }
+  } catch(e) {}
 })();
 </script>
 {{end}}`
