@@ -94,6 +94,21 @@ type PathsPage struct {
 	Error     string
 }
 
+type RecentItem struct {
+	Path        string
+	Filename    string
+	FileType    string
+	Dir         string
+	WatchCount  int64
+	UpdatedAt   string
+	PositionSec float64
+}
+
+type RecentPage struct {
+	ActiveTab string
+	Items     []RecentItem
+}
+
 type PathRow struct {
 	ID      int64
 	Path    string
@@ -161,6 +176,7 @@ func initTemplates() {
 	}
 	add("browse_root", browseRootTmpl)
 	add("browse_dir", browseDirTmpl)
+	add("recent", recentTmpl)
 	add("paths", pathsTmpl)
 	add("playlists", playlistsTmpl)
 	add("playlist_detail", playlistDetailTmpl)
@@ -476,6 +492,7 @@ const baseTmpl = `<!DOCTYPE html>
 </header>
 <nav>
   <a href="/browse"     {{if eq .ActiveTab "browse"}}class="active"{{end}}>Browse</a>
+  <a href="/recent"     {{if eq .ActiveTab "recent"}}class="active"{{end}}>Recent</a>
   <a href="/playlists"  {{if eq .ActiveTab "playlists"}}class="active"{{end}}>Playlists</a>
   <a href="/users"      {{if eq .ActiveTab "users"}}class="active"{{end}}>Users</a>
   <a href="/settings"   {{if eq .ActiveTab "settings"}}class="active"{{end}}>Settings</a>
@@ -797,6 +814,51 @@ const browseRootTmpl = `{{define "content"}}
 </a>
 {{end}}
 {{end}}
+{{end}}`
+
+const recentTmpl = `{{define "content"}}
+<div class="page-header">
+  <div class="page-header-left">
+    <h2>Recent</h2>
+    <div class="summary">Last 50 played files</div>
+  </div>
+</div>
+{{if not .Items}}
+<p class="muted">Nothing played yet. Browse to a video or audio file to get started.</p>
+{{else}}
+<div class="table-wrap">
+<table>
+<thead><tr>
+  <th>Name</th>
+  <th>Type</th>
+  <th>Directory</th>
+  <th>Last played</th>
+  <th>Plays</th>
+</tr></thead>
+<tbody>
+{{range .Items}}
+<tr class="file-row" data-path="{{.Path}}" data-name="{{.Filename}}" data-type="{{.FileType}}" onclick="openPreview(this)" style="cursor:pointer">
+  <td>{{.Filename}}</td>
+  <td><span class="badge badge-{{.FileType}}">{{upper .FileType}}</span></td>
+  <td class="muted" style="font-size:12px;font-family:monospace">{{.Dir}}</td>
+  <td class="muted">{{.UpdatedAt}}</td>
+  <td>{{if gt .WatchCount 0}}<span class="badge badge-{{.FileType}}">{{.WatchCount}}×</span>{{else}}<span class="muted">—</span>{{end}}</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+</div>
+{{end}}
+<script>
+(function() {
+  var seen = {}, arr = [];
+  document.querySelectorAll('[data-type="audio"],[data-type="video"]').forEach(function(el) {
+    var p = el.dataset.path;
+    if (p && !seen[p]) { seen[p] = true; arr.push({path: p, name: el.dataset.name || '', type: el.dataset.type}); }
+  });
+  window.dirMediaFiles = arr;
+})();
+</script>
 {{end}}`
 
 const browseDirTmpl = `{{define "content"}}

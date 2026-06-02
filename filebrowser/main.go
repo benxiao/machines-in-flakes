@@ -94,6 +94,7 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 		http.Redirect(w, r, "/browse", http.StatusFound)
 	})
 	mux.HandleFunc("GET /browse", a.handleBrowse)
+	mux.HandleFunc("GET /recent", a.handleRecent)
 	mux.HandleFunc("GET /file", a.handleServeFile)
 	mux.HandleFunc("GET /thumbnail", a.handleThumbnail)
 	mux.HandleFunc("GET /hls/playlist", a.handleHLSPlaylist)

@@ -230,6 +230,46 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (a *App) handleRecent(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.db.Query(r.Context(), `
+		SELECT path, watch_count, updated_at, position_sec
+		FROM video_positions
+		WHERE EXISTS (
+			SELECT 1 FROM indexed_paths ip
+			WHERE ip.enabled = TRUE
+			  AND (video_positions.path = ip.path OR starts_with(video_positions.path, ip.path || '/'))
+		)
+		ORDER BY updated_at DESC
+		LIMIT 50
+	`)
+	if err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	defer rows.Close()
+	var items []RecentItem
+	for rows.Next() {
+		var path string
+		var wc int64
+		var t time.Time
+		var pos float64
+		if rows.Scan(&path, &wc, &t, &pos) != nil {
+			continue
+		}
+		ext := filepath.Ext(path)
+		items = append(items, RecentItem{
+			Path:        path,
+			Filename:    filepath.Base(path),
+			FileType:    classifyExt(ext),
+			Dir:         filepath.Dir(path),
+			WatchCount:  wc,
+			UpdatedAt:   t.Local().Format("2006-01-02 15:04"),
+			PositionSec: pos,
+		})
+	}
+	render(w, "recent", RecentPage{ActiveTab: "recent", Items: items})
+}
+
 func findAlbumArt(dir string) string {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
