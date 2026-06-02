@@ -435,8 +435,7 @@ input:focus, select:focus { outline: none; border-color: #58a6ff; }
   /* Hide non-essential table columns on small screens */
   table th:nth-child(4), table td:nth-child(4),
   table th:nth-child(5), table td:nth-child(5),
-  table th:nth-child(6), table td:nth-child(6),
-  table th:nth-child(7), table td:nth-child(7) { display: none; }
+  table th:nth-child(6), table td:nth-child(6) { display: none; }
   /* Modal: let media fill the screen width */
   .modal-box { max-width: 100vw; max-height: 100vh; border-radius: 0; }
   .modal-body video { max-width: 100vw; max-height: 52vh; }
@@ -490,7 +489,6 @@ const baseTmpl = `<!DOCTYPE html>
   <div class="modal-box">
     <div class="modal-header">
       <span class="modal-title" id="modal-title"></span>
-      <a id="modal-dl" href="#" title="Download" style="color:#8b949e;font-size:18px;line-height:1;padding:0 4px;text-decoration:none;flex-shrink:0" onmouseover="this.style.color='#f0f6fc'" onmouseout="this.style.color='#8b949e'">⬇</a>
       <span class="modal-close" onclick="closePreview()">&times;</span>
     </div>
     <div class="modal-body" id="modal-body">
@@ -686,7 +684,6 @@ function openPreview(el, autoplay) {
   var type = el.dataset.type;
   var fileUrl = '/file?path=' + encodeURIComponent(path);
   document.getElementById('modal-title').textContent = name;
-  document.getElementById('modal-dl').href = '/file?path=' + encodeURIComponent(path) + '&dl=1';
   var wrap  = document.getElementById('modal-zoom-wrap');
   var img   = document.getElementById('modal-img');
   var video = document.getElementById('modal-video');
@@ -753,7 +750,6 @@ function openPreview(el, autoplay) {
 }
 function closePreview() {
   modal.classList.remove('open');
-  document.getElementById('modal-dl').href = '#';
   var video = document.getElementById('modal-video');
   var audio = document.getElementById('modal-audio');
   if (video.dataset.resumePath && video.currentTime > 1) saveVideoPos(video.dataset.resumePath, video.currentTime, false);
@@ -830,7 +826,6 @@ const browseDirTmpl = `{{define "content"}}
   <th>Size</th>
   <th>Modified</th>
   <th>Plays</th>
-  <th style="width:28px"></th>
 </tr></thead>
 <tbody>
 {{range .Subdirs}}
@@ -843,7 +838,6 @@ const browseDirTmpl = `{{define "content"}}
   <td class="muted">—</td>
   <td class="muted">—</td>
   <td class="muted">—</td>
-  <td></td>
 </tr>
 {{end}}
 {{range .Files}}
@@ -855,7 +849,6 @@ const browseDirTmpl = `{{define "content"}}
   <td class="muted">{{.Size}}</td>
   <td class="muted">{{.ModifiedAt}}</td>
   <td class="muted">—</td>
-  <td><a href="{{downloadURL .AbsPath}}" title="Download" style="color:#8b949e;text-decoration:none;font-size:15px">⬇</a></td>
 </tr>
 {{else}}
 <tr class="file-row" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="{{.FileType}}" onclick="openPreview(this)">
@@ -865,7 +858,6 @@ const browseDirTmpl = `{{define "content"}}
   <td class="muted">{{.Size}}</td>
   <td class="muted">{{.ModifiedAt}}</td>
   <td>{{if and (or (eq .FileType "video") (eq .FileType "audio")) (gt .WatchCount 0)}}<span class="badge badge-{{.FileType}}">{{.WatchCount}}×</span>{{else}}<span class="muted">—</span>{{end}}</td>
-  <td><a href="{{downloadURL .AbsPath}}" onclick="event.stopPropagation()" title="Download" style="color:#8b949e;text-decoration:none;font-size:15px">⬇</a></td>
 </tr>
 {{end}}
 {{end}}
@@ -963,6 +955,7 @@ const browseDirTmpl = `{{define "content"}}
     {{range .Playlists}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
   </select>
   <button class="btn btn-primary btn-sm" onclick="addSelectedToPlaylist()">Add to Playlist</button>
+  <button class="btn btn-edit btn-sm" onclick="downloadSelected()">⬇ Download</button>
   <button class="btn btn-edit btn-sm" onclick="clearSelection()">&#x2715; Clear</button>
   <span id="sel-ok" style="display:none;color:#3fb950;font-size:13px"></span>
 </div>
@@ -1027,6 +1020,19 @@ function addSelectedToPlaylist() {
     ok.textContent = paths.length + ' item' + (paths.length === 1 ? '' : 's') + ' added';
     ok.style.display = 'inline';
     setTimeout(function() { ok.style.display = 'none'; clearSelection(); }, 1500);
+  });
+}
+function downloadSelected() {
+  var paths = Array.from(document.querySelectorAll('.row-check:checked')).map(function(c) { return c.value; });
+  paths.forEach(function(path, i) {
+    setTimeout(function() {
+      var a = document.createElement('a');
+      a.href = '/file?path=' + encodeURIComponent(path) + '&dl=1';
+      a.download = '';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }, i * 300);
   });
 }
 // Build sorted media file list for dir auto-advance
