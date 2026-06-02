@@ -239,6 +239,7 @@ func (a *App) handleRecent(w http.ResponseWriter, r *http.Request) {
 			WHERE ip.enabled = TRUE
 			  AND (video_positions.path = ip.path OR starts_with(video_positions.path, ip.path || '/'))
 		)
+		  AND watch_count > 0
 		ORDER BY updated_at DESC
 		LIMIT 50
 	`)
