@@ -293,6 +293,11 @@ func (a *App) handleServeFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	filename := filepath.Base(absPath)
+	if r.URL.Query().Get("dl") == "1" {
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+		http.ServeFile(w, r, absPath)
+		return
+	}
 	fileType := classifyExt(filepath.Ext(filename))
 	switch fileType {
 	case "photo", "pdf", "video", "text":
