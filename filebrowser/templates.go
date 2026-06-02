@@ -95,8 +95,9 @@ type PathsPage struct {
 }
 
 type PathRow struct {
-	ID   int64
-	Path string
+	ID      int64
+	Path    string
+	Enabled bool
 }
 
 type SettingsPage struct {
@@ -1441,10 +1442,14 @@ const settingsTmpl = `{{define "content"}}
   {{if .Paths}}
   <div class="table-wrap" style="margin-bottom:16px">
   <table>
-  <thead><tr><th>Path</th><th></th></tr></thead>
+  <thead><tr><th style="width:40px" title="Enabled in Browse">Active</th><th>Path</th><th></th></tr></thead>
   <tbody>
   {{range .Paths}}
   <tr>
+    <td style="text-align:center">
+      <input type="checkbox" class="path-enabled-check" data-id="{{.ID}}"
+        {{if .Enabled}}checked{{end}} title="Enable or disable this path in Browse" style="cursor:pointer;width:16px;height:16px">
+    </td>
     <td><a href="{{browseURL .Path}}">{{.Path}}</a></td>
     <td class="actions-cell">
       <form class="inline" action="/paths/{{.ID}}/delete" method="post">
@@ -1545,5 +1550,13 @@ const settingsTmpl = `{{define "content"}}
     }
   } catch(e) {}
 })();
+document.querySelectorAll('.path-enabled-check').forEach(function(cb) {
+  cb.addEventListener('change', function() {
+    var fd = new FormData();
+    fd.append('enabled', cb.checked ? '1' : '0');
+    fetch('/paths/' + cb.dataset.id + '/toggle', {method: 'POST', body: fd})
+      .then(function(r) { if (!r.ok) { cb.checked = !cb.checked; } });
+  });
+});
 </script>
 {{end}}`

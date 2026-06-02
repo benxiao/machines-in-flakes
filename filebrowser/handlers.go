@@ -87,12 +87,12 @@ func formatSize(n int64) string {
 	}
 }
 
-// isAllowedPath checks that absPath is equal to or under one of the indexed roots.
+// isAllowedPath checks that absPath is equal to or under one of the enabled indexed roots.
 func (a *App) isAllowedPath(r *http.Request, absPath string) bool {
 	var count int
 	err := a.db.QueryRow(r.Context(), `
 		SELECT COUNT(*) FROM indexed_paths
-		WHERE $1 = path OR starts_with($1, path || '/')
+		WHERE enabled = TRUE AND ($1 = path OR starts_with($1, path || '/'))
 	`, absPath).Scan(&count)
 	return err == nil && count > 0
 }
@@ -102,7 +102,7 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 	dirParam := r.URL.Query().Get("dir")
 
 	if dirParam == "" {
-		rows, err := a.db.Query(ctx, `SELECT id, path FROM indexed_paths ORDER BY path`)
+		rows, err := a.db.Query(ctx, `SELECT id, path FROM indexed_paths WHERE enabled = TRUE ORDER BY path`)
 		if err != nil {
 			httpErr(w, err, 500)
 			return
@@ -130,7 +130,7 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 	var rootPath string
 	a.db.QueryRow(ctx, `
 		SELECT path FROM indexed_paths
-		WHERE $1 = path OR starts_with($1, path || '/')
+		WHERE enabled = TRUE AND ($1 = path OR starts_with($1, path || '/'))
 		ORDER BY length(path) DESC
 		LIMIT 1
 	`, dirParam).Scan(&rootPath)
@@ -367,6 +367,22 @@ func (a *App) handlePathDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/settings", http.StatusFound)
+}
+
+func (a *App) handlePathToggle(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	r.ParseForm()
+	enabled := r.FormValue("enabled") == "1"
+	_, err := a.db.Exec(r.Context(), `UPDATE indexed_paths SET enabled=$1 WHERE id=$2`, enabled, id)
+	if err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // ---- Auth ----
@@ -867,7 +883,7 @@ func (a *App) getTranscodeSettings(ctx context.Context) TranscodeSettings {
 // ---- Settings page handlers ----
 
 func (a *App) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(r.Context(), `SELECT id, path FROM indexed_paths ORDER BY path`)
+	rows, err := a.db.Query(r.Context(), `SELECT id, path, enabled FROM indexed_paths ORDER BY path`)
 	if err != nil {
 		httpErr(w, err, 500)
 		return
@@ -876,7 +892,7 @@ func (a *App) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 	var paths []PathRow
 	for rows.Next() {
 		var p PathRow
-		if rows.Scan(&p.ID, &p.Path) == nil {
+		if rows.Scan(&p.ID, &p.Path, &p.Enabled) == nil {
 			paths = append(paths, p)
 		}
 	}
