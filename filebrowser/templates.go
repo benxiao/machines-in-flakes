@@ -283,8 +283,21 @@ tr:hover td { background: #161b22; }
 .browse-sidebar-item { display:block; padding:8px 16px; color:#8b949e; font-size:13px; font-family:monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-decoration:none; cursor:pointer; }
 .browse-sidebar-item:hover { background:#161b22; color:#c9d1d9; text-decoration:none; }
 .browse-sidebar-item.active { background:#1c2128; color:#f0f6fc; border-left:3px solid #58a6ff; padding-left:13px; }
-.sidebar-short { display:none; }
 .browse-main { flex:1; min-width:0; padding:16px 24px; overflow:hidden; }
+.header-search { position:relative; flex:1; max-width:400px; }
+#search-q { width:100%; padding:6px 14px; background:#0d1117; border:1px solid #30363d; border-radius:20px; color:#c9d1d9; font-size:14px; font-family:inherit; }
+#search-q:focus { outline:none; border-color:#58a6ff; }
+.search-panel { position:absolute; top:calc(100% + 6px); left:0; right:0; background:#161b22; border:1px solid #30363d; border-radius:8px; z-index:500; max-height:70vh; overflow-y:auto; box-shadow:0 8px 24px rgba(0,0,0,0.5); }
+.search-filters { display:flex; gap:6px; padding:10px 12px; border-bottom:1px solid #21262d; flex-wrap:wrap; }
+.sf-chip { background:transparent; border:1px solid #30363d; color:#8b949e; border-radius:12px; padding:3px 10px; font-size:12px; cursor:pointer; }
+.sf-chip.active { background:#1c2128; border-color:#58a6ff; color:#f0f6fc; }
+.search-result { display:flex; gap:10px; padding:10px 12px; cursor:pointer; border-bottom:1px solid #21262d; align-items:center; }
+.search-result:last-child { border-bottom:none; }
+.search-result:hover { background:#1c2128; }
+.search-result-thumb { width:56px; height:42px; flex-shrink:0; border-radius:4px; overflow:hidden; background:#0d1117; display:flex; align-items:center; justify-content:center; }
+.search-result-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+.search-result-name { font-size:13px; color:#c9d1d9; margin-bottom:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.search-result-dir { font-size:11px; font-family:monospace; color:#8b949e; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:280px; }
 .sel-spacer { height: 60px; }
 .view-toggle { display:flex; gap:4px; }
 .btn-view { background:transparent; border:1px solid #30363d; color:#8b949e; border-radius:6px; padding:4px 10px; font-size:13px; cursor:pointer; line-height:1.4; }
@@ -481,6 +494,9 @@ input:focus, select:focus { outline: none; border-color: #58a6ff; }
   .btn-view { padding: 4px 8px; font-size: 12px; }
   /* Prevent iOS auto-zoom on form inputs */
   input[type=text], input[type=password], select { font-size: 16px; }
+  /* Search */
+  .header-search { max-width:none; }
+  .search-result-dir { max-width:160px; }
   /* Browse: stack sidebar above content on mobile */
   .browse-layout { flex-direction:column; margin:-12px; min-height:0; }
   .browse-sidebar { width:100% !important; border-right:none; border-bottom:1px solid #30363d; flex-direction:row; transition:none; }
@@ -490,8 +506,6 @@ input:focus, select:focus { outline: none; border-color: #58a6ff; }
   .sidebar-paths { display:flex; flex-direction:row; overflow-x:auto; overflow-y:hidden; padding:4px 8px; -webkit-overflow-scrolling:touch; flex:none; width:100%; }
   .browse-sidebar-item { flex-shrink:0; padding:8px 14px; border-left:none !important; padding-left:14px !important; font-size:13px; min-height:44px; display:flex; align-items:center; }
   .browse-sidebar-item.active { border-bottom:2px solid #58a6ff; border-left:none !important; color:#f0f6fc; background:#1c2128; }
-  .sidebar-full { display:none; }
-  .sidebar-short { display:inline; }
   .browse-main { padding:12px; }
   /* Settings: single column */
   .settings-grid { grid-template-columns:1fr !important; }
@@ -512,10 +526,24 @@ const baseTmpl = `<!DOCTYPE html>
 <style>` + css + `</style>
 </head>
 <body>
-<header>
-  <span class="logo">
+<header style="display:flex;align-items:center;gap:16px;padding:10px 24px;background:#161b22;border-bottom:1px solid #30363d">
+  <span class="logo" style="flex-shrink:0">
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-4px;margin-right:6px"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>File Browser
   </span>
+  <div class="header-search" id="header-search">
+    <input id="search-q" type="text" placeholder="Search files…" autocomplete="off"
+           oninput="onSearchInput()" onfocus="onSearchFocus()">
+    <div id="search-panel" class="search-panel" style="display:none">
+      <div class="search-filters">
+        <button class="sf-chip active" onclick="setSearchType(this,'all')">All</button>
+        <button class="sf-chip" onclick="setSearchType(this,'video')">Video</button>
+        <button class="sf-chip" onclick="setSearchType(this,'audio')">Audio</button>
+        <button class="sf-chip" onclick="setSearchType(this,'photo')">Photo</button>
+      </div>
+      <div id="search-results-list"></div>
+      <div id="search-status" style="display:none;padding:12px;color:#8b949e;font-size:13px;text-align:center"></div>
+    </div>
+  </div>
 </header>
 <nav>
   <a href="/browse"     {{if eq .ActiveTab "browse"}}class="active"{{end}}>Browse</a>
@@ -819,6 +847,82 @@ document.addEventListener('submit', function(e) {
     if (!confirm('Remove this? This cannot be undone.')) e.preventDefault();
   }
 });
+// ---- Search ----
+var _searchTimer, _searchType = 'all';
+function onSearchInput() {
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(runSearch, 300);
+  var q = document.getElementById('search-q').value.trim();
+  var panel = document.getElementById('search-panel');
+  if (panel) panel.style.display = q.length >= 2 ? '' : 'none';
+}
+function onSearchFocus() {
+  var q = document.getElementById('search-q').value.trim();
+  if (q.length >= 2) runSearch();
+}
+function setSearchType(btn, type) {
+  _searchType = type;
+  document.querySelectorAll('.sf-chip').forEach(function(c){ c.classList.remove('active'); });
+  btn.classList.add('active');
+  runSearch();
+}
+function runSearch() {
+  var q = document.getElementById('search-q').value.trim();
+  var panel = document.getElementById('search-panel');
+  if (!panel) return;
+  if (q.length < 2) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+  var status = document.getElementById('search-status');
+  status.textContent = 'Searching…'; status.style.display = 'block';
+  document.getElementById('search-results-list').innerHTML = '';
+  fetch('/search?q=' + encodeURIComponent(q) + '&type=' + _searchType)
+    .then(function(r){ return r.json(); })
+    .then(function(results){
+      status.style.display = 'none';
+      var list = document.getElementById('search-results-list');
+      if (!results || !results.length) {
+        status.textContent = 'No results.'; status.style.display = 'block'; return;
+      }
+      list.innerHTML = results.map(function(item){
+        var thumb = (item.file_type === 'video' || item.file_type === 'photo')
+          ? '<img src="/thumbnail?path=' + encodeURIComponent(item.path) + '" loading="lazy" onerror="this.style.display=\'none\'">'
+          : '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#8b949e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>';
+        var plays = item.watch_count > 0 ? ' <span class="muted" style="font-size:11px">' + item.watch_count + '×</span>' : '';
+        return '<div class="search-result" onclick="openSearchResult(' + escAttr(JSON.stringify(item)) + ')">' +
+          '<div class="search-result-thumb">' + thumb + '</div>' +
+          '<div style="min-width:0;flex:1">' +
+            '<div class="search-result-name">' + escHtml(item.filename) + '</div>' +
+            '<div class="search-result-dir">' + escHtml(item.dir_path) + '</div>' +
+            '<span class="badge badge-' + item.file_type + '" style="font-size:10px">' + item.file_type.toUpperCase() + '</span>' + plays +
+          '</div></div>';
+      }).join('');
+    }).catch(function(){ status.textContent = 'Search failed.'; status.style.display = 'block'; });
+}
+function openSearchResult(item) {
+  var panel = document.getElementById('search-panel');
+  if (panel) panel.style.display = 'none';
+  document.getElementById('search-q').value = '';
+  openPreview({dataset: {path: item.path, name: item.filename, type: item.file_type}}, true);
+}
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function escAttr(s) {
+  return s.replace(/'/g, '&#39;');
+}
+document.addEventListener('click', function(e) {
+  var hs = document.getElementById('header-search');
+  if (hs && !hs.contains(e.target)) {
+    var p = document.getElementById('search-panel');
+    if (p) p.style.display = 'none';
+  }
+});
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    var p = document.getElementById('search-panel');
+    if (p && p.style.display !== 'none') { p.style.display = 'none'; e.stopPropagation(); }
+  }
+});
 </script>
 </body>
 </html>`
@@ -832,9 +936,7 @@ const browseTmpl = `{{define "content"}}
     <button class="sidebar-toggle" id="sidebar-toggle" onclick="toggleSidebar()" title="Collapse sidebar">&#8249;</button>
     <div class="sidebar-paths">
       {{range .Paths}}
-      <a class="browse-sidebar-item{{if eq .Path $.CurrentRoot}} active{{end}}" href="{{browseURL .Path}}" title="{{.Path}}">
-        <span class="sidebar-full">{{.Path}}</span><span class="sidebar-short">{{base .Path}}</span>
-      </a>
+      <a class="browse-sidebar-item{{if eq .Path $.CurrentRoot}} active{{end}}" href="{{browseURL .Path}}" title="{{.Path}}">{{base .Path}}</a>
       {{else}}
       <span style="padding:8px 16px;color:#8b949e;font-size:12px;display:block">No paths. Add one in <a href="/settings">Settings</a>.</span>
       {{end}}
@@ -1603,7 +1705,10 @@ const settingsTmpl = `{{define "content"}}
 </div>
 {{if .PathError}}<div class="error-box">{{.PathError}}</div>{{end}}
 <div class="section">
-  <div class="section-header"><h3>Browseable Paths</h3></div>
+  <div class="section-header">
+    <h3>Browseable Paths</h3>
+    <button class="btn btn-edit btn-sm" onclick="reindexFiles(this)">Reindex Files</button>
+  </div>
   {{if .Paths}}
   <div class="table-wrap" style="margin-bottom:16px">
   <table>
@@ -1722,6 +1827,12 @@ const settingsTmpl = `{{define "content"}}
     }
   } catch(e) {}
 })();
+function reindexFiles(btn) {
+  btn.disabled = true; btn.textContent = 'Indexing…';
+  fetch('/search/reindex', {method: 'POST'})
+    .then(function() { btn.textContent = 'Done ✓'; setTimeout(function(){ btn.disabled = false; btn.textContent = 'Reindex Files'; }, 2000); })
+    .catch(function() { btn.disabled = false; btn.textContent = 'Reindex Files'; });
+}
 document.querySelectorAll('.path-enabled-check').forEach(function(cb) {
   cb.addEventListener('change', function() {
     var fd = new FormData();

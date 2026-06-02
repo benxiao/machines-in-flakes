@@ -73,6 +73,15 @@ CREATE TABLE IF NOT EXISTS settings (
 	value TEXT NOT NULL
 );
 ALTER TABLE indexed_paths ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE;
+CREATE TABLE IF NOT EXISTS file_index (
+	user_id   BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	path      TEXT NOT NULL,
+	filename  TEXT NOT NULL,
+	file_type TEXT NOT NULL,
+	dir_path  TEXT NOT NULL,
+	PRIMARY KEY (user_id, path)
+);
+CREATE INDEX IF NOT EXISTS file_index_search ON file_index (user_id, lower(filename));
 `
 
 const migrations = `
@@ -140,6 +149,8 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /paths", a.handlePathAdd)
 	mux.HandleFunc("POST /paths/{id}/delete", a.handlePathDelete)
 	mux.HandleFunc("POST /paths/{id}/toggle", a.handlePathToggle)
+	mux.HandleFunc("GET /search", a.handleSearch)
+	mux.HandleFunc("POST /search/reindex", a.handleSearchReindex)
 	mux.HandleFunc("GET /playlists", a.handlePlaylistList)
 	mux.HandleFunc("POST /playlists", a.handlePlaylistCreate)
 	mux.HandleFunc("GET /playlists/{id}", a.handlePlaylistDetail)

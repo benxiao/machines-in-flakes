@@ -413,6 +413,12 @@ func (a *App) handlePathAdd(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, err, 500)
 		return
 	}
+	userID := uid(r)
+	go func() {
+		ctx2, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		a.reindexUser(ctx2, userID)
+	}()
 	http.Redirect(w, r, "/settings", http.StatusFound)
 }
 
@@ -450,7 +456,131 @@ func (a *App) handlePathToggle(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if enabled {
+		userID := uid(r)
+		go func() {
+			ctx2, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			a.reindexUser(ctx2, userID)
+		}()
+	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ---- Search ----
+
+type SearchResult struct {
+	Path       string `json:"path"`
+	Filename   string `json:"filename"`
+	FileType   string `json:"file_type"`
+	DirPath    string `json:"dir_path"`
+	WatchCount int64  `json:"watch_count"`
+}
+
+func (a *App) reindexUser(ctx context.Context, userID int64) {
+	rows, err := a.db.Query(ctx, `SELECT path FROM indexed_paths WHERE user_id = $1 AND enabled = TRUE`, userID)
+	if err != nil {
+		log.Printf("reindex: query paths: %v", err)
+		return
+	}
+	var roots []string
+	for rows.Next() {
+		var p string
+		if rows.Scan(&p) == nil {
+			roots = append(roots, p)
+		}
+	}
+	rows.Close()
+
+	type entry struct{ path, filename, fileType, dirPath string }
+	var entries []entry
+	for _, root := range roots {
+		filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() {
+				return nil
+			}
+			ft := classifyExt(filepath.Ext(p))
+			if ft == "other" || ft == "text" {
+				return nil
+			}
+			entries = append(entries, entry{p, filepath.Base(p), ft, filepath.Dir(p)})
+			return nil
+		})
+	}
+
+	tx, err := a.db.Begin(ctx)
+	if err != nil {
+		log.Printf("reindex: begin tx: %v", err)
+		return
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `DELETE FROM file_index WHERE user_id = $1`, userID); err != nil {
+		log.Printf("reindex: delete: %v", err)
+		return
+	}
+	for _, e := range entries {
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO file_index (user_id, path, filename, file_type, dir_path) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`,
+			userID, e.path, e.filename, e.fileType, e.dirPath,
+		); err != nil {
+			log.Printf("reindex: insert %s: %v", e.path, err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		log.Printf("reindex: commit: %v", err)
+		return
+	}
+	log.Printf("reindex: user %d indexed %d files", userID, len(entries))
+}
+
+func (a *App) handleSearchReindex(w http.ResponseWriter, r *http.Request) {
+	userID := uid(r)
+	go func() {
+		ctx2, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		a.reindexUser(ctx2, userID)
+	}()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleSearch(w http.ResponseWriter, r *http.Request) {
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	typ := r.URL.Query().Get("type")
+	if typ == "" {
+		typ = "all"
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if len(q) < 2 {
+		w.Write([]byte("[]"))
+		return
+	}
+	rows, err := a.db.Query(r.Context(), `
+		SELECT fi.path, fi.filename, fi.file_type, fi.dir_path,
+		       COALESCE(vp.watch_count, 0)
+		FROM file_index fi
+		LEFT JOIN video_positions vp ON vp.user_id = fi.user_id AND vp.path = fi.path
+		WHERE fi.user_id = $1
+		  AND lower(fi.filename) LIKE '%' || lower($2) || '%'
+		  AND ($3 = 'all' OR fi.file_type = $3)
+		ORDER BY fi.filename
+		LIMIT 30
+	`, uid(r), q, typ)
+	if err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	defer rows.Close()
+	var results []SearchResult
+	for rows.Next() {
+		var sr SearchResult
+		if rows.Scan(&sr.Path, &sr.Filename, &sr.FileType, &sr.DirPath, &sr.WatchCount) == nil {
+			results = append(results, sr)
+		}
+	}
+	if results == nil {
+		results = []SearchResult{}
+	}
+	json.NewEncoder(w).Encode(results)
 }
 
 // ---- Auth ----
