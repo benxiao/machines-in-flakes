@@ -157,6 +157,12 @@ func initTemplates() {
 		"downloadURL": func(path string) template.URL {
 			return template.URL("/file?path=" + url.QueryEscape(path) + "&dl=1")
 		},
+		"base": func(p string) string {
+			if i := strings.LastIndex(p, "/"); i >= 0 {
+				return p[i+1:]
+			}
+			return p
+		},
 	}
 	base := template.Must(template.New("base").Funcs(funcMap).Parse(baseTmpl))
 	add := func(name, content string) {
@@ -267,10 +273,17 @@ tr:hover td { background: #161b22; }
 .badge-audio   { background: rgba(188,96,255,0.15); color: #bc60ff; border: 1px solid rgba(188,96,255,0.4); }
 .badge-dir     { background: rgba(88,166,255,0.12); color: #58a6ff; border: 1px solid rgba(88,166,255,0.3); }
 .browse-layout { display:flex; margin:-24px; min-height:calc(100vh - 108px); }
-.browse-sidebar { width:220px; flex-shrink:0; border-right:1px solid #30363d; overflow-y:auto; padding:8px 0; }
+.browse-sidebar { width:220px; flex-shrink:0; border-right:1px solid #30363d; padding:0; position:relative; transition:width 0.18s; display:flex; flex-direction:column; }
+.browse-sidebar.collapsed { width:28px; }
+.browse-sidebar.collapsed .sidebar-paths { display:none; }
+.sidebar-toggle { background:transparent; border:none; color:#8b949e; cursor:pointer; font-size:16px; line-height:1; padding:6px 4px; text-align:center; width:100%; flex-shrink:0; }
+.sidebar-toggle:hover { color:#f0f6fc; }
+.browse-sidebar.collapsed .sidebar-toggle { padding:8px 4px; }
+.sidebar-paths { overflow-y:auto; overflow-x:hidden; flex:1; padding:4px 0; }
 .browse-sidebar-item { display:block; padding:8px 16px; color:#8b949e; font-size:13px; font-family:monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-decoration:none; cursor:pointer; }
 .browse-sidebar-item:hover { background:#161b22; color:#c9d1d9; text-decoration:none; }
 .browse-sidebar-item.active { background:#1c2128; color:#f0f6fc; border-left:3px solid #58a6ff; padding-left:13px; }
+.sidebar-short { display:none; }
 .browse-main { flex:1; min-width:0; padding:16px 24px; overflow:hidden; }
 .sel-spacer { height: 60px; }
 .view-toggle { display:flex; gap:4px; }
@@ -468,12 +481,22 @@ input:focus, select:focus { outline: none; border-color: #58a6ff; }
   .btn-view { padding: 4px 8px; font-size: 12px; }
   /* Prevent iOS auto-zoom on form inputs */
   input[type=text], input[type=password], select { font-size: 16px; }
-  /* Browse two-pane: stack vertically on mobile */
+  /* Browse: stack sidebar above content on mobile */
   .browse-layout { flex-direction:column; margin:-12px; min-height:0; }
-  .browse-sidebar { width:100%; border-right:none; border-bottom:1px solid #30363d; display:flex; overflow-x:auto; padding:4px 8px; -webkit-overflow-scrolling:touch; }
-  .browse-sidebar-item { flex-shrink:0; padding:6px 12px; border-left:none !important; padding-left:12px !important; }
-  .browse-sidebar-item.active { border-bottom:2px solid #58a6ff; color:#f0f6fc; background:#1c2128; }
+  .browse-sidebar { width:100% !important; border-right:none; border-bottom:1px solid #30363d; flex-direction:row; transition:none; }
+  .browse-sidebar.collapsed { width:100% !important; }
+  .browse-sidebar.collapsed .sidebar-paths { display:flex; }
+  .sidebar-toggle { display:none; }
+  .sidebar-paths { display:flex; flex-direction:row; overflow-x:auto; overflow-y:hidden; padding:4px 8px; -webkit-overflow-scrolling:touch; flex:none; width:100%; }
+  .browse-sidebar-item { flex-shrink:0; padding:8px 14px; border-left:none !important; padding-left:14px !important; font-size:13px; min-height:44px; display:flex; align-items:center; }
+  .browse-sidebar-item.active { border-bottom:2px solid #58a6ff; border-left:none !important; color:#f0f6fc; background:#1c2128; }
+  .sidebar-full { display:none; }
+  .sidebar-short { display:inline; }
   .browse-main { padding:12px; }
+  /* Settings: single column */
+  .settings-grid { grid-template-columns:1fr !important; }
+  /* Taller rows for tap targets */
+  td { padding:11px 8px; }
 }
 `
 
@@ -805,12 +828,17 @@ document.addEventListener('submit', function(e) {
 const browseTmpl = `{{define "content"}}
 <script>window.PLAYLISTS = {{.PlaylistsJSON}};</script>
 <div class="browse-layout">
-  <div class="browse-sidebar">
-    {{range .Paths}}
-    <a class="browse-sidebar-item{{if eq .Path $.CurrentRoot}} active{{end}}" href="{{browseURL .Path}}" title="{{.Path}}">{{.Path}}</a>
-    {{else}}
-    <span style="padding:8px 16px;color:#8b949e;font-size:12px;display:block">No paths. Add one in <a href="/settings">Settings</a>.</span>
-    {{end}}
+  <div class="browse-sidebar" id="browse-sidebar">
+    <button class="sidebar-toggle" id="sidebar-toggle" onclick="toggleSidebar()" title="Collapse sidebar">&#8249;</button>
+    <div class="sidebar-paths">
+      {{range .Paths}}
+      <a class="browse-sidebar-item{{if eq .Path $.CurrentRoot}} active{{end}}" href="{{browseURL .Path}}" title="{{.Path}}">
+        <span class="sidebar-full">{{.Path}}</span><span class="sidebar-short">{{base .Path}}</span>
+      </a>
+      {{else}}
+      <span style="padding:8px 16px;color:#8b949e;font-size:12px;display:block">No paths. Add one in <a href="/settings">Settings</a>.</span>
+      {{end}}
+    </div>
   </div>
   <div class="browse-main">
     {{if .Dir}}
@@ -1064,6 +1092,25 @@ function downloadSelected() {
   });
   arr.sort(function(a, b) { return a.name.toLowerCase().localeCompare(b.name.toLowerCase()); });
   window.dirMediaFiles = arr;
+})();
+function toggleSidebar() {
+  var sb = document.getElementById('browse-sidebar');
+  var btn = document.getElementById('sidebar-toggle');
+  if (!sb) return;
+  sb.classList.toggle('collapsed');
+  var col = sb.classList.contains('collapsed');
+  btn.innerHTML = col ? '&#8250;' : '&#8249;';
+  btn.title = col ? 'Expand sidebar' : 'Collapse sidebar';
+  try { localStorage.setItem('fb_sidebar', col ? '1' : ''); } catch(e) {}
+}
+(function() {
+  try {
+    if (localStorage.getItem('fb_sidebar') === '1') {
+      var sb = document.getElementById('browse-sidebar');
+      var btn = document.getElementById('sidebar-toggle');
+      if (sb) { sb.classList.add('collapsed'); if (btn) { btn.innerHTML = '&#8250;'; btn.title = 'Expand sidebar'; } }
+    }
+  } catch(e) {}
 })();
 </script>
 {{end}}`
@@ -1590,7 +1637,7 @@ const settingsTmpl = `{{define "content"}}
   <div class="section-header"><h3>Video Transcoding</h3></div>
   <div class="form-page" style="max-width:680px">
     <form action="/settings" method="post">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 24px">
+      <div class="settings-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:0 24px">
         <div class="form-group">
           <label>Quality (CRF) <span class="muted" style="font-weight:normal">— lower = better, 18–28 typical</span></label>
           <input type="number" name="crf" value="{{.Settings.CRF}}" min="0" max="51">
