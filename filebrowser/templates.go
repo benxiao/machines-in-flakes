@@ -1599,9 +1599,9 @@ const settingsTmpl = `{{define "content"}}
   <div class="page-header-left">
     <h2>Settings</h2>
   </div>
+  <span id="settings-saved-toast" style="color:#3fb950;font-size:13px;opacity:0;transition:opacity 0.3s">Saved ✓</span>
 </div>
 {{if .PathError}}<div class="error-box">{{.PathError}}</div>{{end}}
-{{if .SavedOK}}<div style="color:#3fb950;font-size:13px;margin-bottom:16px;padding:10px 14px;background:rgba(63,185,80,0.1);border-radius:6px;border:1px solid rgba(63,185,80,0.3)">Transcoding settings saved.</div>{{end}}
 <div class="section">
   <div class="section-header"><h3>Browseable Paths</h3></div>
   {{if .Paths}}
@@ -1642,70 +1642,66 @@ const settingsTmpl = `{{define "content"}}
 <div class="section">
   <div class="section-header"><h3>Video Transcoding</h3></div>
   <div class="form-page" style="max-width:680px">
-    <form action="/settings" method="post">
-      <div class="settings-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:0 24px">
-        <div class="form-group">
-          <label>Quality (CRF) <span class="muted" style="font-weight:normal">— lower = better, 18–28 typical</span></label>
-          <input type="number" name="crf" value="{{.Settings.CRF}}" min="0" max="51">
-        </div>
-        <div class="form-group">
-          <label>Encode preset <span class="muted" style="font-weight:normal">— slower = smaller file</span></label>
-          <select name="preset">
-            <option value="ultrafast"{{if eq .Settings.Preset "ultrafast"}} selected{{end}}>ultrafast</option>
-            <option value="superfast"{{if eq .Settings.Preset "superfast"}} selected{{end}}>superfast</option>
-            <option value="veryfast"{{if eq .Settings.Preset "veryfast"}} selected{{end}}>veryfast</option>
-            <option value="faster"{{if eq .Settings.Preset "faster"}} selected{{end}}>faster</option>
-            <option value="fast"{{if eq .Settings.Preset "fast"}} selected{{end}}>fast</option>
-            <option value="medium"{{if eq .Settings.Preset "medium"}} selected{{end}}>medium</option>
-            <option value="slow"{{if eq .Settings.Preset "slow"}} selected{{end}}>slow</option>
-            <option value="slower"{{if eq .Settings.Preset "slower"}} selected{{end}}>slower</option>
-            <option value="veryslow"{{if eq .Settings.Preset "veryslow"}} selected{{end}}>veryslow</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Max width (px) <span class="muted" style="font-weight:normal">— 0 = no limit</span></label>
-          <input type="number" name="max_width" value="{{.Settings.MaxWidth}}" min="0" step="2">
-        </div>
-        <div class="form-group">
-          <label>Segment duration (s)</label>
-          <input type="number" name="segment_sec" value="{{.Settings.SegmentSec}}" min="2" max="60">
-        </div>
-        <div class="form-group">
-          <label>Video bitrate (kbps)</label>
-          <input type="number" name="video_kbps" value="{{.Settings.VideoKbps}}" min="100">
-        </div>
-        <div class="form-group">
-          <label>Audio bitrate (kbps)</label>
-          <input type="number" name="audio_kbps" value="{{.Settings.AudioKbps}}" min="32">
-        </div>
+    <div class="settings-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:0 24px">
+      <div class="form-group">
+        <label>Quality (CRF) <span class="muted" style="font-weight:normal">— lower = better, 18–28 typical</span></label>
+        <input type="number" value="{{.Settings.CRF}}" min="0" max="51"
+               onchange="saveTranscodeSetting('crf', this.value)">
       </div>
-      <div class="form-actions">
-        <button class="btn btn-primary" type="submit">Save</button>
-        <span class="muted" style="font-size:12px">Changes apply to new HLS segments immediately.</span>
+      <div class="form-group">
+        <label>Encode preset <span class="muted" style="font-weight:normal">— slower = smaller file</span></label>
+        <select onchange="saveTranscodeSetting('preset', this.value)">
+          <option value="ultrafast"{{if eq .Settings.Preset "ultrafast"}} selected{{end}}>ultrafast</option>
+          <option value="superfast"{{if eq .Settings.Preset "superfast"}} selected{{end}}>superfast</option>
+          <option value="veryfast"{{if eq .Settings.Preset "veryfast"}} selected{{end}}>veryfast</option>
+          <option value="faster"{{if eq .Settings.Preset "faster"}} selected{{end}}>faster</option>
+          <option value="fast"{{if eq .Settings.Preset "fast"}} selected{{end}}>fast</option>
+          <option value="medium"{{if eq .Settings.Preset "medium"}} selected{{end}}>medium</option>
+          <option value="slow"{{if eq .Settings.Preset "slow"}} selected{{end}}>slow</option>
+          <option value="slower"{{if eq .Settings.Preset "slower"}} selected{{end}}>slower</option>
+          <option value="veryslow"{{if eq .Settings.Preset "veryslow"}} selected{{end}}>veryslow</option>
+        </select>
       </div>
-    </form>
+      <div class="form-group">
+        <label>Max width (px) <span class="muted" style="font-weight:normal">— 0 = no limit</span></label>
+        <input type="number" value="{{.Settings.MaxWidth}}" min="0" step="2"
+               onchange="saveTranscodeSetting('max_width', this.value)">
+      </div>
+      <div class="form-group">
+        <label>Segment duration (s)</label>
+        <input type="number" value="{{.Settings.SegmentSec}}" min="2" max="60"
+               onchange="saveTranscodeSetting('segment_sec', this.value)">
+      </div>
+      <div class="form-group">
+        <label>Video bitrate (kbps)</label>
+        <input type="number" value="{{.Settings.VideoKbps}}" min="100"
+               onchange="saveTranscodeSetting('video_kbps', this.value)">
+      </div>
+      <div class="form-group">
+        <label>Audio bitrate (kbps)</label>
+        <input type="number" value="{{.Settings.AudioKbps}}" min="32"
+               onchange="saveTranscodeSetting('audio_kbps', this.value)">
+      </div>
+    </div>
+    <p class="muted" style="font-size:12px;margin-top:8px">Changes apply to new HLS segments immediately.</p>
   </div>
 </div>
 <div class="section">
   <div class="section-header"><h3>Playback</h3></div>
   <div class="form-page">
-    <form action="/settings" method="post">
-      <input type="hidden" name="save_playback" value="1">
-      <div class="form-group" style="flex-direction:row;align-items:center;gap:10px;border:none;padding:0">
-        <input type="checkbox" id="cb-force-original" name="force_original" value="1" style="width:auto;cursor:pointer;margin:0">
-        <label for="cb-force-original" style="cursor:pointer;margin:0;font-weight:normal">Force original video on all devices</label>
-      </div>
-      <div class="form-group" style="flex-direction:row;align-items:center;gap:10px;border:none;padding:0;margin-top:12px">
-        <label for="vol-slider" style="margin:0;white-space:nowrap">Default volume: <span id="vol-display">100</span>%</label>
-        <input type="range" id="vol-slider" min="0" max="100" value="100" style="width:180px;cursor:pointer;accent-color:#58a6ff"
-               oninput="document.getElementById('vol-display').textContent=this.value;document.getElementById('vol-val').value=this.value/100">
-        <input type="hidden" id="vol-val" name="default_volume" value="1.0">
-      </div>
-      <div class="form-actions" style="margin-top:16px">
-        <button class="btn btn-primary btn-sm" type="submit">Save Playback Settings</button>
-      </div>
-      <p class="muted" style="font-size:12px;margin:6px 0 0">Playback settings are saved to your account and synced across devices when you visit this page.</p>
-    </form>
+    <div class="form-group" style="flex-direction:row;align-items:center;gap:10px;border:none;padding:0">
+      <input type="checkbox" id="cb-force-original" style="width:auto;cursor:pointer;margin:0"
+             onchange="savePlaybackSettings()">
+      <label for="cb-force-original" style="cursor:pointer;margin:0;font-weight:normal">Force original video on all devices</label>
+    </div>
+    <div class="form-group" style="flex-direction:row;align-items:center;gap:10px;border:none;padding:0;margin-top:12px">
+      <label for="vol-slider" style="margin:0;white-space:nowrap">Default volume: <span id="vol-display">100</span>%</label>
+      <input type="range" id="vol-slider" min="0" max="100" value="100" style="width:180px;cursor:pointer;accent-color:#58a6ff"
+             oninput="document.getElementById('vol-display').textContent=this.value;document.getElementById('vol-val').value=this.value/100"
+             onchange="savePlaybackSettings()">
+      <input type="hidden" id="vol-val" value="1.0">
+    </div>
+    <p class="muted" style="font-size:12px;margin:10px 0 0">Playback settings are saved to your account and synced across devices when you visit this page.</p>
   </div>
 </div>
 <script>
@@ -1734,5 +1730,35 @@ document.querySelectorAll('.path-enabled-check').forEach(function(cb) {
       .then(function(r) { if (!r.ok) { cb.checked = !cb.checked; } });
   });
 });
+var _savedTimer;
+function showSavedToast() {
+  var el = document.getElementById('settings-saved-toast');
+  if (!el) return;
+  el.style.opacity = '1';
+  clearTimeout(_savedTimer);
+  _savedTimer = setTimeout(function() { el.style.opacity = '0'; }, 1500);
+}
+function saveTranscodeSetting(key, value) {
+  if (value === '') return;
+  var fd = new URLSearchParams();
+  fd.append(key, value);
+  fetch('/settings', {method: 'POST', body: fd})
+    .then(function(r) { if (r.ok) showSavedToast(); });
+}
+function savePlaybackSettings() {
+  var fo = document.getElementById('cb-force-original').checked;
+  var dv = parseFloat(document.getElementById('vol-val').value);
+  if (isNaN(dv)) dv = 1;
+  try {
+    fo ? localStorage.setItem('fb_force_original', '1') : localStorage.removeItem('fb_force_original');
+    localStorage.setItem('fb_default_volume', String(dv));
+  } catch(e) {}
+  var fd = new URLSearchParams();
+  fd.append('save_playback', '1');
+  fd.append('force_original', fo ? '1' : '');
+  fd.append('default_volume', String(dv));
+  fetch('/settings', {method: 'POST', body: fd})
+    .then(function(r) { if (r.ok) showSavedToast(); });
+}
 </script>
 {{end}}`

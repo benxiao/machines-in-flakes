@@ -1027,7 +1027,7 @@ func (a *App) handleSettingsSave(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		http.Redirect(w, r, "/settings?saved=1", http.StatusFound)
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	updates := map[string]string{
@@ -1047,7 +1047,7 @@ func (a *App) handleSettingsSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	http.Redirect(w, r, "/settings?saved=1", http.StatusFound)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *App) handleHLSPlaylist(w http.ResponseWriter, r *http.Request) {
