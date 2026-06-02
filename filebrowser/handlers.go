@@ -861,7 +861,7 @@ func (a *App) handlePlaylistDetail(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	itemRows, err := a.db.Query(r.Context(), `SELECT id, path FROM playlist_items WHERE playlist_id = $1 ORDER BY id`, id)
+	itemRows, err := a.db.Query(r.Context(), `SELECT id, path FROM playlist_items WHERE playlist_id = $1 ORDER BY position, id`, id)
 	if err != nil {
 		httpErr(w, err, 500)
 		return
@@ -876,10 +876,6 @@ func (a *App) handlePlaylistDetail(w http.ResponseWriter, r *http.Request) {
 			items = append(items, it)
 		}
 	}
-	// Order items by filename (case-insensitive), so playback follows name order.
-	sort.Slice(items, func(i, j int) bool {
-		return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name)
-	})
 	var state PlaylistState
 	a.db.QueryRow(r.Context(), `SELECT current_index, position_sec FROM playlist_state WHERE playlist_id = $1`, id).Scan(&state.CurrentIndex, &state.PositionSec)
 	render(w, "playlist_detail", PlaylistDetailPage{ActiveTab: "playlists", ID: id, Name: name, Items: items, State: state})
@@ -914,11 +910,11 @@ func (a *App) handlePlaylistItemAdd(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
-	// Ownership check is folded into the INSERT: if the playlist doesn't exist or doesn't
-	// belong to this user, the SELECT returns no rows and nothing is inserted.
+	// Ownership folded into INSERT; position set to max+1 so item appends at end.
 	if _, err := a.db.Exec(r.Context(), `
-		INSERT INTO playlist_items (playlist_id, path)
-		SELECT $1, $2 FROM playlists WHERE id = $1 AND user_id = $3
+		INSERT INTO playlist_items (playlist_id, path, position)
+		SELECT $1, $2, COALESCE((SELECT MAX(position)+1 FROM playlist_items WHERE playlist_id=$1), 0)
+		FROM playlists WHERE id = $1 AND user_id = $3
 		ON CONFLICT DO NOTHING
 	`, id, absPath, uid(r)); err != nil {
 		httpErr(w, err, 500)
@@ -943,6 +939,45 @@ func (a *App) handlePlaylistItemDelete(w http.ResponseWriter, r *http.Request) {
 		WHERE id = $1 AND playlist_id = $2
 		  AND EXISTS (SELECT 1 FROM playlists WHERE id = $2 AND user_id = $3)
 	`, itemID, id, uid(r)); err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type playlistReorderReq struct {
+	Order []int64 `json:"order"`
+}
+
+func (a *App) handlePlaylistReorder(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	var ownerID int64
+	if err := a.db.QueryRow(r.Context(), `SELECT user_id FROM playlists WHERE id = $1`, id).Scan(&ownerID); err != nil || ownerID != uid(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	var req playlistReorderReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	for i, itemID := range req.Order {
+		if _, err := tx.Exec(r.Context(), `UPDATE playlist_items SET position = $1 WHERE id = $2 AND playlist_id = $3`, i, itemID, id); err != nil {
+			httpErr(w, err, 500)
+			return
+		}
+	}
+	if err := tx.Commit(r.Context()); err != nil {
 		httpErr(w, err, 500)
 		return
 	}

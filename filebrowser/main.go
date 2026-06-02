@@ -106,6 +106,12 @@ DO $$ BEGIN
     ALTER TABLE playlists ADD COLUMN user_id BIGINT REFERENCES users(id) ON DELETE CASCADE;
     UPDATE playlists SET user_id = (SELECT id FROM users ORDER BY id LIMIT 1) WHERE user_id IS NULL;
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='playlist_items' AND column_name='position') THEN
+    ALTER TABLE playlist_items ADD COLUMN position INT NOT NULL DEFAULT 0;
+    UPDATE playlist_items pi SET position = sub.rn - 1
+    FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY playlist_id ORDER BY id) AS rn FROM playlist_items) sub
+    WHERE pi.id = sub.id;
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='video_positions' AND column_name='user_id') THEN
     ALTER TABLE video_positions ADD COLUMN user_id BIGINT REFERENCES users(id) ON DELETE CASCADE;
     UPDATE video_positions SET user_id = (SELECT id FROM users ORDER BY id LIMIT 1) WHERE user_id IS NULL;
@@ -159,6 +165,7 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /playlists/{id}", a.handlePlaylistDetail)
 	mux.HandleFunc("POST /playlists/{id}/delete", a.handlePlaylistDelete)
 	mux.HandleFunc("POST /playlists/{id}/items", a.handlePlaylistItemAdd)
+	mux.HandleFunc("POST /playlists/{id}/reorder", a.handlePlaylistReorder)
 	mux.HandleFunc("POST /playlists/{id}/items/{item_id}/delete", a.handlePlaylistItemDelete)
 	mux.HandleFunc("GET /playlists/{id}/state", a.handleGetPlaylistState)
 	mux.HandleFunc("POST /playlists/{id}/state", a.handleSavePlaylistState)

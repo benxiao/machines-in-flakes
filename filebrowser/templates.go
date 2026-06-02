@@ -324,6 +324,10 @@ tr:hover td { background: #161b22; }
 .pl-player { flex: 1; min-width: 0; }
 .pl-player video, .pl-player audio { width: 100%; max-height: 70vh; display: block; background: #000; }
 .pl-item { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #21262d; cursor: pointer; }
+.pl-drag { cursor:grab; color:#30363d; padding:0 4px; font-size:14px; flex-shrink:0; user-select:none; line-height:1; }
+.pl-drag:hover { color:#8b949e; }
+.pl-item.dragging { opacity:0.35; }
+.pl-item.drag-over { border-top:2px solid #58a6ff; margin-top:-1px; }
 .pl-item:last-child { border-bottom: none; }
 .pl-item:hover { background: #161b22; }
 .pl-item.active { background: rgba(88,166,255,0.1); border-left: 3px solid #58a6ff; padding-left: 9px; }
@@ -1458,7 +1462,8 @@ var PLAYLIST_STATE = {{toJSON .State}};
     </div>
     <div id="pl-item-list">
     {{range $i, $it := .Items}}
-    <div class="pl-item{{if eq $i $.State.CurrentIndex}} active{{end}}" onclick="startPlaylistItem({{$i}}, 0, true)">
+    <div class="pl-item{{if eq $i $.State.CurrentIndex}} active{{end}}" draggable="true" data-idx="{{$i}}" onclick="startPlaylistItem({{$i}}, 0, true)">
+      <span class="pl-drag" onclick="event.stopPropagation()">&#8942;&#8942;</span>
       <span class="pl-item-name">{{$it.Name}}</span>
       <span class="badge badge-{{$it.FileType}}" style="flex-shrink:0">{{upper $it.FileType}}</span>
       <button class="btn btn-danger btn-sm" style="flex-shrink:0;padding:2px 7px" onclick="event.stopPropagation();removePlaylistItem({{$it.ID}})">&#x2715;</button>
@@ -1582,12 +1587,55 @@ function removePlaylistItem(itemId) {
 }
 function renderPlSidebar() {
   document.getElementById('pl-item-list').innerHTML = PLAYLIST_ITEMS.map(function(item, i) {
-    return '<div class="pl-item' + (i === plCurrentIdx ? ' active' : '') + '" onclick="startPlaylistItem(' + i + ',0,true)">' +
+    return '<div class="pl-item' + (i === plCurrentIdx ? ' active' : '') + '" draggable="true" data-idx="' + i + '" onclick="startPlaylistItem(' + i + ',0,true)">' +
+      '<span class="pl-drag" onclick="event.stopPropagation()">&#8942;&#8942;</span>' +
       '<span class="pl-item-name">' + escHtml(item.Name) + '</span>' +
       '<span class="badge badge-' + item.FileType + '" style="flex-shrink:0">' + item.FileType.toUpperCase() + '</span>' +
       '<button class="btn btn-danger btn-sm" style="flex-shrink:0;padding:2px 7px" onclick="event.stopPropagation();removePlaylistItem(' + item.ID + ')">&#x2715;</button>' +
       '</div>';
   }).join('');
+  bindPlDrag();
+}
+var _plDragIdx = null;
+function bindPlDrag() {
+  var list = document.getElementById('pl-item-list');
+  list.querySelectorAll('.pl-item[draggable]').forEach(function(el) {
+    el.addEventListener('dragstart', function(e) {
+      _plDragIdx = parseInt(el.dataset.idx);
+      setTimeout(function(){ el.classList.add('dragging'); }, 0);
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    el.addEventListener('dragend', function() {
+      el.classList.remove('dragging');
+      list.querySelectorAll('.pl-item').forEach(function(r){ r.classList.remove('drag-over'); });
+    });
+    el.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      list.querySelectorAll('.pl-item').forEach(function(r){ r.classList.remove('drag-over'); });
+      el.classList.add('drag-over');
+    });
+    el.addEventListener('dragleave', function(){ el.classList.remove('drag-over'); });
+    el.addEventListener('drop', function(e) {
+      e.preventDefault();
+      el.classList.remove('drag-over');
+      var toIdx = parseInt(el.dataset.idx);
+      if (_plDragIdx === null || _plDragIdx === toIdx) return;
+      var moved = PLAYLIST_ITEMS.splice(_plDragIdx, 1)[0];
+      PLAYLIST_ITEMS.splice(toIdx, 0, moved);
+      if (plCurrentIdx === _plDragIdx) plCurrentIdx = toIdx;
+      else if (_plDragIdx < plCurrentIdx && toIdx >= plCurrentIdx) plCurrentIdx--;
+      else if (_plDragIdx > plCurrentIdx && toIdx <= plCurrentIdx) plCurrentIdx++;
+      renderPlSidebar();
+      savePlaylistOrder();
+    });
+  });
+}
+function savePlaylistOrder() {
+  fetch('/playlists/' + PLAYLIST_ID + '/reorder', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({order: PLAYLIST_ITEMS.map(function(it){ return it.ID; })})
+  });
 }
 function togglePlSidebar() {
   var sb = document.getElementById('pl-sidebar');
@@ -1601,6 +1649,7 @@ window.addEventListener('beforeunload', savePlState);
 // script (attachVideo/fmtTime) load further down the page. Defer the
 // initial autostart until DOMContentLoaded so those are defined.
 document.addEventListener('DOMContentLoaded', function() {
+  bindPlDrag();
   if (PLAYLIST_ITEMS && PLAYLIST_ITEMS.length > 0) {
     startPlaylistItem(Math.min((PLAYLIST_STATE && PLAYLIST_STATE.CurrentIndex) || 0, PLAYLIST_ITEMS.length - 1),
                      (PLAYLIST_STATE && PLAYLIST_STATE.PositionSec) || 0);
