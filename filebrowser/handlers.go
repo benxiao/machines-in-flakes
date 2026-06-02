@@ -257,14 +257,21 @@ func (a *App) handleRecent(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		ext := filepath.Ext(path)
+		ft := classifyExt(ext)
+		dir := filepath.Dir(path)
+		var art string
+		if ft == "audio" {
+			art = findAlbumArt(dir)
+		}
 		items = append(items, RecentItem{
 			Path:        path,
 			Filename:    filepath.Base(path),
-			FileType:    classifyExt(ext),
-			Dir:         filepath.Dir(path),
+			FileType:    ft,
+			Dir:         dir,
 			WatchCount:  wc,
 			UpdatedAt:   t.Local().Format("2006-01-02 15:04"),
 			PositionSec: pos,
+			AlbumArt:    art,
 		})
 	}
 	render(w, "recent", RecentPage{ActiveTab: "recent", Items: items})

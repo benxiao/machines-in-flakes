@@ -102,6 +102,7 @@ type RecentItem struct {
 	WatchCount  int64
 	UpdatedAt   string
 	PositionSec float64
+	AlbumArt    string
 }
 
 type RecentPage struct {
@@ -817,15 +818,20 @@ const browseRootTmpl = `{{define "content"}}
 {{end}}`
 
 const recentTmpl = `{{define "content"}}
-<div class="page-header">
-  <div class="page-header-left">
-    <h2>Recent</h2>
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+  <div>
+    <h2 style="margin:0 0 2px">Recent</h2>
     <div class="summary">Last 50 played files</div>
+  </div>
+  <div class="view-toggle">
+    <button id="btn-list" class="btn-view" onclick="setView('list')" title="List view">&#9776; List</button>
+    <button id="btn-grid" class="btn-view" onclick="setView('grid')" title="Grid view">&#8859; Grid</button>
   </div>
 </div>
 {{if not .Items}}
 <p class="muted">Nothing played yet. Browse to a video or audio file to get started.</p>
 {{else}}
+<div id="view-list">
 <div class="table-wrap">
 <table>
 <thead><tr>
@@ -837,7 +843,7 @@ const recentTmpl = `{{define "content"}}
 </tr></thead>
 <tbody>
 {{range .Items}}
-<tr class="file-row" data-path="{{.Path}}" data-name="{{.Filename}}" data-type="{{.FileType}}" onclick="openPreview(this)" style="cursor:pointer">
+<tr class="file-row" data-path="{{.Path}}" data-name="{{.Filename}}" data-type="{{.FileType}}" onclick="openPreview(this)">
   <td>{{.Filename}}</td>
   <td><span class="badge badge-{{.FileType}}">{{upper .FileType}}</span></td>
   <td class="muted" style="font-size:12px;font-family:monospace">{{.Dir}}</td>
@@ -848,8 +854,53 @@ const recentTmpl = `{{define "content"}}
 </tbody>
 </table>
 </div>
+</div>
+<div id="view-grid" class="view-grid" style="display:none">
+{{range .Items}}
+{{if eq .FileType "video"}}
+<div class="grid-card" data-path="{{.Path}}" data-name="{{.Filename}}" data-type="video" onclick="openPreview(this)">
+  {{if gt .WatchCount 0}}<span class="grid-plays">{{.WatchCount}}×</span>{{end}}
+  <div class="grid-thumb">
+    <img src="{{thumbURL .Path}}" loading="lazy" alt="" style="width:100%;height:100%;object-fit:cover;display:block"
+         onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+    <div style="display:none;width:100%;height:100%;align-items:center;justify-content:center">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="17" y1="7" x2="22" y2="7"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="2" y1="17" x2="7" y2="17"/></svg>
+    </div>
+  </div>
+  <div class="grid-name">{{.Filename}}</div>
+</div>
+{{else if eq .FileType "audio"}}
+<div class="grid-card" data-path="{{.Path}}" data-name="{{.Filename}}" data-type="audio" onclick="openPreview(this)">
+  {{if gt .WatchCount 0}}<span class="grid-plays">{{.WatchCount}}×</span>{{end}}
+  {{if .AlbumArt}}
+  <div class="grid-thumb">
+    <img src="{{thumbURL .AlbumArt}}" loading="lazy" alt="" style="width:100%;height:100%;object-fit:cover;display:block"
+         onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+    <div style="display:none;width:100%;height:100%;align-items:center;justify-content:center">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#bc60ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+    </div>
+  </div>
+  {{else}}
+  <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#bc60ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>
+  {{end}}
+  <div class="grid-name">{{.Filename}}</div>
+</div>
+{{end}}
+{{end}}
+</div>
 {{end}}
 <script>
+function setView(v) {
+  document.getElementById('view-list').style.display = v === 'list' ? '' : 'none';
+  document.getElementById('view-grid').style.display = v === 'grid' ? 'grid' : 'none';
+  document.getElementById('btn-list').classList.toggle('active', v === 'list');
+  document.getElementById('btn-grid').classList.toggle('active', v === 'grid');
+  try { localStorage.setItem('fb_view', v); } catch(e) {}
+}
+(function() {
+  var v = 'list'; try { v = localStorage.getItem('fb_view') || 'list'; } catch(e) {}
+  setView(v);
+})();
 (function() {
   var seen = {}, arr = [];
   document.querySelectorAll('[data-type="audio"],[data-type="video"]').forEach(function(el) {
