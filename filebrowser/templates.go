@@ -888,7 +888,7 @@ function runSearch() {
           ? '<img src="/thumbnail?path=' + encodeURIComponent(item.path) + '" loading="lazy" onerror="this.style.display=\'none\'">'
           : '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#8b949e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>';
         var plays = item.watch_count > 0 ? ' <span class="muted" style="font-size:11px">' + item.watch_count + '×</span>' : '';
-        return '<div class="search-result" onclick="openSearchResult(' + escAttr(JSON.stringify(item)) + ')">' +
+        return '<div class="search-result" data-dir="' + escAttr(item.dir_path) + '" onclick="openSearchResult(this)">' +
           '<div class="search-result-thumb">' + thumb + '</div>' +
           '<div style="min-width:0;flex:1">' +
             '<div class="search-result-name">' + escHtml(item.filename) + '</div>' +
@@ -898,17 +898,17 @@ function runSearch() {
       }).join('');
     }).catch(function(){ status.textContent = 'Search failed.'; status.style.display = 'block'; });
 }
-function openSearchResult(item) {
+function openSearchResult(el) {
   var panel = document.getElementById('search-panel');
   if (panel) panel.style.display = 'none';
   document.getElementById('search-q').value = '';
-  window.location = '/browse?dir=' + encodeURIComponent(item.dir_path);
+  window.location = '/browse?dir=' + encodeURIComponent(el.dataset.dir);
 }
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 function escAttr(s) {
-  return s.replace(/'/g, '&#39;');
+  return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 document.addEventListener('click', function(e) {
   var hs = document.getElementById('header-search');
