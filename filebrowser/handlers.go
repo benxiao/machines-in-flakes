@@ -440,7 +440,6 @@ func (a *App) handlePathToggle(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	r.ParseForm()
 	enabled := r.FormValue("enabled") == "1"
 	tag, err := a.db.Exec(r.Context(), `UPDATE indexed_paths SET enabled=$1 WHERE id=$2 AND user_id=$3`, enabled, id, uid(r))
 	if err != nil {
