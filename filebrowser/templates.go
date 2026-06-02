@@ -547,7 +547,7 @@ function saveVideoPos(path, time, completed) {
     body: JSON.stringify({path: path, position: time, completed: !!completed})
   });
 }
-function attachMediaResume(mediaEl, path, badge, countWord) {
+function attachMediaResume(mediaEl, path, badge, countWord, onEnded) {
   mediaEl.dataset.resumePath = path;
   mediaEl._lastSave = 0;
   fetch('/video/position?path=' + encodeURIComponent(path))
@@ -575,7 +575,15 @@ function attachMediaResume(mediaEl, path, badge, countWord) {
     saveVideoPos(path, 0, true);
     mediaEl.currentTime = 0;
     badge.textContent = '';
+    if (onEnded) onEnded();
   }, {once: true});
+}
+function dirNextMedia(path) {
+  if (!window.dirMediaFiles) return null;
+  for (var i = 0; i < window.dirMediaFiles.length - 1; i++) {
+    if (window.dirMediaFiles[i].path === path) return window.dirMediaFiles[i + 1];
+  }
+  return null;
 }
 // ---- Image zoom/pan ----
 var iz = {scale:1, fitScale:1, tx:0, ty:0, dragging:false, lx:0, ly:0, lastT:null};
@@ -701,14 +709,16 @@ function openPreview(el) {
     attachVideo(video, '/hls/playlist?path=' + encodeURIComponent(path), fileUrl);
     video.style.display = 'block';
     ctrl.style.display = 'flex';
-    attachMediaResume(video, path, badge, 'watched');
+    var _nv = dirNextMedia(path);
+    attachMediaResume(video, path, badge, 'watched', _nv ? function() { openPreview({dataset: _nv}); } : null);
   } else if (type === 'audio') {
     seekBack.style.display = 'none'; seekFwd.style.display = 'none';
     audio.src = fileUrl;
     audio.load();
     audio.style.display = 'block';
     ctrl.style.display = 'flex';
-    attachMediaResume(audio, path, badge, 'listened');
+    var _na = dirNextMedia(path);
+    attachMediaResume(audio, path, badge, 'listened', _na ? function() { openPreview({dataset: _na}); } : null);
   } else if (type === 'pdf') {
     pdf.src = fileUrl;
     pdf.style.display = 'block';
@@ -970,6 +980,19 @@ function addSelectedToPlaylist() {
     setTimeout(function() { ok.style.display = 'none'; clearSelection(); }, 1500);
   });
 }
+// Build sorted media file list for dir auto-advance
+(function() {
+  var seen = {}, arr = [];
+  document.querySelectorAll('[data-path][data-type]').forEach(function(el) {
+    var t = el.dataset.type, p = el.dataset.path;
+    if ((t === 'audio' || t === 'video') && p && !seen[p]) {
+      seen[p] = true;
+      arr.push({path: p, name: el.dataset.name || '', type: t});
+    }
+  });
+  arr.sort(function(a, b) { return a.name.toLowerCase().localeCompare(b.name.toLowerCase()); });
+  window.dirMediaFiles = arr;
+})();
 </script>
 {{end}}`
 
