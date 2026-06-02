@@ -470,11 +470,10 @@ func (a *App) handlePathToggle(w http.ResponseWriter, r *http.Request) {
 // ---- Search ----
 
 type SearchResult struct {
-	Path       string `json:"path"`
-	Filename   string `json:"filename"`
-	FileType   string `json:"file_type"`
 	DirPath    string `json:"dir_path"`
-	WatchCount int64  `json:"watch_count"`
+	MatchCount int64  `json:"match_count"`
+	SamplePath string `json:"sample_path"`
+	SampleType string `json:"sample_type"`
 }
 
 func (a *App) handleSearchStatus(w http.ResponseWriter, r *http.Request) {
@@ -566,15 +565,17 @@ func (a *App) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := a.db.Query(r.Context(), `
-		SELECT fi.path, fi.filename, fi.file_type, fi.dir_path,
-		       COALESCE(vp.watch_count, 0)
+		SELECT fi.dir_path,
+		       COUNT(*) AS match_count,
+		       MIN(fi.path) AS sample_path,
+		       MIN(fi.file_type) AS sample_type
 		FROM file_index fi
-		LEFT JOIN video_positions vp ON vp.user_id = fi.user_id AND vp.path = fi.path
 		WHERE fi.user_id = $1
 		  AND lower(fi.filename) LIKE '%' || lower($2) || '%'
 		  AND ($3 = 'all' OR fi.file_type = $3)
-		ORDER BY fi.filename
-		LIMIT 30
+		GROUP BY fi.dir_path
+		ORDER BY COUNT(*) DESC, fi.dir_path
+		LIMIT 20
 	`, uid(r), q, typ)
 	if err != nil {
 		httpErr(w, err, 500)
@@ -584,7 +585,7 @@ func (a *App) handleSearch(w http.ResponseWriter, r *http.Request) {
 	var results []SearchResult
 	for rows.Next() {
 		var sr SearchResult
-		if rows.Scan(&sr.Path, &sr.Filename, &sr.FileType, &sr.DirPath, &sr.WatchCount) == nil {
+		if rows.Scan(&sr.DirPath, &sr.MatchCount, &sr.SamplePath, &sr.SampleType) == nil {
 			results = append(results, sr)
 		}
 	}

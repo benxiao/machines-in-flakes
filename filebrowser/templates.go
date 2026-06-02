@@ -884,16 +884,18 @@ function runSearch() {
         status.textContent = 'No results.'; status.style.display = 'block'; return;
       }
       list.innerHTML = results.map(function(item){
-        var thumb = (item.file_type === 'video' || item.file_type === 'photo')
-          ? '<img src="/thumbnail?path=' + encodeURIComponent(item.path) + '" loading="lazy" onerror="this.style.display=\'none\'">'
-          : '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#8b949e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>';
-        var plays = item.watch_count > 0 ? ' <span class="muted" style="font-size:11px">' + item.watch_count + '×</span>' : '';
+        var parts = item.dir_path.split('/').filter(Boolean);
+        var folderName = parts.length ? parts[parts.length - 1] : item.dir_path;
+        var thumb = (item.sample_type === 'video' || item.sample_type === 'photo')
+          ? '<img src="/thumbnail?path=' + encodeURIComponent(item.sample_path) + '" loading="lazy" onerror="this.style.display=\'none\'">'
+          : '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>';
+        var matchLabel = item.match_count + ' file' + (item.match_count === 1 ? '' : 's');
         return '<div class="search-result" data-dir="' + escAttr(item.dir_path) + '" onclick="openSearchResult(this)">' +
           '<div class="search-result-thumb">' + thumb + '</div>' +
           '<div style="min-width:0;flex:1">' +
-            '<div class="search-result-name">' + escHtml(item.filename) + '</div>' +
+            '<div class="search-result-name">' + escHtml(folderName) + '</div>' +
             '<div class="search-result-dir">' + escHtml(item.dir_path) + '</div>' +
-            '<span class="badge badge-' + item.file_type + '" style="font-size:10px">' + item.file_type.toUpperCase() + '</span>' + plays +
+            '<span class="badge badge-dir" style="font-size:10px">' + escHtml(matchLabel) + '</span>' +
           '</div></div>';
       }).join('');
     }).catch(function(){ status.textContent = 'Search failed.'; status.style.display = 'block'; });
