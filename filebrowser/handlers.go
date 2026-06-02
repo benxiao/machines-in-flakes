@@ -104,24 +104,30 @@ func (a *App) isAllowedPath(r *http.Request, absPath string) bool {
 
 func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	dirParam := r.URL.Query().Get("dir")
+	userID := uid(r)
 
+	// Always load sidebar paths.
+	pRows, err := a.db.Query(ctx, `SELECT id, path, enabled FROM indexed_paths WHERE user_id = $1 AND enabled = TRUE ORDER BY path`, userID)
+	if err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	var sidebarPaths []PathRow
+	for pRows.Next() {
+		var p PathRow
+		if pRows.Scan(&p.ID, &p.Path, &p.Enabled) == nil {
+			sidebarPaths = append(sidebarPaths, p)
+		}
+	}
+	pRows.Close()
+
+	dirParam := r.URL.Query().Get("dir")
 	if dirParam == "" {
-		rows, err := a.db.Query(ctx, `SELECT id, path FROM indexed_paths WHERE user_id = $1 AND enabled = TRUE ORDER BY path`, uid(r))
-		if err != nil {
-			httpErr(w, err, 500)
+		if len(sidebarPaths) > 0 {
+			http.Redirect(w, r, "/browse?dir="+url.QueryEscape(sidebarPaths[0].Path), http.StatusFound)
 			return
 		}
-		defer rows.Close()
-		var cards []RootCard
-		for rows.Next() {
-			var c RootCard
-			if err := rows.Scan(&c.ID, &c.Path); err != nil {
-				continue
-			}
-			cards = append(cards, c)
-		}
-		render(w, "browse_root", BrowseRootPage{ActiveTab: "browse", Cards: cards})
+		render(w, "browse", BrowsePage{ActiveTab: "browse", Paths: sidebarPaths})
 		return
 	}
 
@@ -131,14 +137,13 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Find the indexed root this dir belongs to (for breadcrumb)
+	// Derive current root from sidebar paths (longest matching prefix).
 	var rootPath string
-	a.db.QueryRow(ctx, `
-		SELECT path FROM indexed_paths
-		WHERE user_id = $1 AND enabled = TRUE AND ($2 = path OR starts_with($2, path || '/'))
-		ORDER BY length(path) DESC
-		LIMIT 1
-	`, uid(r), dirParam).Scan(&rootPath)
+	for _, p := range sidebarPaths {
+		if (dirParam == p.Path || strings.HasPrefix(dirParam, p.Path+"/")) && len(p.Path) > len(rootPath) {
+			rootPath = p.Path
+		}
+	}
 
 	entries, err := os.ReadDir(dirParam)
 	if err != nil {
@@ -187,7 +192,7 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(mediaPaths) > 0 {
-		wcRows, err := a.db.Query(ctx, `SELECT path, watch_count FROM video_positions WHERE user_id = $1 AND path = ANY($2)`, uid(r), mediaPaths)
+		wcRows, err := a.db.Query(ctx, `SELECT path, watch_count FROM video_positions WHERE user_id = $1 AND path = ANY($2)`, userID, mediaPaths)
 		if err == nil {
 			wc := make(map[string]int64)
 			for wcRows.Next() {
@@ -208,8 +213,7 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 
 	albumArt := findAlbumArt(dirParam)
 
-	// Fetch playlists for "add to playlist" dropdown.
-	plRows, _ := a.db.Query(ctx, `SELECT id, name FROM playlists WHERE user_id = $1 ORDER BY name`, uid(r))
+	plRows, _ := a.db.Query(ctx, `SELECT id, name FROM playlists WHERE user_id = $1 ORDER BY name`, userID)
 	var pls []PlaylistRow
 	if plRows != nil {
 		for plRows.Next() {
@@ -222,8 +226,10 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 	}
 	plJSON, _ := json.Marshal(pls)
 
-	render(w, "browse_dir", BrowseDirPage{
+	render(w, "browse", BrowsePage{
 		ActiveTab:     "browse",
+		Paths:         sidebarPaths,
+		CurrentRoot:   rootPath,
 		Dir:           dirParam,
 		DirName:       filepath.Base(dirParam),
 		Breadcrumbs:   buildBreadcrumb(dirParam, rootPath),

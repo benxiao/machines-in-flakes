@@ -11,18 +11,10 @@ import (
 
 // ---- Data structs ----
 
-type BrowseRootPage struct {
-	ActiveTab string
-	Cards     []RootCard
-}
-
-type RootCard struct {
-	ID   int64
-	Path string
-}
-
-type BrowseDirPage struct {
+type BrowsePage struct {
 	ActiveTab     string
+	Paths         []PathRow  // sidebar
+	CurrentRoot   string     // abs path of active sidebar entry
 	Dir           string
 	DirName       string
 	Breadcrumbs   []Breadcrumb
@@ -30,7 +22,7 @@ type BrowseDirPage struct {
 	Files         []FileRow
 	Playlists     []PlaylistRow
 	PlaylistsJSON template.JS
-	DirAlbumArt   string // abs path of cover image, empty if none
+	DirAlbumArt   string
 }
 
 type PlaylistRow struct {
@@ -175,8 +167,7 @@ func initTemplates() {
 		}
 		pages[name] = t
 	}
-	add("browse_root", browseRootTmpl)
-	add("browse_dir", browseDirTmpl)
+	add("browse", browseTmpl)
 	add("recent", recentTmpl)
 	add("paths", pathsTmpl)
 	add("playlists", playlistsTmpl)
@@ -275,6 +266,12 @@ tr:hover td { background: #161b22; }
 .badge-other   { background: rgba(139,148,158,0.15);color: #8b949e; border: 1px solid rgba(139,148,158,0.4); }
 .badge-audio   { background: rgba(188,96,255,0.15); color: #bc60ff; border: 1px solid rgba(188,96,255,0.4); }
 .badge-dir     { background: rgba(88,166,255,0.12); color: #58a6ff; border: 1px solid rgba(88,166,255,0.3); }
+.browse-layout { display:flex; margin:-24px; min-height:calc(100vh - 108px); }
+.browse-sidebar { width:220px; flex-shrink:0; border-right:1px solid #30363d; overflow-y:auto; padding:8px 0; }
+.browse-sidebar-item { display:block; padding:8px 16px; color:#8b949e; font-size:13px; font-family:monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-decoration:none; cursor:pointer; }
+.browse-sidebar-item:hover { background:#161b22; color:#c9d1d9; text-decoration:none; }
+.browse-sidebar-item.active { background:#1c2128; color:#f0f6fc; border-left:3px solid #58a6ff; padding-left:13px; }
+.browse-main { flex:1; min-width:0; padding:16px 24px; overflow:hidden; }
 .sel-spacer { height: 60px; }
 .view-toggle { display:flex; gap:4px; }
 .btn-view { background:transparent; border:1px solid #30363d; color:#8b949e; border-radius:6px; padding:4px 10px; font-size:13px; cursor:pointer; line-height:1.4; }
@@ -471,6 +468,12 @@ input:focus, select:focus { outline: none; border-color: #58a6ff; }
   .btn-view { padding: 4px 8px; font-size: 12px; }
   /* Prevent iOS auto-zoom on form inputs */
   input[type=text], input[type=password], select { font-size: 16px; }
+  /* Browse two-pane: stack vertically on mobile */
+  .browse-layout { flex-direction:column; margin:-12px; min-height:0; }
+  .browse-sidebar { width:100%; border-right:none; border-bottom:1px solid #30363d; display:flex; overflow-x:auto; padding:4px 8px; -webkit-overflow-scrolling:touch; }
+  .browse-sidebar-item { flex-shrink:0; padding:6px 12px; border-left:none !important; padding-left:12px !important; }
+  .browse-sidebar-item.active { border-bottom:2px solid #58a6ff; color:#f0f6fc; background:#1c2128; }
+  .browse-main { padding:12px; }
 }
 `
 
@@ -799,22 +802,270 @@ document.addEventListener('submit', function(e) {
 
 // ---- Page templates ----
 
-const browseRootTmpl = `{{define "content"}}
-<div class="page-header">
-  <div class="page-header-left">
-    <h2>Browse</h2>
-    <div class="summary">Select a path to explore</div>
+const browseTmpl = `{{define "content"}}
+<script>window.PLAYLISTS = {{.PlaylistsJSON}};</script>
+<div class="browse-layout">
+  <div class="browse-sidebar">
+    {{range .Paths}}
+    <a class="browse-sidebar-item{{if eq .Path $.CurrentRoot}} active{{end}}" href="{{browseURL .Path}}" title="{{.Path}}">{{.Path}}</a>
+    {{else}}
+    <span style="padding:8px 16px;color:#8b949e;font-size:12px;display:block">No paths. Add one in <a href="/settings">Settings</a>.</span>
+    {{end}}
+  </div>
+  <div class="browse-main">
+    {{if .Dir}}
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+      <div class="breadcrumb" style="margin-bottom:0">
+        {{range $i, $b := .Breadcrumbs}}
+        {{if $i}}<span class="sep">/</span>{{end}}
+        {{if $b.Current}}<span class="current">{{$b.Name}}</span>
+        {{else}}<a href="{{browseURL $b.Path}}">{{$b.Name}}</a>{{end}}
+        {{end}}
+      </div>
+      <div class="view-toggle">
+        <button id="btn-list" class="btn-view" onclick="setView('list')" title="List view">&#9776; List</button>
+        <button id="btn-grid" class="btn-view" onclick="setView('grid')" title="Grid view">&#8859; Grid</button>
+      </div>
+    </div>
+    {{if and (not .Subdirs) (not .Files)}}
+    <p class="muted">This directory is empty.</p>
+    {{else}}
+    <div id="view-list">
+    <div class="table-wrap">
+    <table>
+    <thead><tr>
+      <th style="width:32px"><input type="checkbox" id="sel-all" onchange="toggleSelectAll(this)" style="cursor:pointer"></th>
+      <th>Name</th>
+      <th>Type</th>
+      <th>Size</th>
+      <th>Modified</th>
+      <th>Plays</th>
+    </tr></thead>
+    <tbody>
+    {{range .Subdirs}}
+    <tr class="dir-row" data-dir="{{.AbsPath}}" onclick="browseDir(this)">
+      <td></td>
+      <td>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:6px"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>{{.Name}}
+      </td>
+      <td><span class="badge badge-dir">DIR</span></td>
+      <td class="muted">—</td>
+      <td class="muted">—</td>
+      <td class="muted">—</td>
+    </tr>
+    {{end}}
+    {{range .Files}}
+    {{if eq .FileType "other"}}
+    <tr>
+      <td></td>
+      <td><a href="{{fileURL .AbsPath}}">{{.Filename}}</a></td>
+      <td><span class="badge badge-{{.FileType}}">{{upper .FileType}}</span></td>
+      <td class="muted">{{.Size}}</td>
+      <td class="muted">{{.ModifiedAt}}</td>
+      <td class="muted">—</td>
+    </tr>
+    {{else}}
+    <tr class="file-row" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="{{.FileType}}" onclick="openPreview(this)">
+      <td>{{if or (eq .FileType "video") (eq .FileType "audio")}}<input type="checkbox" class="row-check" value="{{.AbsPath}}" onchange="updateSelBar()" onclick="event.stopPropagation()" style="cursor:pointer">{{end}}</td>
+      <td>{{.Filename}}</td>
+      <td><span class="badge badge-{{.FileType}}">{{upper .FileType}}</span></td>
+      <td class="muted">{{.Size}}</td>
+      <td class="muted">{{.ModifiedAt}}</td>
+      <td>{{if and (or (eq .FileType "video") (eq .FileType "audio")) (gt .WatchCount 0)}}<span class="badge badge-{{.FileType}}">{{.WatchCount}}×</span>{{else}}<span class="muted">—</span>{{end}}</td>
+    </tr>
+    {{end}}
+    {{end}}
+    </tbody>
+    </table>
+    </div>
+    </div>
+    <div id="view-grid" class="view-grid" style="display:none">
+    {{range .Subdirs}}
+    <div class="grid-card" data-dir="{{.AbsPath}}" onclick="browseDir(this)">
+      {{if .AlbumArt}}
+      <div class="grid-thumb" style="position:relative">
+        <img src="{{thumbURL .AlbumArt}}" loading="lazy" alt="" style="width:100%;height:100%;object-fit:cover;display:block"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+        <div style="display:none;width:100%;height:100%;align-items:center;justify-content:center">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        </div>
+        <div style="position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,0.55);border-radius:3px;padding:2px 3px;line-height:0" title="Folder">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        </div>
+      </div>
+      {{else}}
+      <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>
+      {{end}}
+      <div class="grid-name">{{.Name}}</div>
+    </div>
+    {{end}}
+    {{range .Files}}
+    {{if eq .FileType "photo"}}
+    <div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="photo" onclick="gridClick(event,this)">
+      <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
+      <div class="grid-thumb">
+        <img src="{{thumbURL .AbsPath}}" loading="lazy" alt="{{.Filename}}" style="width:100%;height:100%;object-fit:cover;display:block"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+        <div style="display:none;width:100%;height:100%;align-items:center;justify-content:center">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#3fb950" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+        </div>
+      </div>
+      <div class="grid-name">{{.Filename}}</div>
+    </div>
+    {{else if eq .FileType "video"}}
+    <div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="video" onclick="gridClick(event,this)">
+      {{if gt .WatchCount 0}}<span class="grid-plays">{{.WatchCount}}×</span>{{end}}
+      <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
+      <div class="grid-thumb">
+        <img src="{{thumbURL .AbsPath}}" loading="lazy" alt="" style="width:100%;height:100%;object-fit:cover;display:block"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+        <div style="display:none;width:100%;height:100%;align-items:center;justify-content:center">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="17" y1="7" x2="22" y2="7"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="2" y1="17" x2="7" y2="17"/></svg>
+        </div>
+      </div>
+      <div class="grid-name">{{.Filename}}</div>
+    </div>
+    {{else if eq .FileType "audio"}}
+    <div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="audio" onclick="gridClick(event,this)">
+      {{if gt .WatchCount 0}}<span class="grid-plays">{{.WatchCount}}×</span>{{end}}
+      <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
+      {{if $.DirAlbumArt}}
+      <div class="grid-thumb">
+        <img src="{{thumbURL $.DirAlbumArt}}" loading="lazy" alt="" style="width:100%;height:100%;object-fit:cover;display:block"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+        <div style="display:none;width:100%;height:100%;align-items:center;justify-content:center">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#bc60ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+        </div>
+      </div>
+      {{else}}
+      <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#bc60ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>
+      {{end}}
+      <div class="grid-name">{{.Filename}}</div>
+    </div>
+    {{else if eq .FileType "pdf"}}
+    <div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="pdf" onclick="gridClick(event,this)">
+      <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#f85149" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>
+      <div class="grid-name">{{.Filename}}</div>
+    </div>
+    {{else if eq .FileType "text"}}
+    <div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="text" onclick="gridClick(event,this)">
+      <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#d29922" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg></div>
+      <div class="grid-name">{{.Filename}}</div>
+    </div>
+    {{else}}
+    <a class="grid-card" href="{{fileURL .AbsPath}}">
+      <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#8b949e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
+      <div class="grid-name">{{.Filename}}</div>
+    </a>
+    {{end}}
+    {{end}}
+    </div>
+    {{end}}
+    {{end}}
   </div>
 </div>
-{{if not .Cards}}
-<p class="muted">No paths configured yet. <a href="/paths">Add a path</a> to get started.</p>
-{{else}}
-{{range .Cards}}
-<a class="root-card" href="{{browseURL .Path}}">
-  <div class="root-card-path">{{.Path}}</div>
-</a>
-{{end}}
-{{end}}
+<div class="sel-spacer"></div>
+<div id="sel-bar" style="display:none;position:fixed;bottom:0;left:0;right:0;background:#161b22;border-top:1px solid #30363d;padding:12px 24px;z-index:200;align-items:center;gap:12px;flex-wrap:wrap">
+  <span id="sel-count" style="color:#c9d1d9;font-size:14px;white-space:nowrap"></span>
+  <select id="sel-pl" style="background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;font-size:13px;padding:5px 8px">
+    <option value="">Add to playlist...</option>
+    {{range .Playlists}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+  </select>
+  <button class="btn btn-primary btn-sm" onclick="addSelectedToPlaylist()">Add to Playlist</button>
+  <button class="btn btn-edit btn-sm" onclick="downloadSelected()">⬇ Download</button>
+  <button class="btn btn-edit btn-sm" onclick="clearSelection()">&#x2715; Clear</button>
+  <span id="sel-ok" style="display:none;color:#3fb950;font-size:13px"></span>
+</div>
+<script>
+function updateSelBar() {
+  var checks = document.querySelectorAll('.row-check:checked');
+  var bar = document.getElementById('sel-bar');
+  var count = document.getElementById('sel-count');
+  bar.style.display = checks.length > 0 ? 'flex' : 'none';
+  count.textContent = checks.length + ' item' + (checks.length === 1 ? '' : 's') + ' selected';
+  var all = document.querySelectorAll('.row-check');
+  var selAll = document.getElementById('sel-all');
+  if (selAll) {
+    selAll.indeterminate = checks.length > 0 && checks.length < all.length;
+    selAll.checked = all.length > 0 && checks.length === all.length;
+  }
+}
+function toggleSelectAll(cb) {
+  document.querySelectorAll('.row-check').forEach(function(c) { c.checked = cb.checked; });
+  updateSelBar();
+}
+function clearSelection() {
+  document.querySelectorAll('.row-check').forEach(function(c) { c.checked = false; });
+  var selAll = document.getElementById('sel-all');
+  if (selAll) { selAll.checked = false; selAll.indeterminate = false; }
+  updateSelBar();
+}
+function setView(v) {
+  document.getElementById('view-list').style.display = v === 'list' ? '' : 'none';
+  document.getElementById('view-grid').style.display = v === 'grid' ? 'grid' : 'none';
+  document.getElementById('btn-list').classList.toggle('active', v === 'list');
+  document.getElementById('btn-grid').classList.toggle('active', v === 'grid');
+  try { localStorage.setItem('fb_view', v); } catch(e) {}
+}
+function gridClick(event, el) {
+  var chk = el.querySelector('.grid-chk');
+  if (chk && chk.checked) { chk.checked = false; el.classList.remove('grid-checked'); updateSelBar(); return; }
+  openPreview(el);
+}
+function gridCheck(event, chk) {
+  var card = chk.closest('.grid-card');
+  if (card) card.classList.toggle('grid-checked', chk.checked);
+  updateSelBar();
+}
+(function() {
+  var v = 'grid'; try { v = localStorage.getItem('fb_view') || 'grid'; } catch(e) {}
+  setView(v);
+})();
+function addSelectedToPlaylist() {
+  var plId = document.getElementById('sel-pl').value;
+  if (!plId) { document.getElementById('sel-pl').focus(); return; }
+  var paths = Array.from(document.querySelectorAll('.row-check:checked')).map(function(c) { return c.value; });
+  if (paths.length === 0) return;
+  Promise.all(paths.map(function(path) {
+    return fetch('/playlists/' + plId + '/items', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path: path})
+    });
+  })).then(function() {
+    var ok = document.getElementById('sel-ok');
+    ok.textContent = paths.length + ' item' + (paths.length === 1 ? '' : 's') + ' added';
+    ok.style.display = 'inline';
+    setTimeout(function() { ok.style.display = 'none'; clearSelection(); }, 1500);
+  });
+}
+function downloadSelected() {
+  var paths = Array.from(document.querySelectorAll('.row-check:checked')).map(function(c) { return c.value; });
+  paths.forEach(function(path, i) {
+    setTimeout(function() {
+      var a = document.createElement('a');
+      a.href = '/file?path=' + encodeURIComponent(path) + '&dl=1';
+      a.download = '';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }, i * 300);
+  });
+}
+// Build sorted media file list for dir auto-advance
+(function() {
+  var seen = {}, arr = [];
+  document.querySelectorAll('[data-type="audio"],[data-type="video"]').forEach(function(el) {
+    var p = el.dataset.path;
+    if (p && !seen[p]) {
+      seen[p] = true;
+      arr.push({path: p, name: el.dataset.name || '', type: el.dataset.type});
+    }
+  });
+  arr.sort(function(a, b) { return a.name.toLowerCase().localeCompare(b.name.toLowerCase()); });
+  window.dirMediaFiles = arr;
+})();
+</script>
 {{end}}`
 
 const recentTmpl = `{{define "content"}}
@@ -912,258 +1163,6 @@ function setView(v) {
 </script>
 {{end}}`
 
-const browseDirTmpl = `{{define "content"}}
-<script>window.PLAYLISTS = {{.PlaylistsJSON}};</script>
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
-  <div class="breadcrumb" style="margin-bottom:0">
-    {{range $i, $b := .Breadcrumbs}}
-    {{if $i}}<span class="sep">/</span>{{end}}
-    {{if $b.Current}}<span class="current">{{$b.Name}}</span>
-    {{else}}<a href="{{browseURL $b.Path}}">{{$b.Name}}</a>{{end}}
-    {{end}}
-  </div>
-  <div class="view-toggle">
-    <button id="btn-list" class="btn-view" onclick="setView('list')" title="List view">&#9776; List</button>
-    <button id="btn-grid" class="btn-view" onclick="setView('grid')" title="Grid view">&#8859; Grid</button>
-  </div>
-</div>
-{{if and (not .Subdirs) (not .Files)}}
-<p class="muted">This directory is empty.</p>
-{{else}}
-<div id="view-list">
-<div class="table-wrap">
-<table>
-<thead><tr>
-  <th style="width:32px"><input type="checkbox" id="sel-all" onchange="toggleSelectAll(this)" style="cursor:pointer"></th>
-  <th>Name</th>
-  <th>Type</th>
-  <th>Size</th>
-  <th>Modified</th>
-  <th>Plays</th>
-</tr></thead>
-<tbody>
-{{range .Subdirs}}
-<tr class="dir-row" data-dir="{{.AbsPath}}" onclick="browseDir(this)">
-  <td></td>
-  <td>
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:6px"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>{{.Name}}
-  </td>
-  <td><span class="badge badge-dir">DIR</span></td>
-  <td class="muted">—</td>
-  <td class="muted">—</td>
-  <td class="muted">—</td>
-</tr>
-{{end}}
-{{range .Files}}
-{{if eq .FileType "other"}}
-<tr>
-  <td></td>
-  <td><a href="{{fileURL .AbsPath}}">{{.Filename}}</a></td>
-  <td><span class="badge badge-{{.FileType}}">{{upper .FileType}}</span></td>
-  <td class="muted">{{.Size}}</td>
-  <td class="muted">{{.ModifiedAt}}</td>
-  <td class="muted">—</td>
-</tr>
-{{else}}
-<tr class="file-row" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="{{.FileType}}" onclick="openPreview(this)">
-  <td>{{if or (eq .FileType "video") (eq .FileType "audio")}}<input type="checkbox" class="row-check" value="{{.AbsPath}}" onchange="updateSelBar()" onclick="event.stopPropagation()" style="cursor:pointer">{{end}}</td>
-  <td>{{.Filename}}</td>
-  <td><span class="badge badge-{{.FileType}}">{{upper .FileType}}</span></td>
-  <td class="muted">{{.Size}}</td>
-  <td class="muted">{{.ModifiedAt}}</td>
-  <td>{{if and (or (eq .FileType "video") (eq .FileType "audio")) (gt .WatchCount 0)}}<span class="badge badge-{{.FileType}}">{{.WatchCount}}×</span>{{else}}<span class="muted">—</span>{{end}}</td>
-</tr>
-{{end}}
-{{end}}
-</tbody>
-</table>
-</div>
-</div>
-<div id="view-grid" class="view-grid" style="display:none">
-{{range .Subdirs}}
-<div class="grid-card" data-dir="{{.AbsPath}}" onclick="browseDir(this)">
-  {{if .AlbumArt}}
-  <div class="grid-thumb" style="position:relative">
-    <img src="{{thumbURL .AlbumArt}}" loading="lazy" alt="" style="width:100%;height:100%;object-fit:cover;display:block"
-         onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-    <div style="display:none;width:100%;height:100%;align-items:center;justify-content:center">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-    </div>
-    <div style="position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,0.55);border-radius:3px;padding:2px 3px;line-height:0" title="Folder">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-    </div>
-  </div>
-  {{else}}
-  <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>
-  {{end}}
-  <div class="grid-name">{{.Name}}</div>
-</div>
-{{end}}
-{{range .Files}}
-{{if eq .FileType "photo"}}
-<div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="photo" onclick="gridClick(event,this)">
-  <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
-  <div class="grid-thumb">
-    <img src="{{thumbURL .AbsPath}}" loading="lazy" alt="{{.Filename}}" style="width:100%;height:100%;object-fit:cover;display:block"
-         onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-    <div style="display:none;width:100%;height:100%;align-items:center;justify-content:center">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#3fb950" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-    </div>
-  </div>
-  <div class="grid-name">{{.Filename}}</div>
-</div>
-{{else if eq .FileType "video"}}
-<div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="video" onclick="gridClick(event,this)">
-  {{if gt .WatchCount 0}}<span class="grid-plays">{{.WatchCount}}×</span>{{end}}
-  <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
-  <div class="grid-thumb">
-    <img src="{{thumbURL .AbsPath}}" loading="lazy" alt="" style="width:100%;height:100%;object-fit:cover;display:block"
-         onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-    <div style="display:none;width:100%;height:100%;align-items:center;justify-content:center">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="17" y1="7" x2="22" y2="7"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="2" y1="17" x2="7" y2="17"/></svg>
-    </div>
-  </div>
-  <div class="grid-name">{{.Filename}}</div>
-</div>
-{{else if eq .FileType "audio"}}
-<div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="audio" onclick="gridClick(event,this)">
-  {{if gt .WatchCount 0}}<span class="grid-plays">{{.WatchCount}}×</span>{{end}}
-  <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
-  {{if $.DirAlbumArt}}
-  <div class="grid-thumb">
-    <img src="{{thumbURL $.DirAlbumArt}}" loading="lazy" alt="" style="width:100%;height:100%;object-fit:cover;display:block"
-         onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-    <div style="display:none;width:100%;height:100%;align-items:center;justify-content:center">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#bc60ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-    </div>
-  </div>
-  {{else}}
-  <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#bc60ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>
-  {{end}}
-  <div class="grid-name">{{.Filename}}</div>
-</div>
-{{else if eq .FileType "pdf"}}
-<div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="pdf" onclick="gridClick(event,this)">
-  <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#f85149" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>
-  <div class="grid-name">{{.Filename}}</div>
-</div>
-{{else if eq .FileType "text"}}
-<div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="text" onclick="gridClick(event,this)">
-  <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#d29922" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg></div>
-  <div class="grid-name">{{.Filename}}</div>
-</div>
-{{else}}
-<a class="grid-card" href="{{fileURL .AbsPath}}">
-  <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#8b949e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
-  <div class="grid-name">{{.Filename}}</div>
-</a>
-{{end}}
-{{end}}
-</div>
-{{end}}
-<div class="sel-spacer"></div>
-<div id="sel-bar" style="display:none;position:fixed;bottom:0;left:0;right:0;background:#161b22;border-top:1px solid #30363d;padding:12px 24px;z-index:200;align-items:center;gap:12px;flex-wrap:wrap">
-  <span id="sel-count" style="color:#c9d1d9;font-size:14px;white-space:nowrap"></span>
-  <select id="sel-pl" style="background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;font-size:13px;padding:5px 8px">
-    <option value="">Add to playlist...</option>
-    {{range .Playlists}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
-  </select>
-  <button class="btn btn-primary btn-sm" onclick="addSelectedToPlaylist()">Add to Playlist</button>
-  <button class="btn btn-edit btn-sm" onclick="downloadSelected()">⬇ Download</button>
-  <button class="btn btn-edit btn-sm" onclick="clearSelection()">&#x2715; Clear</button>
-  <span id="sel-ok" style="display:none;color:#3fb950;font-size:13px"></span>
-</div>
-<script>
-function updateSelBar() {
-  var checks = document.querySelectorAll('.row-check:checked');
-  var bar = document.getElementById('sel-bar');
-  var count = document.getElementById('sel-count');
-  bar.style.display = checks.length > 0 ? 'flex' : 'none';
-  count.textContent = checks.length + ' item' + (checks.length === 1 ? '' : 's') + ' selected';
-  var all = document.querySelectorAll('.row-check');
-  var selAll = document.getElementById('sel-all');
-  if (selAll) {
-    selAll.indeterminate = checks.length > 0 && checks.length < all.length;
-    selAll.checked = all.length > 0 && checks.length === all.length;
-  }
-}
-function toggleSelectAll(cb) {
-  document.querySelectorAll('.row-check').forEach(function(c) { c.checked = cb.checked; });
-  updateSelBar();
-}
-function clearSelection() {
-  document.querySelectorAll('.row-check').forEach(function(c) { c.checked = false; });
-  var selAll = document.getElementById('sel-all');
-  if (selAll) { selAll.checked = false; selAll.indeterminate = false; }
-  updateSelBar();
-}
-function setView(v) {
-  document.getElementById('view-list').style.display = v === 'list' ? '' : 'none';
-  document.getElementById('view-grid').style.display = v === 'grid' ? 'grid' : 'none';
-  document.getElementById('btn-list').classList.toggle('active', v === 'list');
-  document.getElementById('btn-grid').classList.toggle('active', v === 'grid');
-  try { localStorage.setItem('fb_view', v); } catch(e) {}
-}
-function gridClick(event, el) {
-  var chk = el.querySelector('.grid-chk');
-  if (chk && chk.checked) { chk.checked = false; el.classList.remove('grid-checked'); updateSelBar(); return; }
-  openPreview(el);
-}
-function gridCheck(event, chk) {
-  var card = chk.closest('.grid-card');
-  if (card) card.classList.toggle('grid-checked', chk.checked);
-  updateSelBar();
-}
-(function() {
-  var v = 'list'; try { v = localStorage.getItem('fb_view') || 'list'; } catch(e) {}
-  setView(v);
-})();
-function addSelectedToPlaylist() {
-  var plId = document.getElementById('sel-pl').value;
-  if (!plId) { document.getElementById('sel-pl').focus(); return; }
-  var paths = Array.from(document.querySelectorAll('.row-check:checked')).map(function(c) { return c.value; });
-  if (paths.length === 0) return;
-  Promise.all(paths.map(function(path) {
-    return fetch('/playlists/' + plId + '/items', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({path: path})
-    });
-  })).then(function() {
-    var ok = document.getElementById('sel-ok');
-    ok.textContent = paths.length + ' item' + (paths.length === 1 ? '' : 's') + ' added';
-    ok.style.display = 'inline';
-    setTimeout(function() { ok.style.display = 'none'; clearSelection(); }, 1500);
-  });
-}
-function downloadSelected() {
-  var paths = Array.from(document.querySelectorAll('.row-check:checked')).map(function(c) { return c.value; });
-  paths.forEach(function(path, i) {
-    setTimeout(function() {
-      var a = document.createElement('a');
-      a.href = '/file?path=' + encodeURIComponent(path) + '&dl=1';
-      a.download = '';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    }, i * 300);
-  });
-}
-// Build sorted media file list for dir auto-advance
-(function() {
-  var seen = {}, arr = [];
-  document.querySelectorAll('[data-type="audio"],[data-type="video"]').forEach(function(el) {
-    var p = el.dataset.path;
-    if (p && !seen[p]) {
-      seen[p] = true;
-      arr.push({path: p, name: el.dataset.name || '', type: el.dataset.type});
-    }
-  });
-  arr.sort(function(a, b) { return a.name.toLowerCase().localeCompare(b.name.toLowerCase()); });
-  window.dirMediaFiles = arr;
-})();
-</script>
-{{end}}`
 
 const pathsTmpl = `{{define "content"}}
 <div class="page-header">
