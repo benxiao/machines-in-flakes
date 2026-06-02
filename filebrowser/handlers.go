@@ -477,7 +477,18 @@ type SearchResult struct {
 	WatchCount int64  `json:"watch_count"`
 }
 
+func (a *App) handleSearchStatus(w http.ResponseWriter, r *http.Request) {
+	userID := uid(r)
+	_, running := a.reindexing.Load(userID)
+	var count int64
+	a.db.QueryRow(r.Context(), `SELECT COUNT(*) FROM file_index WHERE user_id = $1`, userID).Scan(&count)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"running": running, "count": count})
+}
+
 func (a *App) reindexUser(ctx context.Context, userID int64) {
+	a.reindexing.Store(userID, true)
+	defer a.reindexing.Delete(userID)
 	rows, err := a.db.Query(ctx, `SELECT path FROM indexed_paths WHERE user_id = $1 AND enabled = TRUE`, userID)
 	if err != nil {
 		log.Printf("reindex: query paths: %v", err)

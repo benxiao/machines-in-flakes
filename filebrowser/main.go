@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -14,6 +15,7 @@ import (
 type App struct {
 	db         *pgxpool.Pool
 	ffmpegPath string
+	reindexing sync.Map // key: int64 userID → bool
 }
 
 func systemTimezone() string {
@@ -150,6 +152,7 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /paths/{id}/delete", a.handlePathDelete)
 	mux.HandleFunc("POST /paths/{id}/toggle", a.handlePathToggle)
 	mux.HandleFunc("GET /search", a.handleSearch)
+	mux.HandleFunc("GET /search/status", a.handleSearchStatus)
 	mux.HandleFunc("POST /search/reindex", a.handleSearchReindex)
 	mux.HandleFunc("GET /playlists", a.handlePlaylistList)
 	mux.HandleFunc("POST /playlists", a.handlePlaylistCreate)
@@ -192,6 +195,33 @@ func main() {
 	}
 	app.bootstrapAdmin(ctx, os.Getenv("FB_ADMIN_USERNAME"), os.Getenv("FB_ADMIN_PASSWORD"))
 	initTemplates()
+
+	// Reindex all users every 6 hours so the search index stays fresh.
+	go func() {
+		for {
+			time.Sleep(6 * time.Hour)
+			rows, err := pool.Query(ctx, `SELECT id FROM users`)
+			if err != nil {
+				continue
+			}
+			var userIDs []int64
+			for rows.Next() {
+				var id int64
+				if rows.Scan(&id) == nil {
+					userIDs = append(userIDs, id)
+				}
+			}
+			rows.Close()
+			for _, id := range userIDs {
+				uid := id
+				go func() {
+					c, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+					defer cancel()
+					app.reindexUser(c, uid)
+				}()
+			}
+		}
+	}()
 
 	addr := os.Getenv("FB_LISTEN")
 	if addr == "" {

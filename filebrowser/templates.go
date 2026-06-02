@@ -1829,9 +1829,23 @@ const settingsTmpl = `{{define "content"}}
 })();
 function reindexFiles(btn) {
   btn.disabled = true; btn.textContent = 'Indexing…';
-  fetch('/search/reindex', {method: 'POST'})
-    .then(function() { btn.textContent = 'Done ✓'; setTimeout(function(){ btn.disabled = false; btn.textContent = 'Reindex Files'; }, 2000); })
-    .catch(function() { btn.disabled = false; btn.textContent = 'Reindex Files'; });
+  fetch('/search/reindex', {method: 'POST'}).then(function() { pollReindexStatus(btn); });
+}
+var _reindexPoll;
+function pollReindexStatus(btn) {
+  clearTimeout(_reindexPoll);
+  _reindexPoll = setTimeout(function() {
+    fetch('/search/status').then(function(r){ return r.json(); }).then(function(s) {
+      if (s.running) {
+        btn.textContent = 'Indexing… ' + s.count + ' files';
+        pollReindexStatus(btn);
+      } else {
+        btn.disabled = false;
+        btn.textContent = 'Done — ' + s.count + ' files ✓';
+        setTimeout(function() { btn.textContent = 'Reindex Files'; }, 3000);
+      }
+    });
+  }, 800);
 }
 document.querySelectorAll('.path-enabled-check').forEach(function(cb) {
   cb.addEventListener('change', function() {
