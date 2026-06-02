@@ -672,7 +672,7 @@ document.addEventListener('mouseup', function() {
 });
 // ---- End image zoom ----
 
-function openPreview(el) {
+function openPreview(el, autoplay) {
   var path = el.dataset.path;
   var name = el.dataset.name;
   var type = el.dataset.type;
@@ -708,19 +708,21 @@ function openPreview(el) {
     izInit(wrap, img);
   } else if (type === 'video') {
     seekBack.style.display = ''; seekFwd.style.display = '';
-    attachVideo(video, '/hls/playlist?path=' + encodeURIComponent(path), fileUrl);
+    var _nv = dirNextMedia(path);
+    attachVideo(video, '/hls/playlist?path=' + encodeURIComponent(path), fileUrl,
+      autoplay ? function(v) { v.play(); } : null);
     video.style.display = 'block';
     ctrl.style.display = 'flex';
-    var _nv = dirNextMedia(path);
-    attachMediaResume(video, path, badge, 'watched', _nv ? function() { openPreview({dataset: _nv}); } : null);
+    attachMediaResume(video, path, badge, 'watched', _nv ? function() { openPreview({dataset: _nv}, true); } : null);
   } else if (type === 'audio') {
     seekBack.style.display = 'none'; seekFwd.style.display = 'none';
     audio.src = fileUrl;
     audio.load();
     audio.style.display = 'block';
     ctrl.style.display = 'flex';
+    if (autoplay) audio.addEventListener('canplay', function() { audio.play(); }, {once: true});
     var _na = dirNextMedia(path);
-    attachMediaResume(audio, path, badge, 'listened', _na ? function() { openPreview({dataset: _na}); } : null);
+    attachMediaResume(audio, path, badge, 'listened', _na ? function() { openPreview({dataset: _na}, true); } : null);
   } else if (type === 'pdf') {
     pdf.src = fileUrl;
     pdf.style.display = 'block';
