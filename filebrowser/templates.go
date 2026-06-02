@@ -902,7 +902,7 @@ function openSearchResult(item) {
   var panel = document.getElementById('search-panel');
   if (panel) panel.style.display = 'none';
   document.getElementById('search-q').value = '';
-  openPreview({dataset: {path: item.path, name: item.filename, type: item.file_type}}, true);
+  window.location = '/browse?dir=' + encodeURIComponent(item.dir_path);
 }
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
