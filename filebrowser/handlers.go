@@ -199,6 +199,22 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Find cover image for album art (used in grid view for audio files).
+	var albumArt string
+	for _, f := range files {
+		if f.FileType != "photo" {
+			continue
+		}
+		base := strings.ToLower(strings.TrimSuffix(f.Filename, filepath.Ext(f.Filename)))
+		if base == "cover" || base == "folder" || base == "album" || base == "front" {
+			albumArt = f.AbsPath
+			break
+		}
+		if albumArt == "" {
+			albumArt = f.AbsPath
+		}
+	}
+
 	// Fetch playlists for "add to playlist" dropdown.
 	plRows, _ := a.db.Query(ctx, `SELECT id, name FROM playlists ORDER BY name`)
 	var pls []PlaylistRow
@@ -222,6 +238,7 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		Files:         files,
 		Playlists:     pls,
 		PlaylistsJSON: template.JS(plJSON),
+		DirAlbumArt:   albumArt,
 	})
 }
 
