@@ -507,6 +507,7 @@ const baseTmpl = `<!DOCTYPE html>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4"></script>
 <script>
+var MOBILE = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 var modal = document.getElementById('preview-modal');
 function browseDir(el) {
   window.location = '/browse?dir=' + encodeURIComponent(el.dataset.dir);
@@ -709,8 +710,14 @@ function openPreview(el, autoplay) {
   } else if (type === 'video') {
     seekBack.style.display = ''; seekFwd.style.display = '';
     var _nv = dirNextMedia(path);
-    attachVideo(video, '/hls/playlist?path=' + encodeURIComponent(path), fileUrl,
-      autoplay ? function(v) { v.play(); } : null);
+    if (MOBILE) {
+      attachVideo(video, '/hls/playlist?path=' + encodeURIComponent(path), fileUrl,
+        autoplay ? function(v) { v.play(); } : null);
+    } else {
+      video.src = fileUrl;
+      video.load();
+      if (autoplay) video.addEventListener('canplay', function() { video.play(); }, {once: true});
+    }
     video.style.display = 'block';
     ctrl.style.display = 'flex';
     attachMediaResume(video, path, badge, 'watched', _nv ? function() { openPreview({dataset: _nv}, true); } : null);
@@ -1211,7 +1218,12 @@ function startPlaylistItem(idx, seekTo, autoplay) {
   };
   if (item.FileType === 'video') {
     v.style.display = 'block'; media = v;
-    attachVideo(v, '/hls/playlist?path=' + encodeURIComponent(item.Path), fileUrl, startPlayback);
+    if (MOBILE) {
+      attachVideo(v, '/hls/playlist?path=' + encodeURIComponent(item.Path), fileUrl, startPlayback);
+    } else {
+      v.src = fileUrl; v.load();
+      v.addEventListener('loadedmetadata', function() { startPlayback(v); }, {once: true});
+    }
   } else {
     a.style.display = 'block'; media = a;
     a.src = fileUrl; a.load();
