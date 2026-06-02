@@ -1637,29 +1637,40 @@ const settingsTmpl = `{{define "content"}}
 <div class="section">
   <div class="section-header"><h3>Playback</h3></div>
   <div class="form-page">
-    <div class="form-group" style="flex-direction:row;align-items:center;gap:10px;border:none;padding:0">
-      <input type="checkbox" id="cb-force-original" style="width:auto;cursor:pointer;margin:0"
-             onchange="var v=this.checked;try{v?localStorage.setItem('fb_force_original','1'):localStorage.removeItem('fb_force_original')}catch(e){}">
-      <label for="cb-force-original" style="cursor:pointer;margin:0;font-weight:normal">Force original video on all devices</label>
-    </div>
-    <div class="form-group" style="flex-direction:row;align-items:center;gap:10px;border:none;padding:0;margin-top:12px">
-      <label for="vol-slider" style="margin:0;white-space:nowrap">Default volume: <span id="vol-display">100</span>%</label>
-      <input type="range" id="vol-slider" min="0" max="100" value="100" style="width:180px;cursor:pointer;accent-color:#58a6ff"
-             oninput="document.getElementById('vol-display').textContent=this.value"
-             onchange="try{localStorage.setItem('fb_default_volume',this.value/100)}catch(e){}">
-    </div>
-    <p class="muted" style="font-size:12px;margin:6px 0 0">By default, mobile devices stream transcoded HLS video. Enable this to always play the original file regardless of device. Settings stored per-browser.</p>
+    <form action="/settings" method="post">
+      <input type="hidden" name="save_playback" value="1">
+      <div class="form-group" style="flex-direction:row;align-items:center;gap:10px;border:none;padding:0">
+        <input type="checkbox" id="cb-force-original" name="force_original" value="1" style="width:auto;cursor:pointer;margin:0">
+        <label for="cb-force-original" style="cursor:pointer;margin:0;font-weight:normal">Force original video on all devices</label>
+      </div>
+      <div class="form-group" style="flex-direction:row;align-items:center;gap:10px;border:none;padding:0;margin-top:12px">
+        <label for="vol-slider" style="margin:0;white-space:nowrap">Default volume: <span id="vol-display">100</span>%</label>
+        <input type="range" id="vol-slider" min="0" max="100" value="100" style="width:180px;cursor:pointer;accent-color:#58a6ff"
+               oninput="document.getElementById('vol-display').textContent=this.value;document.getElementById('vol-val').value=this.value/100">
+        <input type="hidden" id="vol-val" name="default_volume" value="1.0">
+      </div>
+      <div class="form-actions" style="margin-top:16px">
+        <button class="btn btn-primary btn-sm" type="submit">Save Playback Settings</button>
+      </div>
+      <p class="muted" style="font-size:12px;margin:6px 0 0">Playback settings are saved to your account and synced across devices when you visit this page.</p>
+    </form>
   </div>
 </div>
 <script>
 (function(){
   try {
+    var fo = {{if .Settings.ForceOriginal}}true{{else}}false{{end}};
+    var dv = {{printf "%.4f" .Settings.DefaultVolume}};
+    fo ? localStorage.setItem('fb_force_original','1') : localStorage.removeItem('fb_force_original');
+    localStorage.setItem('fb_default_volume', String(dv));
     var cb = document.getElementById('cb-force-original');
-    if (cb) cb.checked = !!localStorage.getItem('fb_force_original');
-    var vol = parseFloat(localStorage.getItem('fb_default_volume'));
-    if (!isNaN(vol)) {
-      var sl = document.getElementById('vol-slider');
-      if (sl) { sl.value = Math.round(vol * 100); document.getElementById('vol-display').textContent = sl.value; }
+    if (cb) cb.checked = fo;
+    var sl = document.getElementById('vol-slider');
+    if (sl) {
+      var pct = Math.round(dv * 100);
+      sl.value = pct;
+      document.getElementById('vol-display').textContent = pct;
+      document.getElementById('vol-val').value = dv;
     }
   } catch(e) {}
 })();

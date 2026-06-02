@@ -75,8 +75,38 @@ CREATE TABLE IF NOT EXISTS settings (
 ALTER TABLE indexed_paths ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE;
 `
 
+const migrations = `
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='indexed_paths' AND column_name='user_id') THEN
+    ALTER TABLE indexed_paths ADD COLUMN user_id BIGINT REFERENCES users(id) ON DELETE CASCADE;
+    UPDATE indexed_paths SET user_id = (SELECT id FROM users ORDER BY id LIMIT 1) WHERE user_id IS NULL;
+    ALTER TABLE indexed_paths DROP CONSTRAINT IF EXISTS indexed_paths_path_key;
+    ALTER TABLE indexed_paths ADD CONSTRAINT indexed_paths_user_id_path_key UNIQUE (user_id, path);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='settings' AND column_name='user_id') THEN
+    ALTER TABLE settings ADD COLUMN user_id BIGINT REFERENCES users(id) ON DELETE CASCADE;
+    UPDATE settings SET user_id = (SELECT id FROM users ORDER BY id LIMIT 1) WHERE user_id IS NULL;
+    ALTER TABLE settings DROP CONSTRAINT IF EXISTS settings_pkey;
+    ALTER TABLE settings ADD PRIMARY KEY (user_id, key);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='playlists' AND column_name='user_id') THEN
+    ALTER TABLE playlists ADD COLUMN user_id BIGINT REFERENCES users(id) ON DELETE CASCADE;
+    UPDATE playlists SET user_id = (SELECT id FROM users ORDER BY id LIMIT 1) WHERE user_id IS NULL;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='video_positions' AND column_name='user_id') THEN
+    ALTER TABLE video_positions ADD COLUMN user_id BIGINT REFERENCES users(id) ON DELETE CASCADE;
+    UPDATE video_positions SET user_id = (SELECT id FROM users ORDER BY id LIMIT 1) WHERE user_id IS NULL;
+    ALTER TABLE video_positions DROP CONSTRAINT IF EXISTS video_positions_pkey;
+    ALTER TABLE video_positions ADD PRIMARY KEY (user_id, path);
+  END IF;
+END $$;
+`
+
 func (a *App) initSchema(ctx context.Context) error {
-	_, err := a.db.Exec(ctx, schema)
+	if _, err := a.db.Exec(ctx, schema); err != nil {
+		return err
+	}
+	_, err := a.db.Exec(ctx, migrations)
 	return err
 }
 

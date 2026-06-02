@@ -69,6 +69,11 @@ func parseID(r *http.Request) (int64, bool) {
 	return id, err == nil && id > 0
 }
 
+func uid(r *http.Request) int64 {
+	id, _ := r.Context().Value(ctxUserID).(int64)
+	return id
+}
+
 func formatSize(n int64) string {
 	const (
 		kb = 1024
@@ -87,13 +92,13 @@ func formatSize(n int64) string {
 	}
 }
 
-// isAllowedPath checks that absPath is equal to or under one of the enabled indexed roots.
+// isAllowedPath checks that absPath is equal to or under one of the current user's enabled indexed roots.
 func (a *App) isAllowedPath(r *http.Request, absPath string) bool {
 	var count int
 	err := a.db.QueryRow(r.Context(), `
 		SELECT COUNT(*) FROM indexed_paths
-		WHERE enabled = TRUE AND ($1 = path OR starts_with($1, path || '/'))
-	`, absPath).Scan(&count)
+		WHERE user_id = $1 AND enabled = TRUE AND ($2 = path OR starts_with($2, path || '/'))
+	`, uid(r), absPath).Scan(&count)
 	return err == nil && count > 0
 }
 
@@ -102,7 +107,7 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 	dirParam := r.URL.Query().Get("dir")
 
 	if dirParam == "" {
-		rows, err := a.db.Query(ctx, `SELECT id, path FROM indexed_paths WHERE enabled = TRUE ORDER BY path`)
+		rows, err := a.db.Query(ctx, `SELECT id, path FROM indexed_paths WHERE user_id = $1 AND enabled = TRUE ORDER BY path`, uid(r))
 		if err != nil {
 			httpErr(w, err, 500)
 			return
@@ -130,10 +135,10 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 	var rootPath string
 	a.db.QueryRow(ctx, `
 		SELECT path FROM indexed_paths
-		WHERE enabled = TRUE AND ($1 = path OR starts_with($1, path || '/'))
+		WHERE user_id = $1 AND enabled = TRUE AND ($2 = path OR starts_with($2, path || '/'))
 		ORDER BY length(path) DESC
 		LIMIT 1
-	`, dirParam).Scan(&rootPath)
+	`, uid(r), dirParam).Scan(&rootPath)
 
 	entries, err := os.ReadDir(dirParam)
 	if err != nil {
@@ -182,7 +187,7 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(mediaPaths) > 0 {
-		wcRows, err := a.db.Query(ctx, `SELECT path, watch_count FROM video_positions WHERE path = ANY($1)`, mediaPaths)
+		wcRows, err := a.db.Query(ctx, `SELECT path, watch_count FROM video_positions WHERE user_id = $1 AND path = ANY($2)`, uid(r), mediaPaths)
 		if err == nil {
 			wc := make(map[string]int64)
 			for wcRows.Next() {
@@ -204,7 +209,7 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 	albumArt := findAlbumArt(dirParam)
 
 	// Fetch playlists for "add to playlist" dropdown.
-	plRows, _ := a.db.Query(ctx, `SELECT id, name FROM playlists ORDER BY name`)
+	plRows, _ := a.db.Query(ctx, `SELECT id, name FROM playlists WHERE user_id = $1 ORDER BY name`, uid(r))
 	var pls []PlaylistRow
 	if plRows != nil {
 		for plRows.Next() {
@@ -234,14 +239,15 @@ func (a *App) handleRecent(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.Query(r.Context(), `
 		SELECT path, watch_count, updated_at, position_sec
 		FROM video_positions
-		WHERE EXISTS (
+		WHERE user_id = $1
+		  AND EXISTS (
 			SELECT 1 FROM indexed_paths ip
-			WHERE ip.enabled = TRUE
+			WHERE ip.user_id = $1 AND ip.enabled = TRUE
 			  AND (video_positions.path = ip.path OR starts_with(video_positions.path, ip.path || '/'))
-		)
+		  )
 		ORDER BY updated_at DESC
 		LIMIT 50
-	`)
+	`, uid(r))
 	if err != nil {
 		httpErr(w, err, 500)
 		return
@@ -356,7 +362,7 @@ func (a *App) handleServeFile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handlePathsList(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(r.Context(), `SELECT id, path FROM indexed_paths ORDER BY path`)
+	rows, err := a.db.Query(r.Context(), `SELECT id, path FROM indexed_paths WHERE user_id = $1 ORDER BY path`, uid(r))
 	if err != nil {
 		httpErr(w, err, 500)
 		return
@@ -390,7 +396,7 @@ func (a *App) handlePathAdd(w http.ResponseWriter, r *http.Request) {
 		a.renderPathsWithError(w, r, fmt.Sprintf("%q is not a directory", path))
 		return
 	}
-	_, err = a.db.Exec(r.Context(), `INSERT INTO indexed_paths (path) VALUES ($1) ON CONFLICT DO NOTHING`, path)
+	_, err = a.db.Exec(r.Context(), `INSERT INTO indexed_paths (path, user_id) VALUES ($1, $2) ON CONFLICT (user_id, path) DO NOTHING`, path, uid(r))
 	if err != nil {
 		httpErr(w, err, 500)
 		return
@@ -408,7 +414,7 @@ func (a *App) handlePathDelete(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	_, err := a.db.Exec(r.Context(), `DELETE FROM indexed_paths WHERE id=$1`, id)
+	_, err := a.db.Exec(r.Context(), `DELETE FROM indexed_paths WHERE id=$1 AND user_id=$2`, id, uid(r))
 	if err != nil {
 		httpErr(w, err, 500)
 		return
@@ -424,7 +430,7 @@ func (a *App) handlePathToggle(w http.ResponseWriter, r *http.Request) {
 	}
 	r.ParseForm()
 	enabled := r.FormValue("enabled") == "1"
-	_, err := a.db.Exec(r.Context(), `UPDATE indexed_paths SET enabled=$1 WHERE id=$2`, enabled, id)
+	_, err := a.db.Exec(r.Context(), `UPDATE indexed_paths SET enabled=$1 WHERE id=$2 AND user_id=$3`, enabled, id, uid(r))
 	if err != nil {
 		httpErr(w, err, 500)
 		return
@@ -648,9 +654,10 @@ func (a *App) handlePlaylistList(w http.ResponseWriter, r *http.Request) {
 		SELECT p.id, p.name, COUNT(pi.id) AS item_count
 		FROM playlists p
 		LEFT JOIN playlist_items pi ON pi.playlist_id = p.id
+		WHERE p.user_id = $1
 		GROUP BY p.id, p.name
 		ORDER BY p.name
-	`)
+	`, uid(r))
 	if err != nil {
 		httpErr(w, err, 500)
 		return
@@ -674,7 +681,7 @@ func (a *App) handlePlaylistCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var id int64
-	err := a.db.QueryRow(r.Context(), `INSERT INTO playlists (name) VALUES ($1) RETURNING id`, name).Scan(&id)
+	err := a.db.QueryRow(r.Context(), `INSERT INTO playlists (name, user_id) VALUES ($1, $2) RETURNING id`, name, uid(r)).Scan(&id)
 	if err != nil {
 		httpErr(w, err, 500)
 		return
@@ -689,7 +696,7 @@ func (a *App) handlePlaylistDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var name string
-	if err := a.db.QueryRow(r.Context(), `SELECT name FROM playlists WHERE id = $1`, id).Scan(&name); err != nil {
+	if err := a.db.QueryRow(r.Context(), `SELECT name FROM playlists WHERE id = $1 AND user_id = $2`, id, uid(r)).Scan(&name); err != nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -723,7 +730,7 @@ func (a *App) handlePlaylistDelete(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if _, err := a.db.Exec(r.Context(), `DELETE FROM playlists WHERE id = $1`, id); err != nil {
+	if _, err := a.db.Exec(r.Context(), `DELETE FROM playlists WHERE id = $1 AND user_id = $2`, id, uid(r)); err != nil {
 		httpErr(w, err, 500)
 		return
 	}
@@ -734,6 +741,11 @@ func (a *App) handlePlaylistItemAdd(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseID(r)
 	if !ok {
 		http.NotFound(w, r)
+		return
+	}
+	var ownerID int64
+	if err := a.db.QueryRow(r.Context(), `SELECT user_id FROM playlists WHERE id = $1`, id).Scan(&ownerID); err != nil || ownerID != uid(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 	var req playlistItemAddReq
@@ -759,6 +771,11 @@ func (a *App) handlePlaylistItemDelete(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	var ownerID int64
+	if err := a.db.QueryRow(r.Context(), `SELECT user_id FROM playlists WHERE id = $1`, id).Scan(&ownerID); err != nil || ownerID != uid(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
 	itemID, err := strconv.ParseInt(r.PathValue("item_id"), 10, 64)
 	if err != nil || itemID <= 0 {
 		http.NotFound(w, r)
@@ -777,6 +794,11 @@ func (a *App) handleGetPlaylistState(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	var ownerID int64
+	if err := a.db.QueryRow(r.Context(), `SELECT user_id FROM playlists WHERE id = $1`, id).Scan(&ownerID); err != nil || ownerID != uid(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
 	var resp playlistStateResp
 	a.db.QueryRow(r.Context(), `SELECT current_index, position_sec FROM playlist_state WHERE playlist_id = $1`, id).Scan(&resp.CurrentIndex, &resp.PositionSec)
 	w.Header().Set("Content-Type", "application/json")
@@ -787,6 +809,11 @@ func (a *App) handleSavePlaylistState(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseID(r)
 	if !ok {
 		http.NotFound(w, r)
+		return
+	}
+	var ownerID int64
+	if err := a.db.QueryRow(r.Context(), `SELECT user_id FROM playlists WHERE id = $1`, id).Scan(&ownerID); err != nil || ownerID != uid(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 	var req playlistStateReq
@@ -872,12 +899,14 @@ func (a *App) handleThumbnail(w http.ResponseWriter, r *http.Request) {
 // ---- Transcoding settings ----
 
 type TranscodeSettings struct {
-	CRF        int
-	Preset     string
-	MaxWidth   int
-	VideoKbps  int
-	AudioKbps  int
-	SegmentSec int
+	CRF           int
+	Preset        string
+	MaxWidth      int
+	VideoKbps     int
+	AudioKbps     int
+	SegmentSec    int
+	ForceOriginal bool
+	DefaultVolume float64
 }
 
 var validPresets = map[string]bool{
@@ -885,9 +914,9 @@ var validPresets = map[string]bool{
 	"fast": true, "medium": true, "slow": true, "slower": true, "veryslow": true,
 }
 
-func (a *App) getTranscodeSettings(ctx context.Context) TranscodeSettings {
-	s := TranscodeSettings{CRF: 23, Preset: "fast", MaxWidth: 1280, VideoKbps: 3000, AudioKbps: 128, SegmentSec: 6}
-	rows, err := a.db.Query(ctx, `SELECT key, value FROM settings`)
+func (a *App) getTranscodeSettings(ctx context.Context, userID int64) TranscodeSettings {
+	s := TranscodeSettings{CRF: 23, Preset: "fast", MaxWidth: 1280, VideoKbps: 3000, AudioKbps: 128, SegmentSec: 6, DefaultVolume: 1.0}
+	rows, err := a.db.Query(ctx, `SELECT key, value FROM settings WHERE user_id = $1`, userID)
 	if err != nil {
 		return s
 	}
@@ -922,6 +951,12 @@ func (a *App) getTranscodeSettings(ctx context.Context) TranscodeSettings {
 			if n, err := strconv.Atoi(v); err == nil && n >= 2 && n <= 60 {
 				s.SegmentSec = n
 			}
+		case "playback_force_original":
+			s.ForceOriginal = v == "1"
+		case "playback_default_volume":
+			if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 && f <= 1 {
+				s.DefaultVolume = f
+			}
 		}
 	}
 	return s
@@ -930,7 +965,7 @@ func (a *App) getTranscodeSettings(ctx context.Context) TranscodeSettings {
 // ---- Settings page handlers ----
 
 func (a *App) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(r.Context(), `SELECT id, path, enabled FROM indexed_paths ORDER BY path`)
+	rows, err := a.db.Query(r.Context(), `SELECT id, path, enabled FROM indexed_paths WHERE user_id = $1 ORDER BY path`, uid(r))
 	if err != nil {
 		httpErr(w, err, 500)
 		return
@@ -943,7 +978,7 @@ func (a *App) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 			paths = append(paths, p)
 		}
 	}
-	s := a.getTranscodeSettings(r.Context())
+	s := a.getTranscodeSettings(r.Context(), uid(r))
 	savedOK := r.URL.Query().Get("saved") == "1"
 	pathErr := r.URL.Query().Get("err")
 	render(w, "settings", SettingsPage{
@@ -957,23 +992,45 @@ func (a *App) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleSettingsSave(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
+	userID := uid(r)
+	save := func(k, v string) error {
+		_, err := a.db.Exec(r.Context(), `
+			INSERT INTO settings (user_id, key, value) VALUES ($1, $2, $3)
+			ON CONFLICT (user_id, key) DO UPDATE SET value = EXCLUDED.value
+		`, userID, k, v)
+		return err
+	}
+	if r.FormValue("save_playback") == "1" {
+		fo := "0"
+		if r.FormValue("force_original") != "" {
+			fo = "1"
+		}
+		dv := r.FormValue("default_volume")
+		if dv == "" {
+			dv = "1.0"
+		}
+		for k, v := range map[string]string{"playback_force_original": fo, "playback_default_volume": dv} {
+			if err := save(k, v); err != nil {
+				httpErr(w, err, 500)
+				return
+			}
+		}
+		http.Redirect(w, r, "/settings?saved=1", http.StatusFound)
+		return
+	}
 	updates := map[string]string{
-		"transcode_crf":        r.FormValue("crf"),
-		"transcode_preset":     r.FormValue("preset"),
-		"transcode_max_width":  r.FormValue("max_width"),
-		"transcode_video_kbps": r.FormValue("video_kbps"),
-		"transcode_audio_kbps": r.FormValue("audio_kbps"),
+		"transcode_crf":         r.FormValue("crf"),
+		"transcode_preset":      r.FormValue("preset"),
+		"transcode_max_width":   r.FormValue("max_width"),
+		"transcode_video_kbps":  r.FormValue("video_kbps"),
+		"transcode_audio_kbps":  r.FormValue("audio_kbps"),
 		"transcode_segment_sec": r.FormValue("segment_sec"),
 	}
 	for k, v := range updates {
 		if v == "" {
 			continue
 		}
-		_, err := a.db.Exec(r.Context(), `
-			INSERT INTO settings (key, value) VALUES ($1, $2)
-			ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-		`, k, v)
-		if err != nil {
+		if err := save(k, v); err != nil {
 			httpErr(w, err, 500)
 			return
 		}
@@ -1009,7 +1066,7 @@ func (a *App) handleHLSPlaylist(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid duration", http.StatusInternalServerError)
 		return
 	}
-	ts := a.getTranscodeSettings(r.Context())
+	ts := a.getTranscodeSettings(r.Context(), uid(r))
 	segSec := ts.SegmentSec
 	encodedPath := url.QueryEscape(absPath)
 	var b strings.Builder
@@ -1053,7 +1110,7 @@ func (a *App) handleGetVideoPosition(w http.ResponseWriter, r *http.Request) {
 	}
 	var resp videoPositionResp
 	err := a.db.QueryRow(r.Context(),
-		`SELECT position_sec, watch_count FROM video_positions WHERE path = $1`, absPath,
+		`SELECT position_sec, watch_count FROM video_positions WHERE user_id = $1 AND path = $2`, uid(r), absPath,
 	).Scan(&resp.Position, &resp.WatchCount)
 	if err != nil {
 		resp = videoPositionResp{}
@@ -1076,21 +1133,21 @@ func (a *App) handleSaveVideoPosition(w http.ResponseWriter, r *http.Request) {
 	var err error
 	if req.Completed {
 		_, err = a.db.Exec(r.Context(), `
-			INSERT INTO video_positions (path, position_sec, watch_count, updated_at)
-			VALUES ($1, 0, 1, now())
-			ON CONFLICT (path) DO UPDATE
+			INSERT INTO video_positions (user_id, path, position_sec, watch_count, updated_at)
+			VALUES ($1, $2, 0, 1, now())
+			ON CONFLICT (user_id, path) DO UPDATE
 			  SET position_sec = 0,
 			      watch_count  = video_positions.watch_count + 1,
 			      updated_at   = now()
-		`, absPath)
+		`, uid(r), absPath)
 	} else {
 		_, err = a.db.Exec(r.Context(), `
-			INSERT INTO video_positions (path, position_sec, updated_at)
-			VALUES ($1, $2, now())
-			ON CONFLICT (path) DO UPDATE
+			INSERT INTO video_positions (user_id, path, position_sec, updated_at)
+			VALUES ($1, $2, $3, now())
+			ON CONFLICT (user_id, path) DO UPDATE
 			  SET position_sec = EXCLUDED.position_sec,
 			      updated_at   = now()
-		`, absPath, req.Position)
+		`, uid(r), absPath, req.Position)
 	}
 	if err != nil {
 		httpErr(w, err, 500)
@@ -1120,7 +1177,7 @@ func (a *App) handleHLSSegment(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	ts := a.getTranscodeSettings(r.Context())
+	ts := a.getTranscodeSettings(r.Context(), uid(r))
 	startSec := n * ts.SegmentSec
 	vbr := fmt.Sprintf("%dk", ts.VideoKbps)
 	abr := fmt.Sprintf("%dk", ts.AudioKbps)
