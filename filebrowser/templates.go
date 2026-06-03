@@ -339,8 +339,9 @@ tr:hover td { background: #161b22; }
 .pl-sidebar.collapsed #pl-item-list { display: none; }
 .pl-sidebar.collapsed .pl-collapse-btn { transform: rotate(180deg); }
 @media (max-width: 768px) {
-  .pl-layout { flex-direction: column; }
-  .pl-sidebar { width: 100%; max-height: 40vh; }
+  .pl-layout { flex-direction: column; height: calc(100dvh - 140px); overflow: hidden; }
+  .pl-player { order: 1; flex-shrink: 0; }
+  .pl-sidebar { order: 2; width: 100%; flex: 1; min-height: 0; max-height: none; }
 }
 .btn {
   display: inline-block;
@@ -1446,9 +1447,20 @@ const playlistsTmpl = `{{define "content"}}
 <div class="page-header">
   <div class="page-header-left">
     <h2>Playlists</h2>
-    <div class="summary">Manage video and audio playlists</div>
   </div>
+  <button class="btn btn-primary btn-sm" onclick="showNewPl()">+ New</button>
 </div>
+<div id="new-pl-form" style="display:none;margin-bottom:16px">
+  <form action="/playlists" method="post" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <input id="new-pl-name" type="text" name="name" placeholder="Playlist name" style="flex:1;min-width:160px;padding:6px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;font-size:14px;font-family:inherit">
+    <button class="btn btn-primary btn-sm" type="submit">Create</button>
+    <button class="btn btn-edit btn-sm" type="button" onclick="hideNewPl()">Cancel</button>
+  </form>
+</div>
+<script>
+function showNewPl() { document.getElementById('new-pl-form').style.display='block'; document.getElementById('new-pl-name').focus(); }
+function hideNewPl() { document.getElementById('new-pl-form').style.display='none'; }
+</script>
 {{if .Error}}<div class="error-box">{{.Error}}</div>{{end}}
 {{if .Playlists}}
 <div class="section">
@@ -1476,20 +1488,6 @@ const playlistsTmpl = `{{define "content"}}
 </div>
 </div>
 {{end}}
-<div class="section">
-  <div class="section-header"><h3>New Playlist</h3></div>
-  <div class="form-page">
-    <form action="/playlists" method="post">
-      <div class="form-group">
-        <label>Name</label>
-        <input type="text" name="name" placeholder="My playlist" autofocus>
-      </div>
-      <div class="form-actions">
-        <button class="btn btn-primary" type="submit">Create</button>
-      </div>
-    </form>
-  </div>
-</div>
 {{end}}`
 
 const playlistDetailTmpl = `{{define "content"}}
@@ -1830,9 +1828,21 @@ const usersTmpl = `{{define "content"}}
 <div class="page-header">
   <div class="page-header-left">
     <h2>Users</h2>
-    <div class="summary">Manage user accounts</div>
   </div>
+  <button class="btn btn-primary btn-sm" onclick="showNewUser()">+ New</button>
 </div>
+<div id="new-user-form" style="display:none;margin-bottom:16px">
+  <form action="/users" method="post" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <input id="new-user-name" type="text" name="username" placeholder="Username" autocomplete="off" style="flex:1;min-width:140px;padding:6px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;font-size:14px;font-family:inherit">
+    <input type="password" name="password" placeholder="Password" autocomplete="new-password" style="flex:1;min-width:140px;padding:6px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;font-size:14px;font-family:inherit">
+    <button class="btn btn-primary btn-sm" type="submit">Add</button>
+    <button class="btn btn-edit btn-sm" type="button" onclick="hideNewUser()">Cancel</button>
+  </form>
+</div>
+<script>
+function showNewUser() { document.getElementById('new-user-form').style.display='block'; document.getElementById('new-user-name').focus(); }
+function hideNewUser() { document.getElementById('new-user-form').style.display='none'; }
+</script>
 {{if .Error}}<div class="error-box">{{.Error}}</div>{{end}}
 {{if .Users}}
 <div class="section">
@@ -1864,24 +1874,6 @@ const usersTmpl = `{{define "content"}}
 </div>
 </div>
 {{end}}
-<div class="section">
-  <div class="section-header"><h3>Add User</h3></div>
-  <div class="form-page">
-    <form action="/users" method="post">
-      <div class="form-group">
-        <label>Username</label>
-        <input type="text" name="username" autofocus autocomplete="off">
-      </div>
-      <div class="form-group">
-        <label>Password</label>
-        <input type="password" name="password" autocomplete="new-password">
-      </div>
-      <div class="form-actions">
-        <button class="btn btn-primary" type="submit">Add User</button>
-      </div>
-    </form>
-  </div>
-</div>
 {{end}}`
 
 const settingsTmpl = `{{define "content"}}
