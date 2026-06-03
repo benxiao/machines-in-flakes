@@ -367,6 +367,9 @@ func (a *App) handleServeFile(w http.ResponseWriter, r *http.Request) {
 	switch fileType {
 	case "photo", "pdf", "video", "text":
 		w.Header().Set("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, filename))
+	case "audio":
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, filename))
+		w.Header().Set("Cache-Control", "private, max-age=3600")
 	default:
 		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 	}
@@ -1247,11 +1250,24 @@ func (a *App) handleHLSPlaylist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ffprobePath := filepath.Join(filepath.Dir(a.ffmpegPath), "ffprobe")
+	// For audio files under 320 kbps there is nothing to gain from transcoding;
+	// redirect to the direct file URL so the client plays it as-is.
+	if classifyExt(filepath.Ext(absPath)) == "audio" {
+		brOut, _ := exec.CommandContext(r.Context(), ffprobePath,
+			"-v", "quiet", "-show_entries", "stream=bit_rate",
+			"-select_streams", "a:0", "-of", "csv=p=0", absPath,
+		).Output()
+		bitrate, _ := strconv.ParseInt(strings.TrimSpace(string(brOut)), 10, 64)
+		if bitrate > 0 && bitrate < 320_000 {
+			http.Redirect(w, r, "/file?path="+url.QueryEscape(absPath), http.StatusFound)
+			return
+		}
+	}
 	out, err := exec.CommandContext(r.Context(), ffprobePath,
 		"-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", absPath,
 	).Output()
 	if err != nil {
-		http.Error(w, "could not probe video", http.StatusInternalServerError)
+		http.Error(w, "could not probe media", http.StatusInternalServerError)
 		return
 	}
 	duration, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
@@ -1372,30 +1388,45 @@ func (a *App) handleHLSSegment(w http.ResponseWriter, r *http.Request) {
 	}
 	ts := a.getTranscodeSettings(r.Context(), uid(r))
 	startSec := n * ts.SegmentSec
-	vbr := fmt.Sprintf("%dk", ts.VideoKbps)
 	abr := fmt.Sprintf("%dk", ts.AudioKbps)
-	args := []string{
-		"-y",
-		"-ss", strconv.Itoa(startSec),
-		"-i", absPath,
-		"-t", strconv.Itoa(ts.SegmentSec),
-		"-c:v", "libx264",
-		"-crf", strconv.Itoa(ts.CRF),
-		"-preset", ts.Preset,
-		"-profile:v", "main", "-level", "4.0",
-		"-pix_fmt", "yuv420p",
-		"-bf", "0",
+	var args []string
+	if classifyExt(filepath.Ext(absPath)) == "audio" {
+		args = []string{
+			"-y",
+			"-ss", strconv.Itoa(startSec),
+			"-i", absPath,
+			"-t", strconv.Itoa(ts.SegmentSec),
+			"-vn",
+			"-c:a", "aac", "-b:a", abr,
+			"-output_ts_offset", strconv.Itoa(startSec),
+			"-muxdelay", "0", "-muxpreload", "0",
+			"-f", "mpegts", "pipe:1",
+		}
+	} else {
+		vbr := fmt.Sprintf("%dk", ts.VideoKbps)
+		args = []string{
+			"-y",
+			"-ss", strconv.Itoa(startSec),
+			"-i", absPath,
+			"-t", strconv.Itoa(ts.SegmentSec),
+			"-c:v", "libx264",
+			"-crf", strconv.Itoa(ts.CRF),
+			"-preset", ts.Preset,
+			"-profile:v", "main", "-level", "4.0",
+			"-pix_fmt", "yuv420p",
+			"-bf", "0",
+		}
+		if ts.MaxWidth > 0 {
+			args = append(args, "-vf", fmt.Sprintf("scale='min(%d,iw)':-2", ts.MaxWidth))
+		}
+		args = append(args,
+			"-b:v", vbr, "-maxrate", vbr, "-bufsize", fmt.Sprintf("%dk", ts.VideoKbps*2),
+			"-c:a", "aac", "-b:a", abr,
+			"-output_ts_offset", strconv.Itoa(startSec),
+			"-muxdelay", "0", "-muxpreload", "0",
+			"-f", "mpegts", "pipe:1",
+		)
 	}
-	if ts.MaxWidth > 0 {
-		args = append(args, "-vf", fmt.Sprintf("scale='min(%d,iw)':-2", ts.MaxWidth))
-	}
-	args = append(args,
-		"-b:v", vbr, "-maxrate", vbr, "-bufsize", fmt.Sprintf("%dk", ts.VideoKbps*2),
-		"-c:a", "aac", "-b:a", abr,
-		"-output_ts_offset", strconv.Itoa(startSec),
-		"-muxdelay", "0", "-muxpreload", "0",
-		"-f", "mpegts", "pipe:1",
-	)
 	cmd := exec.CommandContext(r.Context(), a.ffmpegPath, args...)
 	var stderr bytes.Buffer
 	cmd.Stdout = w

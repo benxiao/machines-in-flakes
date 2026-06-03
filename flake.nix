@@ -536,7 +536,7 @@
               })
               (makeGoService {
                 pname = "filebrowser";
-                version = "1.0.6";
+                version = "1.0.13";
                 src = ./filebrowser;
                 vendorHash = "sha256-cCSZsNYMmjh48YiztNTpUrqmDdL1OehYBfZm3evU9l8=";
                 description = "File Browser";
@@ -556,32 +556,6 @@
                 # run as rxiao so it can read user-owned files and directories
                 systemd.services.filebrowser.serviceConfig.User = lib.mkForce "rxiao";
               })
-              ({ pkgs, ... }:
-                let
-                  music-server = pkgs.buildGoModule {
-                    pname = "music-server";
-                    version = "0.1.0";
-                    src = ./music-server;
-                    vendorHash = null;
-                  };
-                in {
-                  systemd.services.music-server = {
-                    description = "Music Library Server";
-                    wantedBy = [ "multi-user.target" ];
-                    after = [ "network.target" "zfs-import-blue2t.service" ];
-                    requires = [ "zfs-import-blue2t.service" ];
-                    environment = {
-                      MUSIC_LISTEN = ":10093";
-                      MUSIC_DIR = "/blue2t/music";
-                    };
-                    serviceConfig = {
-                      ExecStart = "${music-server}/bin/music-server";
-                      Restart = "on-failure";
-                      RestartSec = "5s";
-                      User = "rxiao";
-                    };
-                  };
-                })
               (makeRouterMonitorModule { })
               nvidiaModule
               (makeStorageModule {

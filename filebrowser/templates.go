@@ -601,7 +601,11 @@ function attachVideo(videoEl, hlsUrl, directUrl, onReady) {
   if (typeof Hls !== 'undefined' && Hls.isSupported()) {
     var hls = new Hls();
     hls.on(Hls.Events.ERROR, function(event, data) {
-      if (data.fatal) { hls.destroy(); videoEl.src = directUrl; videoEl.load(); }
+      if (data.fatal) {
+        hls.destroy(); videoEl.hlsInstance = null;
+        videoEl.src = directUrl; videoEl.load();
+        if (onReady) videoEl.addEventListener('loadedmetadata', function() { onReady(videoEl); }, {once: true});
+      }
     });
     if (onReady) hls.on(Hls.Events.MANIFEST_PARSED, function() { onReady(videoEl); });
     hls.loadSource(hlsUrl);
@@ -624,6 +628,37 @@ function seekActiveMedia(secs) {
 function fmtTime(s) {
   s = Math.floor(s); var m = Math.floor(s / 60); s = s % 60;
   return m + ':' + (s < 10 ? '0' : '') + s;
+}
+// Register an OS-level media session. On Android this keeps Chrome from freezing
+// the page during the silent gap between tracks (which otherwise stops playback
+// a few seconds into the next track when the screen is off), and provides
+// lock-screen / notification controls.
+function setMediaSession(title, handlers) {
+  if (!('mediaSession' in navigator)) return;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({ title: title || '', album: 'filebrowser' });
+    var ms = navigator.mediaSession;
+    ms.setActionHandler('play',          handlers.play         || null);
+    ms.setActionHandler('pause',         handlers.pause        || null);
+    ms.setActionHandler('previoustrack', handlers.prev         || null);
+    ms.setActionHandler('nexttrack',     handlers.next         || null);
+    ms.setActionHandler('seekbackward',  handlers.seekbackward || null);
+    ms.setActionHandler('seekforward',   handlers.seekforward  || null);
+  } catch (e) {}
+}
+// Bind the 'play' event to set playbackState='playing'. We deliberately do NOT
+// bind 'pause' here — programmatic pauses during track teardown would immediately
+// override the 'playing' state we set in plAdvance/attachMediaResume, causing
+// Chrome to freeze the backgrounded page between tracks. 'paused' is set only
+// from the explicit user-pause action handler in setMediaSession.
+function bindMediaSessionState(media) {
+  if (!('mediaSession' in navigator) || media._msBound) return;
+  media._msBound = true;
+  media.addEventListener('play', function(){ navigator.mediaSession.playbackState = 'playing'; });
+}
+function clearMediaSession() {
+  if (!('mediaSession' in navigator)) return;
+  try { navigator.mediaSession.metadata = null; navigator.mediaSession.playbackState = 'none'; } catch (e) {}
 }
 function saveVideoPos(path, time, completed) {
   fetch('/video/position', {
@@ -657,6 +692,7 @@ function attachMediaResume(mediaEl, path, badge, countWord, onEnded) {
     }
   });
   mediaEl.addEventListener('ended', function() {
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
     saveVideoPos(path, 0, true);
     mediaEl.currentTime = 0;
     badge.textContent = '';
@@ -778,7 +814,7 @@ function openPreview(el, autoplay) {
   img.src = ''; pdf.src = '';
   document.getElementById('modal-body').style.overflow = '';
   if (video.dataset.resumePath){ if (video.hlsInstance) { video.hlsInstance.destroy(); video.hlsInstance = null; } video.src = ''; video.dataset.resumePath = ''; }
-  if (audio.dataset.resumePath) { audio.pause(); audio.src = ''; audio.dataset.resumePath = ''; }
+  if (audio.dataset.resumePath) { if (audio.hlsInstance) { audio.hlsInstance.destroy(); audio.hlsInstance = null; } audio.pause(); audio.src = ''; audio.dataset.resumePath = ''; }
   if (type === 'photo') {
     // Give the wrap an explicit viewport size: the image is position:absolute
     // so it contributes no intrinsic size, and a flex container would collapse.
@@ -796,6 +832,7 @@ function openPreview(el, autoplay) {
       attachVideo(video, '/hls/playlist?path=' + encodeURIComponent(path), fileUrl,
         autoplay ? function(v) { v.play(); } : null);
     } else {
+      video.preload = 'auto';
       video.src = fileUrl;
       video.load();
       if (autoplay) video.addEventListener('canplay', function() { video.play(); }, {once: true});
@@ -803,16 +840,32 @@ function openPreview(el, autoplay) {
     video.volume = DEFAULT_VOL;
     video.style.display = 'block';
     ctrl.style.display = 'flex';
+    setMediaSession(name, {
+      play:  function(){ var p = video.play(); if (p && p.catch) p.catch(function(){}); },
+      pause: function(){ video.pause(); if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'; },
+      next:  _nv ? function(){ openPreview({dataset: _nv}, true); } : null,
+      seekbackward: function(){ seekActiveMedia(-15); },
+      seekforward:  function(){ seekActiveMedia(15); }
+    });
+    bindMediaSessionState(video);
     attachMediaResume(video, path, badge, 'watched', _nv ? function() { openPreview({dataset: _nv}, true); } : null);
   } else if (type === 'audio') {
     seekBack.style.display = 'none'; seekFwd.style.display = 'none';
-    audio.src = fileUrl;
-    audio.load();
     audio.volume = DEFAULT_VOL;
     audio.style.display = 'block';
     ctrl.style.display = 'flex';
-    if (autoplay) audio.addEventListener('canplay', function() { audio.play(); }, {once: true});
     var _na = dirNextMedia(path);
+    audio.src = fileUrl;
+    audio.load();
+    if (autoplay) { var p = audio.play(); if (p && p.catch) p.catch(function(){}); }
+    setMediaSession(name, {
+      play:  function(){ var p = audio.play(); if (p && p.catch) p.catch(function(){}); },
+      pause: function(){ audio.pause(); if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'; },
+      next:  _na ? function(){ openPreview({dataset: _na}, true); } : null,
+      seekbackward: function(){ seekActiveMedia(-15); },
+      seekforward:  function(){ seekActiveMedia(15); }
+    });
+    bindMediaSessionState(audio);
     attachMediaResume(audio, path, badge, 'listened', _na ? function() { openPreview({dataset: _na}, true); } : null);
   } else if (type === 'pdf') {
     pdf.src = fileUrl;
@@ -835,7 +888,9 @@ function closePreview() {
   document.getElementById('modal-resume-badge').textContent = '';
   if (video.hlsInstance) { video.hlsInstance.destroy(); video.hlsInstance = null; }
   video.src = '';
+  if (audio.hlsInstance) { audio.hlsInstance.destroy(); audio.hlsInstance = null; }
   audio.pause(); audio.src = ''; audio.style.display = 'none';
+  clearMediaSession();
   document.getElementById('modal-media-controls').style.display = 'none';
   // Reset image zoom
   document.getElementById('modal-zoom-wrap').style.display = 'none';
@@ -1501,6 +1556,35 @@ function savePlState() {
   });
 }
 function plPlay(el) { var p = el.play(); if (p && p.catch) p.catch(function(){}); }
+// Blob-based preloader. While track N plays (active audio = no throttling),
+// fetch track N+1 entirely into memory. On advance we set src to a Blob URL —
+// playback is instant and Chrome can't throttle what's already in RAM.
+var _plPreload = {path: null, blobUrl: null, ctrl: null};
+var _plActiveBlobUrl = null;
+function plStartPreload(idx) {
+  if (!PLAYLIST_ITEMS || idx < 0 || idx >= PLAYLIST_ITEMS.length) return;
+  var item = PLAYLIST_ITEMS[idx];
+  if (item.FileType !== 'audio') return;
+  var url = '/file?path=' + encodeURIComponent(item.Path);
+  if (_plPreload.path === url) return;
+  if (_plPreload.ctrl) _plPreload.ctrl.abort();
+  if (_plPreload.blobUrl) URL.revokeObjectURL(_plPreload.blobUrl);
+  _plPreload = {path: url, blobUrl: null, ctrl: null};
+  var ctrl = new AbortController();
+  _plPreload.ctrl = ctrl;
+  fetch(url, {signal: ctrl.signal})
+    .then(function(r) {
+      var len = parseInt(r.headers.get('Content-Length') || '0', 10);
+      if (len > 20 * 1024 * 1024) return null; // skip files >20 MB
+      return r.blob();
+    })
+    .then(function(blob) {
+      if (!blob || _plPreload.ctrl !== ctrl) return;
+      _plPreload.blobUrl = URL.createObjectURL(blob);
+      _plPreload.ctrl = null;
+    })
+    .catch(function(){});
+}
 function startPlaylistItem(idx, seekTo, autoplay) {
   if (!PLAYLIST_ITEMS || idx < 0 || idx >= PLAYLIST_ITEMS.length) return;
   plCurrentIdx = idx;
@@ -1512,9 +1596,9 @@ function startPlaylistItem(idx, seekTo, autoplay) {
   var v = document.getElementById('pl-video'), a = document.getElementById('pl-audio');
   document.getElementById('pl-title').textContent = item.Name;
   document.getElementById('pl-badge').textContent = seekTo > 1 ? 'Resumed from ' + fmtTime(seekTo) : '';
+  // Stop video.
   if (v.hlsInstance) { v.hlsInstance.destroy(); v.hlsInstance = null; }
   v.pause(); v.src = ''; v.style.display = 'none';
-  a.pause(); a.src = ''; a.style.display = 'none';
   var media;
   var startPlayback = function(el) {
     if (seekTo > 1) {
@@ -1527,26 +1611,65 @@ function startPlaylistItem(idx, seekTo, autoplay) {
     }
   };
   if (item.FileType === 'video') {
-    v.volume = DEFAULT_VOL;
-    v.style.display = 'block'; media = v;
+    a.pause(); a.style.display = 'none';
+    v.volume = DEFAULT_VOL; v.style.display = 'block'; media = v;
     if (MOBILE) {
       attachVideo(v, '/hls/playlist?path=' + encodeURIComponent(item.Path), fileUrl, startPlayback);
     } else {
-      v.src = fileUrl; v.load();
+      v.preload = 'auto'; v.src = fileUrl; v.load();
       v.addEventListener('loadedmetadata', function() { startPlayback(v); }, {once: true});
     }
   } else {
-    a.volume = DEFAULT_VOL;
-    a.style.display = 'block'; media = a;
-    a.src = fileUrl; a.load();
-    a.addEventListener('loadedmetadata', function() { startPlayback(a); }, {once: true});
+    media = a;
+    a.style.display = 'block'; a.volume = DEFAULT_VOL;
+    // Revoke the previous track's blob now that we're moving on.
+    if (_plActiveBlobUrl) { URL.revokeObjectURL(_plActiveBlobUrl); _plActiveBlobUrl = null; }
+    // Use the preloaded blob if ready — plays instantly from RAM, bypassing any
+    // Android network throttling that would drain the buffer mid-track.
+    if (_plPreload.path === fileUrl && _plPreload.blobUrl) {
+      a.src = _plPreload.blobUrl;
+      _plActiveBlobUrl = _plPreload.blobUrl;
+      _plPreload = {path: null, blobUrl: null, ctrl: null};
+    } else {
+      a.src = fileUrl;
+    }
+    if (seekTo > 1) {
+      a.addEventListener('loadedmetadata', function() { startPlayback(a); }, {once: true});
+    } else {
+      plPlay(a);
+    }
+    // Preload next track after 5 s — delay avoids wasting bandwidth on quick skips.
+    var _pIdx = idx + 1;
+    setTimeout(function() { if (plCurrentIdx === idx) plStartPreload(_pIdx); }, 5000);
   }
+  // Register an OS media session so Android keeps the page alive across the gap
+  // between tracks (otherwise the next track stops a few seconds in with the
+  // screen off), and so lock-screen controls drive the playlist.
+  setMediaSession(item.Name, {
+    play:  function(){ plPlay(media); },
+    pause: function(){ media.pause(); if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'; },
+    prev:  plPrev,
+    next:  plNext,
+    seekbackward: function(){ media.currentTime = Math.max(0, media.currentTime - 15); },
+    seekforward:  function(){ media.currentTime = media.currentTime + 15; }
+  });
+  bindMediaSessionState(media);
   // Advance to the next item when this one finishes. Guard so the native
   // 'ended' event and the near-end safety net below can't double-fire.
   var advanced = false;
   var plAdvance = function() {
     if (advanced) return;
     advanced = true;
+    // Update lock-screen notification to the NEXT track's name BEFORE we touch
+    // any audio element. Setting src='' or pausing causes Chrome to drop the
+    // media notification; updating metadata first keeps it visible continuously.
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = 'playing';
+      var _nextItem = PLAYLIST_ITEMS[plCurrentIdx + 1];
+      if (_nextItem) {
+        try { navigator.mediaSession.metadata = new MediaMetadata({ title: _nextItem.Name, album: 'filebrowser' }); } catch(e) {}
+      }
+    }
     savePlState();
     startPlaylistItem(plCurrentIdx + 1, 0, true);
   };
@@ -1574,10 +1697,10 @@ function removePlaylistItem(itemId) {
       renderPlSidebar();
       if (PLAYLIST_ITEMS.length === 0) {
         document.getElementById('pl-title').textContent = '';
-        var v = document.getElementById('pl-video'), a = document.getElementById('pl-audio');
+        var v = document.getElementById('pl-video'), _a = document.getElementById('pl-audio');
         if (v.hlsInstance) { v.hlsInstance.destroy(); v.hlsInstance = null; }
         v.pause(); v.src = ''; v.style.display = 'none';
-        a.pause(); a.src = ''; a.style.display = 'none';
+        _a.pause(); _a.src = ''; _a.style.display = 'none';
       } else if (removedIdx < plCurrentIdx) {
         plCurrentIdx--;
       } else if (removedIdx === plCurrentIdx) {
