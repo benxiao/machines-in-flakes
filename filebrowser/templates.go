@@ -166,6 +166,7 @@ var pages map[string]*template.Template
 
 func initTemplates() {
 	funcMap := template.FuncMap{
+		"appVersion": func() string { return appVersion },
 		"upper": strings.ToUpper,
 		"browseURL": func(path string) template.URL {
 			return template.URL("/browse?dir=" + url.QueryEscape(path))
@@ -588,6 +589,7 @@ const baseTmpl = `<!DOCTYPE html>
   {{if .IsAdmin}}<a href="/users" {{if eq .ActiveTab "users"}}class="active"{{end}}>Users</a>{{end}}
   <a href="/settings"   {{if eq .ActiveTab "settings"}}class="active"{{end}}>Settings</a>
   <span id="play-stats" style="margin-left:auto;margin-right:8px;color:#8b949e;font-size:12px;white-space:nowrap;flex-shrink:0;display:flex;gap:12px;align-items:center"></span>
+  <span style="color:#8b949e;font-size:11px;opacity:0.5;flex-shrink:0;white-space:nowrap">v{{appVersion}}</span>
   <form action="/logout" method="post" style="margin:0;display:flex;align-items:center;padding:0 4px;flex-shrink:0">
     <button type="submit" style="background:transparent;border:1px solid #30363d;color:#8b949e;padding:4px 12px;border-radius:6px;font-size:13px;cursor:pointer;line-height:1.4;white-space:nowrap">Logout</button>
   </form>
