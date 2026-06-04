@@ -2124,6 +2124,22 @@ const settingsTmpl = `{{define "content"}}
   </div>
 </div>
 <div class="section">
+  <div class="section-header"><h3>Audio HLS</h3></div>
+  <div class="form-page">
+    <div class="form-group" style="flex-direction:row;align-items:center;gap:10px;border:none;padding:0">
+      <input type="checkbox" id="cb-audio-hls" style="width:auto;cursor:pointer;margin:0"
+             onchange="saveAudioHLSSettings()">
+      <label for="cb-audio-hls" style="cursor:pointer;margin:0;font-weight:normal">Enable audio HLS transcoding (lossless files on mobile)</label>
+    </div>
+    <div class="form-group" style="margin-top:14px">
+      <label>Lossless threshold (kbps) <span class="muted" style="font-weight:normal">— files above this bitrate get transcoded</span></label>
+      <input type="number" id="audio-hls-threshold" value="{{.Settings.AudioHLSThreshold}}" min="64" max="9999" style="max-width:120px"
+             onchange="saveAudioHLSSettings()">
+    </div>
+    <p class="muted" style="font-size:12px;margin-top:4px">FLAC/WAV are typically 600–3000 kbps. Default threshold of 320 kbps catches all lossless formats.</p>
+  </div>
+</div>
+<div class="section">
   <div class="section-header"><h3>Playback</h3></div>
   <div class="form-page">
     <div class="form-group" style="flex-direction:row;align-items:center;gap:10px;border:none;padding:0">
@@ -2157,6 +2173,8 @@ const settingsTmpl = `{{define "content"}}
       document.getElementById('vol-display').textContent = pct;
       document.getElementById('vol-val').value = dv;
     }
+    var ahlsCb = document.getElementById('cb-audio-hls');
+    if (ahlsCb) ahlsCb.checked = {{if .Settings.AudioHLS}}true{{else}}false{{end}};
   } catch(e) {}
 })();
 function reindexFiles(btn) {
@@ -2199,6 +2217,15 @@ function saveTranscodeSetting(key, value) {
   if (value === '') return;
   var fd = new URLSearchParams();
   fd.append(key, value);
+  fetch('/settings', {method: 'POST', body: fd})
+    .then(function(r) { if (r.ok) showSavedToast(); });
+}
+function saveAudioHLSSettings() {
+  var enabled = document.getElementById('cb-audio-hls').checked;
+  var threshold = document.getElementById('audio-hls-threshold').value;
+  var fd = new URLSearchParams();
+  fd.append('audio_hls_enabled', enabled ? '1' : '');
+  fd.append('audio_hls_threshold_kbps', threshold);
   fetch('/settings', {method: 'POST', body: fd})
     .then(function(r) { if (r.ok) showSavedToast(); });
 }

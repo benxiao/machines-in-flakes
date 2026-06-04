@@ -1241,14 +1241,16 @@ func (a *App) handleThumbnail(w http.ResponseWriter, r *http.Request) {
 // ---- Transcoding settings ----
 
 type TranscodeSettings struct {
-	CRF           int
-	Preset        string
-	MaxWidth      int
-	VideoKbps     int
-	AudioKbps     int
-	SegmentSec    int
-	ForceOriginal bool
-	DefaultVolume float64
+	CRF                int
+	Preset             string
+	MaxWidth           int
+	VideoKbps          int
+	AudioKbps          int
+	SegmentSec         int
+	AudioHLS           bool
+	AudioHLSThreshold  int // kbps — files above this bitrate get HLS transcoding
+	ForceOriginal      bool
+	DefaultVolume      float64
 }
 
 var validPresets = map[string]bool{
@@ -1257,7 +1259,7 @@ var validPresets = map[string]bool{
 }
 
 func (a *App) getTranscodeSettings(ctx context.Context, userID int64) TranscodeSettings {
-	s := TranscodeSettings{CRF: 23, Preset: "fast", MaxWidth: 1280, VideoKbps: 3000, AudioKbps: 128, SegmentSec: 6, DefaultVolume: 1.0}
+	s := TranscodeSettings{CRF: 23, Preset: "fast", MaxWidth: 1280, VideoKbps: 3000, AudioKbps: 128, SegmentSec: 6, AudioHLS: true, AudioHLSThreshold: 320, DefaultVolume: 1.0}
 	rows, err := a.db.Query(ctx, `SELECT key, value FROM settings WHERE user_id = $1`, userID)
 	if err != nil {
 		return s
@@ -1292,6 +1294,12 @@ func (a *App) getTranscodeSettings(ctx context.Context, userID int64) TranscodeS
 		case "transcode_segment_sec":
 			if n, err := strconv.Atoi(v); err == nil && n >= 2 && n <= 60 {
 				s.SegmentSec = n
+			}
+		case "audio_hls_enabled":
+			s.AudioHLS = v == "1"
+		case "audio_hls_threshold_kbps":
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				s.AudioHLSThreshold = n
 			}
 		case "playback_force_original":
 			s.ForceOriginal = v == "1"
@@ -1372,13 +1380,19 @@ func (a *App) handleSettingsSave(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+	audioHLS := "0"
+	if r.FormValue("audio_hls_enabled") != "" {
+		audioHLS = "1"
+	}
 	updates := map[string]string{
-		"transcode_crf":         r.FormValue("crf"),
-		"transcode_preset":      r.FormValue("preset"),
-		"transcode_max_width":   r.FormValue("max_width"),
-		"transcode_video_kbps":  r.FormValue("video_kbps"),
-		"transcode_audio_kbps":  r.FormValue("audio_kbps"),
-		"transcode_segment_sec": r.FormValue("segment_sec"),
+		"transcode_crf":            r.FormValue("crf"),
+		"transcode_preset":         r.FormValue("preset"),
+		"transcode_max_width":      r.FormValue("max_width"),
+		"transcode_video_kbps":     r.FormValue("video_kbps"),
+		"transcode_audio_kbps":     r.FormValue("audio_kbps"),
+		"transcode_segment_sec":    r.FormValue("segment_sec"),
+		"audio_hls_enabled":        audioHLS,
+		"audio_hls_threshold_kbps": r.FormValue("audio_hls_threshold_kbps"),
 	}
 	for k, v := range updates {
 		if v == "" {
@@ -1408,15 +1422,19 @@ func (a *App) handleHLSPlaylist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ffprobePath := filepath.Join(filepath.Dir(a.ffmpegPath), "ffprobe")
-	// For audio files under 320 kbps there is nothing to gain from transcoding;
-	// redirect to the direct file URL so the client plays it as-is.
+	ts := a.getTranscodeSettings(r.Context(), uid(r))
 	if classifyExt(filepath.Ext(absPath)) == "audio" {
+		// Redirect to direct file if audio HLS is disabled or bitrate is below threshold.
+		if !ts.AudioHLS {
+			http.Redirect(w, r, "/file?path="+url.QueryEscape(absPath), http.StatusFound)
+			return
+		}
 		brOut, _ := exec.CommandContext(r.Context(), ffprobePath,
 			"-v", "quiet", "-show_entries", "stream=bit_rate",
 			"-select_streams", "a:0", "-of", "csv=p=0", absPath,
 		).Output()
 		bitrate, _ := strconv.ParseInt(strings.TrimSpace(string(brOut)), 10, 64)
-		if bitrate > 0 && bitrate < 320_000 {
+		if bitrate > 0 && bitrate < int64(ts.AudioHLSThreshold)*1000 {
 			http.Redirect(w, r, "/file?path="+url.QueryEscape(absPath), http.StatusFound)
 			return
 		}
@@ -1433,7 +1451,6 @@ func (a *App) handleHLSPlaylist(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid duration", http.StatusInternalServerError)
 		return
 	}
-	ts := a.getTranscodeSettings(r.Context(), uid(r))
 	segSec := ts.SegmentSec
 	encodedPath := url.QueryEscape(absPath)
 	var b strings.Builder
