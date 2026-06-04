@@ -12,6 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+var appVersion = "dev"
+
 type App struct {
 	db         *pgxpool.Pool
 	videoDir   string

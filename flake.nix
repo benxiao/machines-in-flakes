@@ -223,7 +223,7 @@
             }: ({ pkgs, lib, ... }:
             let
               svcUser = builtins.replaceStrings [ "-" ] [ "_" ] pname;
-              pkg = pkgs.buildGoModule { inherit pname version src vendorHash; };
+              pkg = pkgs.buildGoModule { inherit pname version src vendorHash; ldflags = [ "-X main.appVersion=${version}" ]; };
             in
             {
               services.postgresql.ensureDatabases = [ dbName ];
