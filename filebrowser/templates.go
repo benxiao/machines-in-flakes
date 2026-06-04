@@ -565,7 +565,7 @@ const baseTmpl = `<!DOCTYPE html>
 <body>
 <header style="display:flex;align-items:center;gap:16px;padding:10px 24px;background:#161b22;border-bottom:1px solid #30363d">
   <span class="logo" style="flex-shrink:0">
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-4px;margin-right:6px"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>File Browser
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-4px;margin-right:6px"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>File Browser <span style="font-size:0.65em;font-weight:400;opacity:0.45;vertical-align:1px">v{{appVersion}}</span>
   </span>
   <div class="header-search" id="header-search">
     <input id="search-q" type="text" placeholder="Search files…" autocomplete="off"
@@ -589,7 +589,6 @@ const baseTmpl = `<!DOCTYPE html>
   {{if .IsAdmin}}<a href="/users" {{if eq .ActiveTab "users"}}class="active"{{end}}>Users</a>{{end}}
   <a href="/settings"   {{if eq .ActiveTab "settings"}}class="active"{{end}}>Settings</a>
   <span id="play-stats" style="margin-left:auto;margin-right:8px;color:#8b949e;font-size:12px;white-space:nowrap;flex-shrink:0;display:flex;gap:12px;align-items:center"></span>
-  <span style="color:#8b949e;font-size:11px;opacity:0.5;flex-shrink:0;white-space:nowrap">v{{appVersion}}</span>
   <form action="/logout" method="post" style="margin:0;display:flex;align-items:center;padding:0 4px;flex-shrink:0">
     <button type="submit" style="background:transparent;border:1px solid #30363d;color:#8b949e;padding:4px 12px;border-radius:6px;font-size:13px;cursor:pointer;line-height:1.4;white-space:nowrap">Logout</button>
   </form>
