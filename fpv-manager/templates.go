@@ -1048,7 +1048,7 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')closeLightbo
 const droneEditTmpl = `{{define "content"}}
 <div class="page-header">
   <div class="page-header-left" style="gap:12px;align-items:center">
-    <input type="text" id="drone-name" value="{{.Name}}" onchange="saveDrone()"
+    <input type="text" id="drone-name" value="{{.Name}}" oninput="saveDrone()" onblur="saveDrone()"
       style="font-size:1.4rem;font-weight:600;background:none;border:none;border-bottom:1px solid transparent;color:#c9d1d9;padding:2px 0;min-width:160px;width:auto;outline:none">
     <span class="badge {{badgeClass .Status}}">{{.Status}}</span>
   </div>
