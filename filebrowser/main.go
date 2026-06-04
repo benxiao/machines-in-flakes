@@ -131,6 +131,14 @@ DO $$ BEGIN
       PRIMARY KEY (path_id, user_id)
     );
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='play_time') THEN
+    CREATE TABLE play_time (
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      day     DATE NOT NULL,
+      seconds BIGINT NOT NULL DEFAULT 0,
+      PRIMARY KEY (user_id, day)
+    );
+  END IF;
 END $$;
 `
 
@@ -163,6 +171,7 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /hls/segment", a.handleHLSSegment)
 	mux.HandleFunc("GET /video/position", a.handleGetVideoPosition)
 	mux.HandleFunc("POST /video/position", a.handleSaveVideoPosition)
+	mux.HandleFunc("GET /play/stats", a.handlePlayStats)
 	mux.HandleFunc("GET /settings", a.handleSettingsPage)
 	mux.HandleFunc("POST /settings", a.handleSettingsSave)
 	mux.HandleFunc("POST /paths", a.handlePathAdd)

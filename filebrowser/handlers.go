@@ -953,6 +953,7 @@ type playlistStateResp struct {
 type playlistStateReq struct {
 	CurrentIndex int     `json:"current_index"`
 	PositionSec  float64 `json:"position_sec"`
+	DeltaSec     int     `json:"delta_sec"`
 }
 
 type playlistItemAddReq struct {
@@ -1175,6 +1176,7 @@ func (a *App) handleSavePlaylistState(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, err, 500)
 		return
 	}
+	a.accumulatePlayTime(r.Context(), uid(r), req.DeltaSec)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1479,6 +1481,7 @@ type videoPositionReq struct {
 	Path      string  `json:"path"`
 	Position  float64 `json:"position"`
 	Completed bool    `json:"completed"`
+	DeltaSec  int     `json:"delta_sec"`
 }
 
 func (a *App) handleGetVideoPosition(w http.ResponseWriter, r *http.Request) {
@@ -1501,6 +1504,24 @@ func (a *App) handleGetVideoPosition(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+func (a *App) accumulatePlayTime(ctx context.Context, userID int64, deltaSec int) {
+	if deltaSec <= 0 || deltaSec > 30 {
+		return
+	}
+	a.db.Exec(ctx, `
+		INSERT INTO play_time (user_id, day, seconds) VALUES ($1, CURRENT_DATE, $2)
+		ON CONFLICT (user_id, day) DO UPDATE SET seconds = play_time.seconds + EXCLUDED.seconds
+	`, userID, deltaSec)
+}
+
+func (a *App) handlePlayStats(w http.ResponseWriter, r *http.Request) {
+	var todaySec, totalSec int64
+	a.db.QueryRow(r.Context(), `SELECT COALESCE(SUM(seconds),0) FROM play_time WHERE user_id=$1 AND day=CURRENT_DATE`, uid(r)).Scan(&todaySec)
+	a.db.QueryRow(r.Context(), `SELECT COALESCE(SUM(seconds),0) FROM play_time WHERE user_id=$1`, uid(r)).Scan(&totalSec)
+	w.Header().Set("Content-Type", "application/json")
+	fmt.Fprintf(w, `{"today_sec":%d,"total_sec":%d}`, todaySec, totalSec)
 }
 
 func (a *App) handleSaveVideoPosition(w http.ResponseWriter, r *http.Request) {
@@ -1537,6 +1558,7 @@ func (a *App) handleSaveVideoPosition(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, err, 500)
 		return
 	}
+	a.accumulatePlayTime(r.Context(), uid(r), req.DeltaSec)
 	w.WriteHeader(http.StatusNoContent)
 }
 

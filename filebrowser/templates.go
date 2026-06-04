@@ -587,7 +587,8 @@ const baseTmpl = `<!DOCTYPE html>
   <a href="/playlists"  {{if eq .ActiveTab "playlists"}}class="active"{{end}}>Playlists</a>
   {{if .IsAdmin}}<a href="/users" {{if eq .ActiveTab "users"}}class="active"{{end}}>Users</a>{{end}}
   <a href="/settings"   {{if eq .ActiveTab "settings"}}class="active"{{end}}>Settings</a>
-  <form action="/logout" method="post" style="margin:0;margin-left:auto;display:flex;align-items:center;padding:0 4px;flex-shrink:0">
+  <span id="play-stats" style="margin-left:auto;margin-right:8px;color:#8b949e;font-size:12px;white-space:nowrap;flex-shrink:0;display:flex;gap:12px;align-items:center"></span>
+  <form action="/logout" method="post" style="margin:0;display:flex;align-items:center;padding:0 4px;flex-shrink:0">
     <button type="submit" style="background:transparent;border:1px solid #30363d;color:#8b949e;padding:4px 12px;border-radius:6px;font-size:13px;cursor:pointer;line-height:1.4;white-space:nowrap">Logout</button>
   </form>
 </nav>
@@ -625,6 +626,23 @@ var _fo = false; try { _fo = !!localStorage.getItem('fb_force_original'); } catc
 var MOBILE = !_fo && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 var DEFAULT_VOL = 1; try { var _dv = parseFloat(localStorage.getItem('fb_default_volume')); if (!isNaN(_dv)) DEFAULT_VOL = Math.max(0, Math.min(1, _dv)); } catch(e) {}
 var modal = document.getElementById('preview-modal');
+(function() {
+  function fmtHM(sec) {
+    var h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
+    return h > 0 ? h + 'h ' + m + 'm' : m + 'm';
+  }
+  function loadPlayStats() {
+    fetch('/play/stats').then(function(r) { return r.json(); }).then(function(d) {
+      var el = document.getElementById('play-stats');
+      if (!el) return;
+      el.innerHTML =
+        '<span title="Played today">&#9654; ' + fmtHM(d.today_sec) + '</span>' +
+        '<span title="Total play time">&#8734; ' + fmtHM(d.total_sec) + '</span>';
+    }).catch(function(){});
+  }
+  loadPlayStats();
+  setInterval(loadPlayStats, 60000);
+})();
 function browseDir(el) {
   window.location = '/browse?dir=' + encodeURIComponent(el.dataset.dir);
 }
@@ -694,11 +712,21 @@ function clearMediaSession() {
   if (!('mediaSession' in navigator)) return;
   try { navigator.mediaSession.metadata = null; navigator.mediaSession.playbackState = 'none'; } catch (e) {}
 }
+var _posTracker = {}; // path → last saved position
+function _playDelta(path, pos) {
+  var last = _posTracker[path];
+  _posTracker[path] = pos;
+  if (last == null) return 0;
+  var d = Math.round(pos - last);
+  return (d > 0 && d <= 30) ? d : 0;
+}
 function saveVideoPos(path, time, completed) {
+  var delta = _playDelta(path, time);
+  if (completed) delete _posTracker[path];
   fetch('/video/position', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({path: path, position: time, completed: !!completed})
+    body: JSON.stringify({path: path, position: time, completed: !!completed, delta_sec: delta})
   });
 }
 function attachMediaResume(mediaEl, path, badge, countWord, onEnded) {
@@ -1621,10 +1649,14 @@ function getPlMedia() {
 }
 function savePlState() {
   var media = getPlMedia();
+  var pos = media ? media.currentTime : 0;
+  var item = PLAYLIST_ITEMS && PLAYLIST_ITEMS[plCurrentIdx];
+  var trackKey = item ? 'pl:' + item.Path : null;
+  var delta = trackKey ? _playDelta(trackKey, pos) : 0;
   fetch('/playlists/' + PLAYLIST_ID + '/state', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({current_index: plCurrentIdx, position_sec: media ? media.currentTime : 0})
+    body: JSON.stringify({current_index: plCurrentIdx, position_sec: pos, delta_sec: delta})
   });
 }
 function plPlay(el) { var p = el.play(); if (p && p.catch) p.catch(function(){}); }
