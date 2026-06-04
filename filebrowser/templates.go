@@ -769,7 +769,7 @@ function dirNextMedia(path) {
   return null;
 }
 function dirNextMediaLooping(path) {
-  return dirNextMediaLooping(path);
+  return dirNextMedia(path) || (_folderLoop && window.dirMediaFiles && window.dirMediaFiles.length > 0 ? window.dirMediaFiles[0] : null);
 }
 function photoNext(path) {
   if (!window.dirPhotoFiles) return null;
