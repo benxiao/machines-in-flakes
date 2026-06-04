@@ -913,7 +913,7 @@ function openPreview(el, autoplay) {
     izInit(wrap, img);
   } else if (type === 'video') {
     seekBack.style.display = ''; seekFwd.style.display = '';
-    var _nv = dirNextMedia(path);
+    var _nv = dirNextMedia(path) || (_folderLoop && window.dirMediaFiles && window.dirMediaFiles.length > 0 ? window.dirMediaFiles[0] : null);
     if (MOBILE) {
       attachVideo(video, '/hls/playlist?path=' + encodeURIComponent(path), fileUrl,
         autoplay ? function(v) { v.play(); } : null);
@@ -940,7 +940,7 @@ function openPreview(el, autoplay) {
     audio.volume = DEFAULT_VOL;
     audio.style.display = 'block';
     ctrl.style.display = 'flex';
-    var _na = dirNextMedia(path);
+    var _na = dirNextMedia(path) || (_folderLoop && window.dirMediaFiles && window.dirMediaFiles.length > 0 ? window.dirMediaFiles[0] : null);
     audio.src = fileUrl;
     audio.load();
     if (autoplay) { var p = audio.play(); if (p && p.catch) p.catch(function(){}); }
@@ -966,6 +966,11 @@ function openPreview(el, autoplay) {
 }
 function closePreview() {
   modal.classList.remove('open');
+  if (_folderLoop) {
+    _folderLoop = false;
+    var _pbtn = document.getElementById('btn-play-all');
+    if (_pbtn) { _pbtn.textContent = '▶ Play All'; _pbtn.classList.remove('btn-edit'); _pbtn.classList.add('btn-primary'); }
+  }
   var video = document.getElementById('modal-video');
   var audio = document.getElementById('modal-audio');
   if (video.dataset.resumePath && video.currentTime > 1) saveVideoPos(video.dataset.resumePath, video.currentTime, false);
@@ -1113,9 +1118,12 @@ const browseTmpl = `{{define "content"}}
         {{else}}<a href="{{browseURL $b.Path}}">{{$b.Name}}</a>{{end}}
         {{end}}
       </div>
-      <div class="view-toggle">
-        <button id="btn-list" class="btn-view" onclick="setView('list')" title="List view">&#9776; List</button>
-        <button id="btn-grid" class="btn-view" onclick="setView('grid')" title="Grid view">&#8859; Grid</button>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button id="btn-play-all" class="btn btn-primary btn-sm" onclick="playFolderAll()" style="display:none" title="Play all media in this folder in a loop">&#9654; Play All</button>
+        <div class="view-toggle">
+          <button id="btn-list" class="btn-view" onclick="setView('list')" title="List view">&#9776; List</button>
+          <button id="btn-grid" class="btn-view" onclick="setView('grid')" title="Grid view">&#8859; Grid</button>
+        </div>
       </div>
     </div>
     {{if and (not .Subdirs) (not .Files)}}
@@ -1347,6 +1355,7 @@ function downloadSelected() {
   });
 }
 // Build sorted media file list for dir auto-advance
+var _folderLoop = false;
 (function() {
   var seen = {}, arr = [];
   document.querySelectorAll('[data-type="audio"],[data-type="video"]').forEach(function(el) {
@@ -1358,7 +1367,16 @@ function downloadSelected() {
   });
   arr.sort(function(a, b) { return a.name.toLowerCase().localeCompare(b.name.toLowerCase()); });
   window.dirMediaFiles = arr;
+  var btn = document.getElementById('btn-play-all');
+  if (btn && arr.length > 0) btn.style.display = '';
 })();
+function playFolderAll() {
+  if (!window.dirMediaFiles || window.dirMediaFiles.length === 0) return;
+  _folderLoop = true;
+  var btn = document.getElementById('btn-play-all');
+  if (btn) { btn.textContent = '⟳ Looping'; btn.classList.add('btn-edit'); btn.classList.remove('btn-primary'); }
+  openPreview({dataset: window.dirMediaFiles[0]}, true);
+}
 (function() {
   var seen = {}, arr = [];
   document.querySelectorAll('[data-type="photo"]').forEach(function(el) {
@@ -1416,7 +1434,7 @@ const recentTmpl = `{{define "content"}}
 </tr></thead>
 <tbody>
 {{range .Items}}
-<tr class="file-row" data-path="{{.Path}}" data-name="{{.Filename}}" data-type="{{.FileType}}" onclick="openPreview(this, true)">
+<tr class="file-row" style="cursor:pointer" onclick="location.href='/browse?dir='+encodeURIComponent('{{.Dir}}')">
   <td>{{.Filename}}</td>
   <td><span class="badge badge-{{.FileType}}">{{upper .FileType}}</span></td>
   <td class="muted" style="font-size:12px;font-family:monospace">{{.Dir}}</td>
@@ -1431,7 +1449,7 @@ const recentTmpl = `{{define "content"}}
 <div id="view-grid" class="view-grid" style="display:none">
 {{range .Items}}
 {{if eq .FileType "video"}}
-<div class="grid-card" data-path="{{.Path}}" data-name="{{.Filename}}" data-type="video" onclick="openPreview(this, true)">
+<div class="grid-card" onclick="location.href='/browse?dir='+encodeURIComponent('{{.Dir}}')">
   {{if gt .WatchCount 0}}<span class="grid-plays">{{.WatchCount}}×</span>{{end}}
   <div class="grid-thumb">
     <img src="{{thumbURL .Path}}" loading="lazy" alt="" style="width:100%;height:100%;object-fit:cover;display:block"
@@ -1443,7 +1461,7 @@ const recentTmpl = `{{define "content"}}
   <div class="grid-name">{{.Filename}}</div>
 </div>
 {{else if eq .FileType "audio"}}
-<div class="grid-card" data-path="{{.Path}}" data-name="{{.Filename}}" data-type="audio" onclick="openPreview(this, true)">
+<div class="grid-card" onclick="location.href='/browse?dir='+encodeURIComponent('{{.Dir}}')">
   {{if gt .WatchCount 0}}<span class="grid-plays">{{.WatchCount}}×</span>{{end}}
   {{if .AlbumArt}}
   <div class="grid-thumb">
