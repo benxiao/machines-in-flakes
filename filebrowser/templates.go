@@ -972,7 +972,7 @@ function closePreview() {
   if (_folderLoop) {
     _folderLoop = false;
     var _pbtn = document.getElementById('btn-play-all');
-    if (_pbtn) { _pbtn.textContent = '▶ Play All'; _pbtn.classList.remove('btn-edit'); _pbtn.classList.add('btn-primary'); }
+    if (_pbtn) { _pbtn.textContent = '▶ Loop'; _pbtn.classList.remove('btn-edit'); _pbtn.classList.add('btn-primary'); }
   }
   var video = document.getElementById('modal-video');
   var audio = document.getElementById('modal-audio');
@@ -1122,7 +1122,7 @@ const browseTmpl = `{{define "content"}}
         {{end}}
       </div>
       <div style="display:flex;gap:8px;align-items:center">
-        <button id="btn-play-all" class="btn btn-primary btn-sm" onclick="playFolderAll()" style="display:none" title="Play all media in this folder in a loop">&#9654; Play All</button>
+        <button id="btn-play-all" class="btn btn-primary btn-sm" onclick="playFolderAll()" style="display:none" title="Play all media in this folder in a loop">&#9654; Loop</button>
         <div class="view-toggle">
           <button id="btn-list" class="btn-view" onclick="setView('list')" title="List view">&#9776; List</button>
           <button id="btn-grid" class="btn-view" onclick="setView('grid')" title="Grid view">&#8859; Grid</button>
