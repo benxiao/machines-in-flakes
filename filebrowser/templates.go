@@ -453,6 +453,10 @@ input:focus, select:focus { outline: none; border-color: #58a6ff; }
 .modal-title { color: #c9d1d9; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70vw; }
 .modal-close { color: #8b949e; cursor: pointer; font-size: 20px; line-height: 1; padding: 0 4px; }
 .modal-close:hover { color: #f0f6fc; }
+.modal-nav-btn { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.45); color: #fff; border: none; font-size: 36px; width: 44px; height: 72px; cursor: pointer; z-index: 10; border-radius: 6px; line-height: 1; padding: 0; user-select: none; }
+.modal-nav-btn:hover { background: rgba(0,0,0,0.75); }
+.modal-nav-prev { left: 8px; }
+.modal-nav-next { right: 8px; }
 .modal-body { overflow: auto; flex: 1; display: flex; align-items: center; justify-content: center; }
 .modal-body img   { max-width: 90vw; max-height: 85vh; display: block; }
 .modal-body video { max-width: 90vw; max-height: 85vh; display: block; }
@@ -585,6 +589,8 @@ const baseTmpl = `<!DOCTYPE html>
       <span id="modal-resume-badge" style="color:#8b949e;font-size:12px;margin-left:8px"></span>
     </div>
   </div>
+  <button id="modal-nav-prev" class="modal-nav-btn modal-nav-prev" style="display:none" onclick="event.stopPropagation();modalNavPhoto(-1)">&#8249;</button>
+  <button id="modal-nav-next" class="modal-nav-btn modal-nav-next" style="display:none" onclick="event.stopPropagation();modalNavPhoto(1)">&#8250;</button>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4"></script>
 <script>
@@ -707,6 +713,25 @@ function dirNextMedia(path) {
   }
   return null;
 }
+function photoNext(path) {
+  if (!window.dirPhotoFiles) return null;
+  for (var i = 0; i < window.dirPhotoFiles.length - 1; i++) {
+    if (window.dirPhotoFiles[i].path === path) return window.dirPhotoFiles[i + 1];
+  }
+  return null;
+}
+function photoPrev(path) {
+  if (!window.dirPhotoFiles) return null;
+  for (var i = 1; i < window.dirPhotoFiles.length; i++) {
+    if (window.dirPhotoFiles[i].path === path) return window.dirPhotoFiles[i - 1];
+  }
+  return null;
+}
+function modalNavPhoto(dir) {
+  var img = document.getElementById('modal-img');
+  var nxt = dir > 0 ? photoNext(img.dataset.navPath) : photoPrev(img.dataset.navPath);
+  if (nxt) openPreview({dataset: nxt}, false);
+}
 // ---- Image zoom/pan ----
 var iz = {scale:1, fitScale:1, tx:0, ty:0, dragging:false, lx:0, ly:0, lastT:null};
 function izApply() {
@@ -814,6 +839,7 @@ function openPreview(el, autoplay) {
   badge.textContent = '';
   img.src = ''; pdf.src = '';
   document.getElementById('modal-body').style.overflow = '';
+  document.getElementById('modal-nav-prev').style.display = document.getElementById('modal-nav-next').style.display = 'none';
   if (video.dataset.resumePath){ if (video.hlsInstance) { video.hlsInstance.destroy(); video.hlsInstance = null; } video.src = ''; video.dataset.resumePath = ''; }
   if (audio.dataset.resumePath) { if (audio.hlsInstance) { audio.hlsInstance.destroy(); audio.hlsInstance = null; } audio.pause(); audio.src = ''; audio.dataset.resumePath = ''; }
   if (type === 'photo') {
@@ -821,6 +847,10 @@ function openPreview(el, autoplay) {
     // so it contributes no intrinsic size, and a flex container would collapse.
     document.getElementById('modal-body').style.overflow = 'hidden';
     img.src = fileUrl;
+    img.dataset.navPath = path;
+    var _pp = photoPrev(path); var _pn = photoNext(path);
+    document.getElementById('modal-nav-prev').style.display = _pp ? '' : 'none';
+    document.getElementById('modal-nav-next').style.display = _pn ? '' : 'none';
     wrap.style.width = '90vw';
     wrap.style.height = '82vh';
     wrap.style.display = 'block';
@@ -900,7 +930,7 @@ function closePreview() {
   document.getElementById('modal-body').style.overflow = '';
   iz.scale = 1; iz.tx = 0; iz.ty = 0; iz.dragging = false;
 }
-document.addEventListener('keydown', function(e){ if(e.key==='Escape') closePreview(); });
+document.addEventListener('keydown', function(e){ if(e.key==='Escape') closePreview(); if(e.key==='ArrowLeft') modalNavPhoto(-1); if(e.key==='ArrowRight') modalNavPhoto(1); });
 document.addEventListener('submit', function(e) {
   var action = e.target.getAttribute('action') || '';
   if (action.indexOf('/delete') !== -1) {
@@ -1274,6 +1304,15 @@ function downloadSelected() {
   arr.sort(function(a, b) { return a.name.toLowerCase().localeCompare(b.name.toLowerCase()); });
   window.dirMediaFiles = arr;
 })();
+(function() {
+  var seen = {}, arr = [];
+  document.querySelectorAll('[data-type="photo"]').forEach(function(el) {
+    var p = el.dataset.path;
+    if (p && !seen[p]) { seen[p] = true; arr.push({path: p, name: el.dataset.name || '', type: 'photo'}); }
+  });
+  arr.sort(function(a, b) { return a.name.toLowerCase().localeCompare(b.name.toLowerCase()); });
+  window.dirPhotoFiles = arr;
+})();
 function toggleSidebar() {
   var sb = document.getElementById('browse-sidebar');
   var btn = document.getElementById('sidebar-toggle');
@@ -1390,6 +1429,14 @@ function setView(v) {
     if (p && !seen[p]) { seen[p] = true; arr.push({path: p, name: el.dataset.name || '', type: el.dataset.type}); }
   });
   window.dirMediaFiles = arr;
+})();
+(function() {
+  var seen = {}, arr = [];
+  document.querySelectorAll('[data-type="photo"]').forEach(function(el) {
+    var p = el.dataset.path;
+    if (p && !seen[p]) { seen[p] = true; arr.push({path: p, name: el.dataset.name || '', type: 'photo'}); }
+  });
+  window.dirPhotoFiles = arr;
 })();
 </script>
 {{end}}`
@@ -1608,18 +1655,32 @@ function startPlaylistItem(idx, seekTo, autoplay) {
       el.pause();
     }
   };
-  if (item.FileType === 'video') {
-    a.pause(); a.style.display = 'none';
-    v.volume = DEFAULT_VOL; v.style.display = 'block'; media = v;
-    if (MOBILE) {
-      attachVideo(v, '/hls/playlist?path=' + encodeURIComponent(item.Path), fileUrl, startPlayback);
+  var _losslessExts = {'.flac':1,'.wav':1,'.aiff':1,'.alac':1,'.ape':1};
+  var _ext = item.Path.slice(item.Path.lastIndexOf('.')).toLowerCase();
+  var usesHLS = MOBILE && (item.FileType === 'video' || !!_losslessExts[_ext]);
+  if (item.FileType === 'video' || usesHLS) {
+    // Destroy any previous audio HLS instance before switching.
+    if (a.hlsInstance) { a.hlsInstance.destroy(); a.hlsInstance = null; }
+    if (item.FileType !== 'video') { a.pause(); }
+    if (item.FileType === 'video') {
+      a.pause(); a.style.display = 'none';
+      v.volume = DEFAULT_VOL; v.style.display = 'block'; media = v;
+      if (MOBILE) {
+        attachVideo(v, '/hls/playlist?path=' + encodeURIComponent(item.Path), fileUrl, startPlayback);
+      } else {
+        v.preload = 'auto'; v.src = fileUrl; v.load();
+        v.addEventListener('loadedmetadata', function() { startPlayback(v); }, {once: true});
+      }
     } else {
-      v.preload = 'auto'; v.src = fileUrl; v.load();
-      v.addEventListener('loadedmetadata', function() { startPlayback(v); }, {once: true});
+      // Lossless audio on mobile: transcode to AAC via HLS.
+      if (_plActiveBlobUrl) { URL.revokeObjectURL(_plActiveBlobUrl); _plActiveBlobUrl = null; }
+      media = a; a.style.display = 'block'; a.volume = DEFAULT_VOL;
+      attachVideo(a, '/hls/playlist?path=' + encodeURIComponent(item.Path), fileUrl, startPlayback);
     }
   } else {
     media = a;
     a.style.display = 'block'; a.volume = DEFAULT_VOL;
+    if (a.hlsInstance) { a.hlsInstance.destroy(); a.hlsInstance = null; }
     // Revoke the previous track's blob now that we're moving on.
     if (_plActiveBlobUrl) { URL.revokeObjectURL(_plActiveBlobUrl); _plActiveBlobUrl = null; }
     // Use the preloaded blob if ready — plays instantly from RAM, bypassing any
