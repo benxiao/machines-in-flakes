@@ -92,12 +92,16 @@ func formatSize(n int64) string {
 	}
 }
 
-// isAllowedPath checks that absPath is equal to or under one of the current user's enabled indexed roots.
+// isAllowedPath checks that absPath is equal to or under one of the current user's enabled indexed roots,
+// either directly owned (admin) or via path_grants (non-admin).
 func (a *App) isAllowedPath(r *http.Request, absPath string) bool {
 	var count int
 	err := a.db.QueryRow(r.Context(), `
-		SELECT COUNT(*) FROM indexed_paths
-		WHERE user_id = $1 AND enabled = TRUE AND ($2 = path OR starts_with($2, path || '/'))
+		SELECT COUNT(*) FROM indexed_paths ip
+		WHERE ip.enabled = TRUE
+		  AND ($2 = ip.path OR starts_with($2, ip.path || '/'))
+		  AND (ip.user_id = $1
+		       OR EXISTS (SELECT 1 FROM path_grants pg WHERE pg.path_id = ip.id AND pg.user_id = $1))
 	`, uid(r), absPath).Scan(&count)
 	return err == nil && count > 0
 }
@@ -106,8 +110,12 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	userID := uid(r)
 
-	// Always load sidebar paths.
-	pRows, err := a.db.Query(ctx, `SELECT id, path, enabled FROM indexed_paths WHERE user_id = $1 AND enabled = TRUE ORDER BY path`, userID)
+	// Always load sidebar paths (user's own or granted).
+	pRows, err := a.db.Query(ctx, `
+		SELECT ip.id, ip.path, ip.enabled FROM indexed_paths ip
+		WHERE ip.enabled = TRUE
+		  AND (ip.user_id = $1 OR EXISTS (SELECT 1 FROM path_grants pg WHERE pg.path_id = ip.id AND pg.user_id = $1))
+		ORDER BY ip.path`, userID)
 	if err != nil {
 		httpErr(w, err, 500)
 		return
@@ -127,7 +135,7 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/browse?dir="+url.QueryEscape(sidebarPaths[0].Path), http.StatusFound)
 			return
 		}
-		render(w, "browse", BrowsePage{ActiveTab: "browse", Paths: sidebarPaths})
+		render(w, "browse", BrowsePage{ActiveTab: "browse", IsAdmin: isAdmin(r), Paths: sidebarPaths})
 		return
 	}
 
@@ -228,6 +236,7 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 
 	render(w, "browse", BrowsePage{
 		ActiveTab:     "browse",
+		IsAdmin:       isAdmin(r),
 		Paths:         sidebarPaths,
 		CurrentRoot:   rootPath,
 		Dir:           dirParam,
@@ -292,7 +301,7 @@ func (a *App) handleRecent(w http.ResponseWriter, r *http.Request) {
 			AlbumArt:    art,
 		})
 	}
-	render(w, "recent", RecentPage{ActiveTab: "recent", Items: items})
+	render(w, "recent", RecentPage{ActiveTab: "recent", IsAdmin: isAdmin(r), Items: items})
 }
 
 func findAlbumArt(dir string) string {
@@ -395,6 +404,10 @@ func (a *App) handlePathsList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handlePathAdd(w http.ResponseWriter, r *http.Request) {
+	if !isAdmin(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
 	r.ParseForm()
 	path := strings.TrimSpace(r.FormValue("path"))
 	if path == "" {
@@ -430,6 +443,10 @@ func (a *App) renderPathsWithError(w http.ResponseWriter, r *http.Request, errMs
 }
 
 func (a *App) handlePathDelete(w http.ResponseWriter, r *http.Request) {
+	if !isAdmin(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
 	id, ok := parseID(r)
 	if !ok {
 		http.NotFound(w, r)
@@ -444,6 +461,10 @@ func (a *App) handlePathDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handlePathToggle(w http.ResponseWriter, r *http.Request) {
+	if !isAdmin(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
 	id, ok := parseID(r)
 	if !ok {
 		http.NotFound(w, r)
@@ -491,7 +512,11 @@ func (a *App) handleSearchStatus(w http.ResponseWriter, r *http.Request) {
 func (a *App) reindexUser(ctx context.Context, userID int64) {
 	a.reindexing.Store(userID, true)
 	defer a.reindexing.Delete(userID)
-	rows, err := a.db.Query(ctx, `SELECT path FROM indexed_paths WHERE user_id = $1 AND enabled = TRUE`, userID)
+	rows, err := a.db.Query(ctx, `
+		SELECT ip.path FROM indexed_paths ip
+		WHERE ip.enabled = TRUE
+		  AND (ip.user_id = $1 OR EXISTS (SELECT 1 FROM path_grants pg WHERE pg.path_id = ip.id AND pg.user_id = $1))
+	`, userID)
 	if err != nil {
 		log.Printf("reindex: query paths: %v", err)
 		return
@@ -607,6 +632,12 @@ func (a *App) handleSearch(w http.ResponseWriter, r *http.Request) {
 type ctxKey string
 
 const ctxUserID ctxKey = "user_id"
+const ctxIsAdmin ctxKey = "is_admin"
+
+func isAdmin(r *http.Request) bool {
+	v, _ := r.Context().Value(ctxIsAdmin).(bool)
+	return v
+}
 
 func randToken() string {
 	b := make([]byte, 32)
@@ -627,15 +658,19 @@ func (a *App) withAuth(next http.Handler) http.Handler {
 			return
 		}
 		var userID int64
+		var admin bool
 		err = a.db.QueryRow(r.Context(), `
-			SELECT user_id FROM sessions WHERE token = $1 AND expires_at > now()
-		`, cookie.Value).Scan(&userID)
+			SELECT s.user_id, u.is_admin FROM sessions s
+			JOIN users u ON u.id = s.user_id
+			WHERE s.token = $1 AND s.expires_at > now()
+		`, cookie.Value).Scan(&userID, &admin)
 		if err != nil {
 			http.SetCookie(w, &http.Cookie{Name: "fb_session", Value: "", Path: "/", MaxAge: -1})
 			http.Redirect(w, r, "/login?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusFound)
 			return
 		}
 		ctx := context.WithValue(r.Context(), ctxUserID, userID)
+		ctx = context.WithValue(ctx, ctxIsAdmin, admin)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -653,7 +688,7 @@ func (a *App) bootstrapAdmin(ctx context.Context, username, password string) {
 		log.Printf("bootstrap admin: %v", err)
 		return
 	}
-	if _, err = a.db.Exec(ctx, `INSERT INTO users (username, password_hash) VALUES ($1, $2)`, username, string(hash)); err != nil {
+	if _, err = a.db.Exec(ctx, `INSERT INTO users (username, password_hash, is_admin) VALUES ($1, $2, TRUE)`, username, string(hash)); err != nil {
 		log.Printf("bootstrap admin: %v", err)
 	} else {
 		log.Printf("created admin user %q", username)
@@ -717,6 +752,10 @@ func (a *App) handleLogout(w http.ResponseWriter, r *http.Request) {
 // ---- User management ----
 
 func (a *App) handleUserList(w http.ResponseWriter, r *http.Request) {
+	if !isAdmin(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
 	rows, err := a.db.Query(r.Context(), `SELECT id, username, created_at FROM users ORDER BY created_at`)
 	if err != nil {
 		httpErr(w, err, 500)
@@ -733,10 +772,57 @@ func (a *App) handleUserList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	currentUID, _ := r.Context().Value(ctxUserID).(int64)
-	render(w, "users", UsersPage{ActiveTab: "users", Users: users, CurrentUID: currentUID})
+	render(w, "users", UsersPage{ActiveTab: "users", IsAdmin: true, Users: users, CurrentUID: currentUID})
+}
+
+func (a *App) handleUserDetail(w http.ResponseWriter, r *http.Request) {
+	if !isAdmin(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	targetID, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	var username string
+	if err := a.db.QueryRow(r.Context(), `SELECT username FROM users WHERE id = $1`, targetID).Scan(&username); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	// Load all admin paths with granted flag for this user.
+	rows, err := a.db.Query(r.Context(), `
+		SELECT ip.id, ip.path,
+		       (EXISTS (SELECT 1 FROM path_grants pg WHERE pg.path_id = ip.id AND pg.user_id = $2)) AS granted
+		FROM indexed_paths ip
+		WHERE ip.user_id = $1
+		ORDER BY ip.path`, uid(r), targetID)
+	if err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	defer rows.Close()
+	var allPaths []AdminPathRow
+	for rows.Next() {
+		var p AdminPathRow
+		if rows.Scan(&p.ID, &p.Path, &p.Granted) == nil {
+			allPaths = append(allPaths, p)
+		}
+	}
+	render(w, "user_detail", UserDetailPage{
+		ActiveTab: "users",
+		IsAdmin:   true,
+		ID:        targetID,
+		Username:  username,
+		AllPaths:  allPaths,
+	})
 }
 
 func (a *App) handleUserCreate(w http.ResponseWriter, r *http.Request) {
+	if !isAdmin(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
 	r.ParseForm()
 	username := strings.TrimSpace(r.FormValue("username"))
 	password := r.FormValue("password")
@@ -762,6 +848,10 @@ func (a *App) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleUserDelete(w http.ResponseWriter, r *http.Request) {
+	if !isAdmin(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
 	id, ok := parseID(r)
 	if !ok {
 		http.NotFound(w, r)
@@ -794,7 +884,63 @@ func (a *App) renderUsersWithError(w http.ResponseWriter, r *http.Request, errMs
 		}
 	}
 	currentUID, _ := r.Context().Value(ctxUserID).(int64)
-	render(w, "users", UsersPage{ActiveTab: "users", Users: users, CurrentUID: currentUID, Error: errMsg})
+	render(w, "users", UsersPage{ActiveTab: "users", IsAdmin: true, Users: users, CurrentUID: currentUID, Error: errMsg})
+}
+
+func (a *App) handlePathGrant(w http.ResponseWriter, r *http.Request) {
+	if !isAdmin(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	pathID, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	r.ParseForm()
+	grantUID, err := strconv.ParseInt(r.FormValue("user_id"), 10, 64)
+	if err != nil || grantUID <= 0 {
+		http.Redirect(w, r, "/users", http.StatusFound)
+		return
+	}
+	// Verify path belongs to current admin.
+	var count int
+	if err := a.db.QueryRow(r.Context(), `SELECT COUNT(*) FROM indexed_paths WHERE id=$1 AND user_id=$2`, pathID, uid(r)).Scan(&count); err != nil || count == 0 {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	a.db.Exec(r.Context(), `INSERT INTO path_grants (path_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, pathID, grantUID)
+	go func() {
+		ctx2, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		a.reindexUser(ctx2, grantUID)
+	}()
+	http.Redirect(w, r, fmt.Sprintf("/users/%d", grantUID), http.StatusFound)
+}
+
+func (a *App) handlePathRevoke(w http.ResponseWriter, r *http.Request) {
+	if !isAdmin(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	pathID, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	revokeUID, err := strconv.ParseInt(r.PathValue("uid"), 10, 64)
+	if err != nil || revokeUID <= 0 {
+		http.NotFound(w, r)
+		return
+	}
+	// Verify path belongs to current admin.
+	var count int
+	if err := a.db.QueryRow(r.Context(), `SELECT COUNT(*) FROM indexed_paths WHERE id=$1 AND user_id=$2`, pathID, uid(r)).Scan(&count); err != nil || count == 0 {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	a.db.Exec(r.Context(), `DELETE FROM path_grants WHERE path_id=$1 AND user_id=$2`, pathID, revokeUID)
+	http.Redirect(w, r, fmt.Sprintf("/users/%d", revokeUID), http.StatusFound)
 }
 
 // ---- Playlist handlers ----
@@ -834,7 +980,7 @@ func (a *App) handlePlaylistList(w http.ResponseWriter, r *http.Request) {
 			pls = append(pls, pl)
 		}
 	}
-	render(w, "playlists", PlaylistsPage{ActiveTab: "playlists", Playlists: pls})
+	render(w, "playlists", PlaylistsPage{ActiveTab: "playlists", IsAdmin: isAdmin(r), Playlists: pls})
 }
 
 func (a *App) handlePlaylistCreate(w http.ResponseWriter, r *http.Request) {
@@ -881,7 +1027,7 @@ func (a *App) handlePlaylistDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	var state PlaylistState
 	a.db.QueryRow(r.Context(), `SELECT current_index, position_sec FROM playlist_state WHERE playlist_id = $1`, id).Scan(&state.CurrentIndex, &state.PositionSec)
-	render(w, "playlist_detail", PlaylistDetailPage{ActiveTab: "playlists", ID: id, Name: name, Items: items, State: state})
+	render(w, "playlist_detail", PlaylistDetailPage{ActiveTab: "playlists", IsAdmin: isAdmin(r), ID: id, Name: name, Items: items, State: state})
 }
 
 func (a *App) handlePlaylistDelete(w http.ResponseWriter, r *http.Request) {
@@ -1161,12 +1307,21 @@ func (a *App) getTranscodeSettings(ctx context.Context, userID int64) TranscodeS
 // ---- Settings page handlers ----
 
 func (a *App) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(r.Context(), `SELECT id, path, enabled FROM indexed_paths WHERE user_id = $1 ORDER BY path`, uid(r))
+	ctx := r.Context()
+	userID := uid(r)
+	admin := isAdmin(r)
+
+	var pathQuery string
+	if admin {
+		pathQuery = `SELECT id, path, enabled FROM indexed_paths WHERE user_id = $1 ORDER BY path`
+	} else {
+		pathQuery = `SELECT ip.id, ip.path, ip.enabled FROM indexed_paths ip JOIN path_grants pg ON pg.path_id = ip.id WHERE pg.user_id = $1 AND ip.enabled = TRUE ORDER BY ip.path`
+	}
+	rows, err := a.db.Query(ctx, pathQuery, userID)
 	if err != nil {
 		httpErr(w, err, 500)
 		return
 	}
-	defer rows.Close()
 	var paths []PathRow
 	for rows.Next() {
 		var p PathRow
@@ -1174,11 +1329,14 @@ func (a *App) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 			paths = append(paths, p)
 		}
 	}
-	s := a.getTranscodeSettings(r.Context(), uid(r))
+	rows.Close()
+
+	s := a.getTranscodeSettings(ctx, userID)
 	savedOK := r.URL.Query().Get("saved") == "1"
 	pathErr := r.URL.Query().Get("err")
 	render(w, "settings", SettingsPage{
 		ActiveTab: "settings",
+		IsAdmin:   admin,
 		Paths:     paths,
 		PathError: pathErr,
 		Settings:  s,

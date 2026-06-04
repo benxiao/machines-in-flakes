@@ -120,6 +120,17 @@ DO $$ BEGIN
       ALTER TABLE video_positions ADD PRIMARY KEY (user_id, path);
     END IF;
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='is_admin') THEN
+    ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT FALSE;
+    UPDATE users SET is_admin = TRUE WHERE id = (SELECT MIN(id) FROM users);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='path_grants') THEN
+    CREATE TABLE path_grants (
+      path_id BIGINT NOT NULL REFERENCES indexed_paths(id) ON DELETE CASCADE,
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      PRIMARY KEY (path_id, user_id)
+    );
+  END IF;
 END $$;
 `
 
@@ -170,8 +181,11 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /playlists/{id}/state", a.handleGetPlaylistState)
 	mux.HandleFunc("POST /playlists/{id}/state", a.handleSavePlaylistState)
 	mux.HandleFunc("GET /users", a.handleUserList)
+	mux.HandleFunc("GET /users/{id}", a.handleUserDetail)
 	mux.HandleFunc("POST /users", a.handleUserCreate)
 	mux.HandleFunc("POST /users/{id}/delete", a.handleUserDelete)
+	mux.HandleFunc("POST /paths/{id}/grant", a.handlePathGrant)
+	mux.HandleFunc("POST /paths/{id}/revoke/{uid}", a.handlePathRevoke)
 }
 
 func main() {

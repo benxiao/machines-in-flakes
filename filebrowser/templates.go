@@ -13,6 +13,7 @@ import (
 
 type BrowsePage struct {
 	ActiveTab     string
+	IsAdmin       bool
 	Paths         []PathRow  // sidebar
 	CurrentRoot   string     // abs path of active sidebar entry
 	Dir           string
@@ -45,12 +46,14 @@ type PlaylistState struct {
 
 type PlaylistsPage struct {
 	ActiveTab string
+	IsAdmin   bool
 	Playlists []PlaylistRow
 	Error     string
 }
 
 type PlaylistDetailPage struct {
 	ActiveTab string
+	IsAdmin   bool
 	ID        int64
 	Name      string
 	Items     []PlaylistItem
@@ -80,6 +83,25 @@ type FileRow struct {
 	WatchCount int64
 }
 
+type GrantedUserRow struct {
+	UserID   int64
+	Username string
+}
+
+type AdminPathRow struct {
+	ID      int64
+	Path    string
+	Granted bool
+}
+
+type UserDetailPage struct {
+	ActiveTab string
+	IsAdmin   bool
+	ID        int64
+	Username  string
+	AllPaths  []AdminPathRow
+}
+
 type PathsPage struct {
 	ActiveTab string
 	Paths     []PathRow
@@ -99,17 +121,20 @@ type RecentItem struct {
 
 type RecentPage struct {
 	ActiveTab string
+	IsAdmin   bool
 	Items     []RecentItem
 }
 
 type PathRow struct {
-	ID      int64
-	Path    string
-	Enabled bool
+	ID           int64
+	Path         string
+	Enabled      bool
+	GrantedUsers []GrantedUserRow
 }
 
 type SettingsPage struct {
 	ActiveTab string
+	IsAdmin   bool
 	Paths     []PathRow
 	PathError string
 	Settings  TranscodeSettings
@@ -123,6 +148,7 @@ type LoginPage struct {
 
 type UsersPage struct {
 	ActiveTab  string
+	IsAdmin    bool
 	Users      []UserRow
 	CurrentUID int64
 	Error      string
@@ -179,6 +205,7 @@ func initTemplates() {
 	add("playlists", playlistsTmpl)
 	add("playlist_detail", playlistDetailTmpl)
 	add("users", usersTmpl)
+	add("user_detail", userDetailTmpl)
 	add("settings", settingsTmpl)
 	// login uses its own standalone template (no nav/base)
 	pages["login"] = template.Must(template.New("login").Funcs(funcMap).Parse(loginTmpl))
@@ -558,7 +585,7 @@ const baseTmpl = `<!DOCTYPE html>
   <a href="/browse"     {{if eq .ActiveTab "browse"}}class="active"{{end}}>Browse</a>
   <a href="/recent"     {{if eq .ActiveTab "recent"}}class="active"{{end}}>Recent</a>
   <a href="/playlists"  {{if eq .ActiveTab "playlists"}}class="active"{{end}}>Playlists</a>
-  <a href="/users"      {{if eq .ActiveTab "users"}}class="active"{{end}}>Users</a>
+  {{if .IsAdmin}}<a href="/users" {{if eq .ActiveTab "users"}}class="active"{{end}}>Users</a>{{end}}
   <a href="/settings"   {{if eq .ActiveTab "settings"}}class="active"{{end}}>Settings</a>
   <form action="/logout" method="post" style="margin:0;margin-left:auto;display:flex;align-items:center;padding:0 4px;flex-shrink:0">
     <button type="submit" style="background:transparent;border:1px solid #30363d;color:#8b949e;padding:4px 12px;border-radius:6px;font-size:13px;cursor:pointer;line-height:1.4;white-space:nowrap">Logout</button>
@@ -1916,14 +1943,12 @@ function hideNewUser() { document.getElementById('new-user-form').style.display=
 </tr></thead>
 <tbody>
 {{range .Users}}
-<tr>
-  <td>{{.Username}}</td>
+<tr class="file-row" {{if ne .ID $.CurrentUID}}onclick="location.href='/users/{{.ID}}'" style="cursor:pointer"{{end}}>
+  <td>{{.Username}}{{if eq .ID $.CurrentUID}} <span class="muted" style="font-size:11px">(you)</span>{{end}}</td>
   <td class="muted">{{.CreatedAt}}</td>
   <td class="actions-cell">
-    {{if eq .ID $.CurrentUID}}
-    <span class="muted" style="font-size:12px">current</span>
-    {{else}}
-    <form class="inline" action="/users/{{.ID}}/delete" method="post">
+    {{if ne .ID $.CurrentUID}}
+    <form class="inline" action="/users/{{.ID}}/delete" method="post" onclick="event.stopPropagation()">
       <button class="btn btn-danger btn-sm" type="submit">Delete</button>
     </form>
     {{end}}
@@ -1937,6 +1962,49 @@ function hideNewUser() { document.getElementById('new-user-form').style.display=
 {{end}}
 {{end}}`
 
+const userDetailTmpl = `{{define "content"}}
+<div class="page-header">
+  <div class="page-header-left">
+    <a href="/users" style="color:#8b949e;font-size:13px;text-decoration:none;margin-right:8px">&#8592; Users</a>
+    <h2>{{.Username}}</h2>
+  </div>
+  <form action="/users/{{.ID}}/delete" method="post" onsubmit="return confirm('Delete user {{.Username}}?')">
+    <button class="btn btn-danger btn-sm" type="submit">Delete User</button>
+  </form>
+</div>
+<div class="section">
+  <div class="section-header"><h3>Path Access</h3></div>
+  {{if .AllPaths}}
+  <div class="table-wrap">
+  <table>
+  <thead><tr><th style="width:40px">Access</th><th>Path</th></tr></thead>
+  <tbody>
+  {{range .AllPaths}}
+  <tr>
+    <td style="text-align:center">
+      {{if .Granted}}
+      <form class="inline" action="/paths/{{.ID}}/revoke/{{$.ID}}" method="post">
+        <input type="checkbox" checked onclick="this.form.submit()" style="cursor:pointer;width:16px;height:16px" title="Revoke access">
+      </form>
+      {{else}}
+      <form class="inline" action="/paths/{{.ID}}/grant" method="post">
+        <input type="hidden" name="user_id" value="{{$.ID}}">
+        <input type="checkbox" onclick="this.form.submit()" style="cursor:pointer;width:16px;height:16px" title="Grant access">
+      </form>
+      {{end}}
+    </td>
+    <td>{{.Path}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+  </table>
+  </div>
+  {{else}}
+  <p class="muted" style="padding:12px 0">No paths added yet. Add paths in Settings first.</p>
+  {{end}}
+</div>
+{{end}}`
+
 const settingsTmpl = `{{define "content"}}
 <div class="page-header">
   <div class="page-header-left">
@@ -1945,6 +2013,7 @@ const settingsTmpl = `{{define "content"}}
   <span id="settings-saved-toast" style="color:#3fb950;font-size:13px;opacity:0;transition:opacity 0.3s">Saved ✓</span>
 </div>
 {{if .PathError}}<div class="error-box">{{.PathError}}</div>{{end}}
+{{if .IsAdmin}}
 <div class="section">
   <div class="section-header">
     <h3>Browseable Paths</h3>
@@ -1985,6 +2054,28 @@ const settingsTmpl = `{{define "content"}}
     </form>
   </div>
 </div>
+{{else}}
+<div class="section">
+  <div class="section-header">
+    <h3>Accessible Paths</h3>
+    <button class="btn btn-edit btn-sm" onclick="reindexFiles(this)">Reindex Files</button>
+  </div>
+  {{if .Paths}}
+  <div class="table-wrap" style="margin-bottom:16px">
+  <table>
+  <thead><tr><th>Path</th></tr></thead>
+  <tbody>
+  {{range .Paths}}
+  <tr><td><a href="{{browseURL .Path}}">{{.Path}}</a></td></tr>
+  {{end}}
+  </tbody>
+  </table>
+  </div>
+  {{else}}
+  <p class="muted" style="padding:12px 0">No paths have been granted to your account yet.</p>
+  {{end}}
+</div>
+{{end}}
 <div class="section">
   <div class="section-header"><h3>Video Transcoding</h3></div>
   <div class="form-page" style="max-width:680px">
