@@ -772,7 +772,7 @@ func (a *App) handleUserList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	currentUID, _ := r.Context().Value(ctxUserID).(int64)
-	render(w, "users", UsersPage{ActiveTab: "users", IsAdmin: true, Users: users, CurrentUID: currentUID})
+	render(w, "users", UsersPage{ActiveTab: "users", IsAdmin: isAdmin(r), Users: users, CurrentUID: currentUID})
 }
 
 func (a *App) handleUserDetail(w http.ResponseWriter, r *http.Request) {
@@ -792,9 +792,9 @@ func (a *App) handleUserDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	// Load all admin paths with granted flag for this user.
 	rows, err := a.db.Query(r.Context(), `
-		SELECT ip.id, ip.path,
-		       (EXISTS (SELECT 1 FROM path_grants pg WHERE pg.path_id = ip.id AND pg.user_id = $2)) AS granted
+		SELECT ip.id, ip.path, (pg.path_id IS NOT NULL) AS granted
 		FROM indexed_paths ip
+		LEFT JOIN path_grants pg ON pg.path_id = ip.id AND pg.user_id = $2
 		WHERE ip.user_id = $1
 		ORDER BY ip.path`, uid(r), targetID)
 	if err != nil {
@@ -884,7 +884,13 @@ func (a *App) renderUsersWithError(w http.ResponseWriter, r *http.Request, errMs
 		}
 	}
 	currentUID, _ := r.Context().Value(ctxUserID).(int64)
-	render(w, "users", UsersPage{ActiveTab: "users", IsAdmin: true, Users: users, CurrentUID: currentUID, Error: errMsg})
+	render(w, "users", UsersPage{ActiveTab: "users", IsAdmin: isAdmin(r), Users: users, CurrentUID: currentUID, Error: errMsg})
+}
+
+func (a *App) ownsPath(r *http.Request, pathID int64) bool {
+	var count int
+	a.db.QueryRow(r.Context(), `SELECT COUNT(*) FROM indexed_paths WHERE id=$1 AND user_id=$2`, pathID, uid(r)).Scan(&count)
+	return count > 0
 }
 
 func (a *App) handlePathGrant(w http.ResponseWriter, r *http.Request) {
@@ -903,9 +909,7 @@ func (a *App) handlePathGrant(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/users", http.StatusFound)
 		return
 	}
-	// Verify path belongs to current admin.
-	var count int
-	if err := a.db.QueryRow(r.Context(), `SELECT COUNT(*) FROM indexed_paths WHERE id=$1 AND user_id=$2`, pathID, uid(r)).Scan(&count); err != nil || count == 0 {
+	if !a.ownsPath(r, pathID) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
@@ -933,9 +937,7 @@ func (a *App) handlePathRevoke(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	// Verify path belongs to current admin.
-	var count int
-	if err := a.db.QueryRow(r.Context(), `SELECT COUNT(*) FROM indexed_paths WHERE id=$1 AND user_id=$2`, pathID, uid(r)).Scan(&count); err != nil || count == 0 {
+	if !a.ownsPath(r, pathID) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
@@ -1364,16 +1366,18 @@ func (a *App) handleSettingsSave(w http.ResponseWriter, r *http.Request) {
 		`, userID, k, v)
 		return err
 	}
-	if r.FormValue("save_playback") == "1" {
-		fo := "0"
-		if r.FormValue("force_original") != "" {
-			fo = "1"
+	checkbox := func(key string) string {
+		if r.FormValue(key) != "" {
+			return "1"
 		}
+		return "0"
+	}
+	if r.FormValue("save_playback") == "1" {
 		dv := r.FormValue("default_volume")
 		if dv == "" {
 			dv = "1.0"
 		}
-		for k, v := range map[string]string{"playback_force_original": fo, "playback_default_volume": dv} {
+		for k, v := range map[string]string{"playback_force_original": checkbox("force_original"), "playback_default_volume": dv} {
 			if err := save(k, v); err != nil {
 				httpErr(w, err, 500)
 				return
@@ -1382,10 +1386,6 @@ func (a *App) handleSettingsSave(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	audioHLS := "0"
-	if r.FormValue("audio_hls_enabled") != "" {
-		audioHLS = "1"
-	}
 	updates := map[string]string{
 		"transcode_crf":            r.FormValue("crf"),
 		"transcode_preset":         r.FormValue("preset"),
@@ -1393,7 +1393,7 @@ func (a *App) handleSettingsSave(w http.ResponseWriter, r *http.Request) {
 		"transcode_video_kbps":     r.FormValue("video_kbps"),
 		"transcode_audio_kbps":     r.FormValue("audio_kbps"),
 		"transcode_segment_sec":    r.FormValue("segment_sec"),
-		"audio_hls_enabled":        audioHLS,
+		"audio_hls_enabled":        checkbox("audio_hls_enabled"),
 		"audio_hls_threshold_kbps": r.FormValue("audio_hls_threshold_kbps"),
 	}
 	for k, v := range updates {
@@ -1518,8 +1518,10 @@ func (a *App) accumulatePlayTime(ctx context.Context, userID int64, deltaSec int
 
 func (a *App) handlePlayStats(w http.ResponseWriter, r *http.Request) {
 	var todaySec, totalSec int64
-	a.db.QueryRow(r.Context(), `SELECT COALESCE(SUM(seconds),0) FROM play_time WHERE user_id=$1 AND day=CURRENT_DATE`, uid(r)).Scan(&todaySec)
-	a.db.QueryRow(r.Context(), `SELECT COALESCE(SUM(seconds),0) FROM play_time WHERE user_id=$1`, uid(r)).Scan(&totalSec)
+	a.db.QueryRow(r.Context(), `
+		SELECT COALESCE(SUM(CASE WHEN day = CURRENT_DATE THEN seconds END), 0),
+		       COALESCE(SUM(seconds), 0)
+		FROM play_time WHERE user_id = $1`, uid(r)).Scan(&todaySec, &totalSec)
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprintf(w, `{"today_sec":%d,"total_sec":%d}`, todaySec, totalSec)
 }
