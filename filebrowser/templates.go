@@ -581,6 +581,7 @@ const baseTmpl = `<!DOCTYPE html>
       <div id="search-status" style="display:none;padding:12px;color:#8b949e;font-size:13px;text-align:center"></div>
     </div>
   </div>
+  <span id="play-stats" style="margin-left:auto;color:#8b949e;font-size:12px;white-space:nowrap;flex-shrink:0;display:flex;gap:12px;align-items:center"></span>
 </header>
 <nav>
   <a href="/browse"     {{if eq .ActiveTab "browse"}}class="active"{{end}}>Browse</a>
@@ -588,8 +589,7 @@ const baseTmpl = `<!DOCTYPE html>
   <a href="/playlists"  {{if eq .ActiveTab "playlists"}}class="active"{{end}}>Playlists</a>
   {{if .IsAdmin}}<a href="/users" {{if eq .ActiveTab "users"}}class="active"{{end}}>Users</a>{{end}}
   <a href="/settings"   {{if eq .ActiveTab "settings"}}class="active"{{end}}>Settings</a>
-  <span id="play-stats" style="margin-left:auto;margin-right:8px;color:#8b949e;font-size:12px;white-space:nowrap;flex-shrink:0;display:flex;gap:12px;align-items:center"></span>
-  <form action="/logout" method="post" style="margin:0;display:flex;align-items:center;padding:0 4px;flex-shrink:0">
+  <form action="/logout" method="post" style="margin:0;display:flex;align-items:center;padding:0 4px;flex-shrink:0;margin-left:auto">
     <button type="submit" style="background:transparent;border:1px solid #30363d;color:#8b949e;padding:4px 12px;border-radius:6px;font-size:13px;cursor:pointer;line-height:1.4;white-space:nowrap">Logout</button>
   </form>
 </nav>
@@ -638,7 +638,10 @@ var modal = document.getElementById('preview-modal');
       if (!el) return;
       el.innerHTML =
         '<span title="Played today">&#9654; ' + fmtHM(d.today_sec) + '</span>' +
-        '<span title="Total play time">&#8734; ' + fmtHM(d.total_sec) + '</span>';
+        '<span title="Total play time">&#8734; ' + fmtHM(d.total_sec) + '</span>' +
+        '<span style="color:#484f58">|</span>' +
+        '<span title="Music listened today">&#9835; ' + fmtHM(d.audio_today_sec) + '</span>' +
+        '<span title="Total music time">&#8734;&#9835; ' + fmtHM(d.audio_total_sec) + '</span>';
     }).catch(function(){});
   }
   loadPlayStats();
@@ -956,7 +959,23 @@ function openPreview(el, autoplay) {
       seekforward:  function(){ seekActiveMedia(15); }
     });
     bindMediaSessionState(audio);
-    attachMediaResume(audio, path, badge, 'listened', _na ? function() { openPreview({dataset: _na}, true); } : null);
+    audio.dataset.resumePath = path;
+    audio._lastSave = 0;
+    audio.addEventListener('timeupdate', function onTU() {
+      if (audio.dataset.resumePath !== path) { audio.removeEventListener('timeupdate', onTU); return; }
+      var now = Date.now();
+      if (now - (audio._lastSave || 0) > 5000 && audio.currentTime > 1) {
+        audio._lastSave = now;
+        saveVideoPos(path, audio.currentTime, false);
+      }
+    });
+    audio.addEventListener('ended', function() {
+      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+      saveVideoPos(path, 0, true);
+      audio.currentTime = 0;
+      badge.textContent = '';
+      if (_na) openPreview({dataset: _na}, true);
+    }, {once: true});
   } else if (type === 'pdf') {
     pdf.src = fileUrl;
     pdf.style.display = 'block';
@@ -978,7 +997,6 @@ function closePreview() {
   var video = document.getElementById('modal-video');
   var audio = document.getElementById('modal-audio');
   if (video.dataset.resumePath && video.currentTime > 1) saveVideoPos(video.dataset.resumePath, video.currentTime, false);
-  if (audio.dataset.resumePath && audio.currentTime > 1) saveVideoPos(audio.dataset.resumePath, audio.currentTime, false);
   video.dataset.resumePath = ''; audio.dataset.resumePath = '';
   document.getElementById('modal-resume-badge').textContent = '';
   if (video.hlsInstance) { video.hlsInstance.destroy(); video.hlsInstance = null; }
@@ -1443,7 +1461,7 @@ const recentTmpl = `{{define "content"}}
   <td><span class="badge badge-{{.FileType}}">{{upper .FileType}}</span></td>
   <td class="muted" style="font-size:12px;font-family:monospace">{{.Dir}}</td>
   <td class="muted">{{.UpdatedAt}}</td>
-  <td>{{if gt .WatchCount 0}}<span class="badge badge-{{.FileType}}">{{.WatchCount}}×</span>{{else}}<span class="muted">—</span>{{end}}</td>
+  <td>{{if and (or (eq .FileType "video") (eq .FileType "audio")) (gt .WatchCount 0)}}<span class="badge badge-{{.FileType}}">{{.WatchCount}}×</span>{{else}}<span class="muted">—</span>{{end}}</td>
 </tr>
 {{end}}
 </tbody>
@@ -1675,10 +1693,11 @@ function savePlState() {
   var item = PLAYLIST_ITEMS && PLAYLIST_ITEMS[plCurrentIdx];
   var trackKey = item ? 'pl:' + item.Path : null;
   var delta = trackKey ? _playDelta(trackKey, pos) : 0;
+  var mediaType = item ? item.FileType : 'video';
   fetch('/playlists/' + PLAYLIST_ID + '/state', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({current_index: plCurrentIdx, position_sec: pos, delta_sec: delta})
+    body: JSON.stringify({current_index: plCurrentIdx, position_sec: pos, delta_sec: delta, media_type: mediaType})
   });
 }
 function plPlay(el) { var p = el.play(); if (p && p.catch) p.catch(function(){}); }

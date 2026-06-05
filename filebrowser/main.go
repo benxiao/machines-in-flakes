@@ -135,11 +135,17 @@ DO $$ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='play_time') THEN
     CREATE TABLE play_time (
-      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      day     DATE NOT NULL,
-      seconds BIGINT NOT NULL DEFAULT 0,
-      PRIMARY KEY (user_id, day)
+      user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      day        DATE NOT NULL,
+      media_type TEXT NOT NULL DEFAULT 'video',
+      seconds    BIGINT NOT NULL DEFAULT 0,
+      PRIMARY KEY (user_id, day, media_type)
     );
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='play_time' AND column_name='media_type') THEN
+    ALTER TABLE play_time ADD COLUMN media_type TEXT NOT NULL DEFAULT 'video';
+    ALTER TABLE play_time DROP CONSTRAINT play_time_pkey;
+    ALTER TABLE play_time ADD PRIMARY KEY (user_id, day, media_type);
   END IF;
 END $$;
 `

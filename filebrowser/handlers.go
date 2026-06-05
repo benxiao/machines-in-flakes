@@ -268,7 +268,6 @@ func (a *App) handleRecent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
-	artCache := make(map[string]string)
 	var items []RecentItem
 	for rows.Next() {
 		var path string
@@ -278,17 +277,11 @@ func (a *App) handleRecent(w http.ResponseWriter, r *http.Request) {
 		if rows.Scan(&path, &wc, &t, &pos) != nil {
 			continue
 		}
-		ext := filepath.Ext(path)
-		ft := classifyExt(ext)
+		ft := classifyExt(filepath.Ext(path))
 		dir := filepath.Dir(path)
 		var art string
 		if ft == "audio" {
-			if cached, ok := artCache[dir]; ok {
-				art = cached
-			} else {
-				art = findAlbumArt(dir)
-				artCache[dir] = art
-			}
+			art = findAlbumArt(dir)
 		}
 		items = append(items, RecentItem{
 			Path:        path,
@@ -568,6 +561,21 @@ func (a *App) reindexUser(ctx context.Context, userID int64) {
 		log.Printf("reindex: commit: %v", err)
 		return
 	}
+
+	// Purge stale video_positions for files that no longer exist.
+	if len(entries) > 0 {
+		paths := make([]string, len(entries))
+		for i, e := range entries {
+			paths[i] = e.path
+		}
+		if _, err := a.db.Exec(ctx,
+			`DELETE FROM video_positions WHERE user_id = $1 AND NOT (path = ANY($2))`,
+			userID, paths,
+		); err != nil {
+			log.Printf("reindex: purge positions: %v", err)
+		}
+	}
+
 	log.Printf("reindex: user %d indexed %d files", userID, len(entries))
 }
 
@@ -956,6 +964,7 @@ type playlistStateReq struct {
 	CurrentIndex int     `json:"current_index"`
 	PositionSec  float64 `json:"position_sec"`
 	DeltaSec     int     `json:"delta_sec"`
+	MediaType    string  `json:"media_type"`
 }
 
 type playlistItemAddReq struct {
@@ -1178,7 +1187,7 @@ func (a *App) handleSavePlaylistState(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, err, 500)
 		return
 	}
-	a.accumulatePlayTime(r.Context(), uid(r), req.DeltaSec)
+	a.accumulatePlayTime(r.Context(), uid(r), req.DeltaSec, req.MediaType)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1495,6 +1504,11 @@ func (a *App) handleGetVideoPosition(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
+	if classifyExt(filepath.Ext(absPath)) == "audio" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(videoPositionResp{})
+		return
+	}
 	var resp videoPositionResp
 	err := a.db.QueryRow(r.Context(),
 		`SELECT position_sec, watch_count FROM video_positions WHERE user_id = $1 AND path = $2`, uid(r), absPath,
@@ -1506,24 +1520,30 @@ func (a *App) handleGetVideoPosition(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-func (a *App) accumulatePlayTime(ctx context.Context, userID int64, deltaSec int) {
+func (a *App) accumulatePlayTime(ctx context.Context, userID int64, deltaSec int, mediaType string) {
 	if deltaSec <= 0 || deltaSec > 30 {
 		return
 	}
+	if mediaType == "" {
+		mediaType = "video"
+	}
 	a.db.Exec(ctx, `
-		INSERT INTO play_time (user_id, day, seconds) VALUES ($1, CURRENT_DATE, $2)
-		ON CONFLICT (user_id, day) DO UPDATE SET seconds = play_time.seconds + EXCLUDED.seconds
-	`, userID, deltaSec)
+		INSERT INTO play_time (user_id, day, media_type, seconds) VALUES ($1, CURRENT_DATE, $2, $3)
+		ON CONFLICT (user_id, day, media_type) DO UPDATE SET seconds = play_time.seconds + EXCLUDED.seconds
+	`, userID, mediaType, deltaSec)
 }
 
 func (a *App) handlePlayStats(w http.ResponseWriter, r *http.Request) {
-	var todaySec, totalSec int64
+	var todaySec, totalSec, audioTodaySec, audioTotalSec int64
 	a.db.QueryRow(r.Context(), `
-		SELECT COALESCE(SUM(CASE WHEN day = CURRENT_DATE THEN seconds END), 0),
-		       COALESCE(SUM(seconds), 0)
-		FROM play_time WHERE user_id = $1`, uid(r)).Scan(&todaySec, &totalSec)
+		SELECT COALESCE(SUM(CASE WHEN day = CURRENT_DATE AND media_type = 'video' THEN seconds END), 0),
+		       COALESCE(SUM(CASE WHEN media_type = 'video' THEN seconds END), 0),
+		       COALESCE(SUM(CASE WHEN day = CURRENT_DATE AND media_type = 'audio' THEN seconds END), 0),
+		       COALESCE(SUM(CASE WHEN media_type = 'audio' THEN seconds END), 0)
+		FROM play_time WHERE user_id = $1`, uid(r)).Scan(&todaySec, &totalSec, &audioTodaySec, &audioTotalSec)
 	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprintf(w, `{"today_sec":%d,"total_sec":%d}`, todaySec, totalSec)
+	fmt.Fprintf(w, `{"today_sec":%d,"total_sec":%d,"audio_today_sec":%d,"audio_total_sec":%d}`,
+		todaySec, totalSec, audioTodaySec, audioTotalSec)
 }
 
 func (a *App) handleSaveVideoPosition(w http.ResponseWriter, r *http.Request) {
@@ -1535,6 +1555,20 @@ func (a *App) handleSaveVideoPosition(w http.ResponseWriter, r *http.Request) {
 	absPath := filepath.Clean(req.Path)
 	if !a.isAllowedPath(r, absPath) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if classifyExt(filepath.Ext(absPath)) == "audio" {
+		a.accumulatePlayTime(r.Context(), uid(r), req.DeltaSec, "audio")
+		if req.Completed {
+			a.db.Exec(r.Context(), `
+				INSERT INTO video_positions (user_id, path, position_sec, watch_count, updated_at)
+				VALUES ($1, $2, 0, 1, now())
+				ON CONFLICT (user_id, path) DO UPDATE
+				  SET watch_count = video_positions.watch_count + 1,
+				      updated_at  = now()
+			`, uid(r), absPath)
+		}
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	var err error
@@ -1560,7 +1594,7 @@ func (a *App) handleSaveVideoPosition(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, err, 500)
 		return
 	}
-	a.accumulatePlayTime(r.Context(), uid(r), req.DeltaSec)
+	a.accumulatePlayTime(r.Context(), uid(r), req.DeltaSec, "video")
 	w.WriteHeader(http.StatusNoContent)
 }
 
