@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // ---- Data structs ----
@@ -79,6 +80,7 @@ type SubdirRow struct {
 	Name       string
 	AlbumArt   string // abs path of cover image inside this dir, empty if none
 	ModifiedAt string
+	ModTime    time.Time
 }
 
 type FileRow struct {
@@ -90,6 +92,7 @@ type FileRow struct {
 	Size       string
 	ModifiedAt string
 	WatchCount int64
+	ModTime    time.Time
 }
 
 type GrantedUserRow struct {

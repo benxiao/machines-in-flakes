@@ -132,7 +132,11 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 	dirParam := r.URL.Query().Get("dir")
 	if dirParam == "" {
 		if len(sidebarPaths) > 0 {
-			http.Redirect(w, r, "/browse?dir="+url.QueryEscape(sidebarPaths[0].Path), http.StatusFound)
+			target := "/browse?dir=" + url.QueryEscape(sidebarPaths[0].Path)
+			if s := r.URL.Query().Get("sort"); s != "" {
+				target += "&sort=" + url.QueryEscape(s)
+			}
+			http.Redirect(w, r, target, http.StatusFound)
 			return
 		}
 		render(w, "browse", BrowsePage{ActiveTab: "browse", IsAdmin: isAdmin(r), Paths: sidebarPaths})
@@ -168,6 +172,7 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 			absDir := filepath.Join(dirParam, e.Name())
 			row := SubdirRow{AbsPath: absDir, Name: e.Name(), AlbumArt: findAlbumArt(absDir)}
 			if info, err := e.Info(); err == nil {
+				row.ModTime = info.ModTime()
 				row.ModifiedAt = info.ModTime().Format("2006-01-02 15:04")
 			}
 			subdirs = append(subdirs, row)
@@ -187,11 +192,12 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 			SizeBytes:  info.Size(),
 			Size:       formatSize(info.Size()),
 			ModifiedAt: info.ModTime().Format("2006-01-02 15:04"),
+			ModTime:    info.ModTime(),
 		})
 	}
 	if sortBy == "date" {
-		sort.Slice(subdirs, func(i, j int) bool { return subdirs[i].ModifiedAt > subdirs[j].ModifiedAt })
-		sort.Slice(files, func(i, j int) bool { return files[i].ModifiedAt > files[j].ModifiedAt })
+		sort.Slice(subdirs, func(i, j int) bool { return subdirs[i].ModTime.After(subdirs[j].ModTime) })
+		sort.Slice(files, func(i, j int) bool { return files[i].ModTime.After(files[j].ModTime) })
 	} else {
 		sort.Slice(subdirs, func(i, j int) bool { return subdirs[i].Name < subdirs[j].Name })
 		sort.Slice(files, func(i, j int) bool {
