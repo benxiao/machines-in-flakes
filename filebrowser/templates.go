@@ -1261,7 +1261,8 @@ const browseTmpl = `{{define "content"}}
       </td>
       <td><span class="badge badge-dir">DIR</span></td>
       <td class="muted">—</td>
-      <td class="muted">—</td>
+      <td class="muted">{{.ModifiedAt}}</td>
+      <td></td>
       <td onclick="event.stopPropagation()"><button class="fav-btn" data-path="{{.AbsPath}}" data-folder="1" onclick="toggleFav(this)" title="Favorite folder">☆</button></td>
     </tr>
     {{end}}
