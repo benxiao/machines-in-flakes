@@ -990,6 +990,57 @@ document.addEventListener('submit', function(e) {
 // ---- Page templates ----
 
 const droneListTmpl = `{{define "content"}}
+<style>
+.drone-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-top: 4px;
+}
+@media (max-width: 900px) {
+  .drone-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 640px) {
+  .drone-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+}
+.drone-card {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  display: flex;
+  flex-direction: column;
+}
+.drone-card:hover { border-color: #58a6ff; box-shadow: 0 0 0 1px #58a6ff22; }
+.drone-card.retired { opacity: 0.55; }
+.drone-card-photo {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4/3;
+  background: #21262d;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.drone-card-photo img { width:100%;height:100%;object-fit:cover;display:block; }
+.drone-card-photo-icon { font-size:36px;color:#8b949e; }
+.drone-card-status { position:absolute;top:8px;right:8px; }
+.drone-card-body { padding:10px 12px 6px;flex:1; }
+.drone-card-name {
+  font-weight: 600;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+.drone-card-meta { font-size:12px;color:#8b949e;display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center; }
+.drone-card-footer { padding:8px 12px;border-top:1px solid #21262d;display:flex;justify-content:flex-end; }
+</style>
 <div class="page-header">
   <div class="page-header-left">
     <h2>Drones</h2>
@@ -997,40 +1048,37 @@ const droneListTmpl = `{{define "content"}}
   <a href="/drones/new" class="btn btn-primary">+ Add Drone</a>
 </div>
 {{if .Drones}}
-<div class="table-wrap">
-<table>
-<thead><tr>
-  <th></th><th>Name</th><th class="hide-mobile">Size</th><th class="hide-mobile">Cell</th><th>Status</th><th>Flights</th><th class="hide-mobile">Sub 250g</th><th></th>
-</tr></thead>
-<tbody>
+<div class="drone-grid">
 {{range .Drones}}
-<tr class="{{if eq .Status "retired"}}retired{{end}}" style="cursor:pointer" onclick="window.location='/drones/{{.ID}}'">
-  <td style="width:56px;padding:6px 8px" onclick="event.stopPropagation()">
+<div class="drone-card{{if eq .Status "retired"}} retired{{end}}" onclick="window.location='/drones/{{.ID}}'">
+  <div class="drone-card-photo">
     {{if .FirstPhotoID}}
-    <img src="/drone-photos/{{.FirstPhotoID}}" style="width:48px;height:48px;object-fit:cover;border-radius:4px;display:block;cursor:zoom-in" onclick="event.stopPropagation();openLightbox('/drone-photos/{{.FirstPhotoID}}')">
+    <img src="/drone-photos/{{.FirstPhotoID}}" alt="{{.Name}}" onclick="event.stopPropagation();openLightbox('/drone-photos/{{.FirstPhotoID}}')">
     {{else}}
-    <div style="width:48px;height:48px;background:#21262d;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#8b949e;font-size:20px">✈</div>
+    <span class="drone-card-photo-icon">✈</span>
     {{end}}
-  </td>
-  <td style="font-weight:600">{{.Name}}</td>
-  <td class="muted hide-mobile">{{if .SizeInch}}{{.SizeInch}}"{{else}}—{{end}}</td>
-  <td class="muted hide-mobile">{{dash .CellLabel}}</td>
-  <td><span class="badge {{badgeClass .Status}}">{{.Status}}</span></td>
-  <td class="muted">{{if gt .FlightCount 0}}{{.FlightCount}}{{else}}—{{end}}</td>
-  <td class="hide-mobile">{{if .Sub250g}}<span style="color:#3fb950;font-weight:600">✓</span>{{else}}<span class="muted">—</span>{{end}}</td>
-  <td style="width:44px;padding:4px 8px;text-align:center" onclick="event.stopPropagation()">
+    <div class="drone-card-status"><span class="badge {{badgeClass .Status}}">{{.Status}}</span></div>
+  </div>
+  <div class="drone-card-body">
+    <div class="drone-card-name" title="{{.Name}}">{{.Name}}</div>
+    <div class="drone-card-meta">
+      {{if .SizeInch}}<span>{{.SizeInch}}"</span>{{end}}
+      {{if .CellLabel}}<span>{{.CellLabel}}</span>{{end}}
+      {{if gt .FlightCount 0}}<span>{{.FlightCount}} flights</span>{{end}}
+      {{if .Sub250g}}<span style="color:#3fb950">sub 250g</span>{{end}}
+    </div>
+  </div>
+  <div class="drone-card-footer" onclick="event.stopPropagation()">
     {{if .HasFlightToday}}
-    <button class="btn btn-sm" disabled style="opacity:0.35;cursor:not-allowed" title="Already flown today">+</button>
+    <button class="btn btn-sm" disabled style="opacity:0.35;cursor:not-allowed" title="Already flown today">+ Flight</button>
     {{else}}
     <form class="inline" method="POST" action="/drones/{{.ID}}/quick-flight">
-      <button class="btn btn-sm btn-primary" type="submit" title="Log quick flight" onclick="return confirm('Log a quick flight for {{.Name}}?')">+</button>
+      <button class="btn btn-sm btn-primary" type="submit" title="Log quick flight" onclick="return confirm('Log a quick flight for {{.Name}}?')">+ Flight</button>
     </form>
     {{end}}
-  </td>
-</tr>
+  </div>
+</div>
 {{end}}
-</tbody>
-</table>
 </div>
 {{else}}
 <p class="muted">No drones yet. <a href="/drones/new">Add your first drone.</a></p>
