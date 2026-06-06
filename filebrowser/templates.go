@@ -547,7 +547,7 @@ input.pl-seek::-moz-range-thumb { width:14px; height:14px; border-radius:50%; ba
 input.pl-vol { -webkit-appearance:none; appearance:none; width:70px; height:4px; background:#30363d; border-radius:2px; outline:none; cursor:pointer; }
 input.pl-vol::-webkit-slider-thumb { -webkit-appearance:none; width:11px; height:11px; border-radius:50%; background:#58a6ff; cursor:pointer; }
 input.pl-vol::-moz-range-thumb { width:11px; height:11px; border-radius:50%; background:#58a6ff; border:none; cursor:pointer; }
-@media (max-width:480px) { .pl-vol-wrap { display:none; } }
+@media (max-width:480px) { input.pl-vol { width:48px; } }
 @media (max-width: 640px) {
   main { padding: 12px; }
   header { padding: 10px 16px; flex-wrap: wrap; }
@@ -2052,21 +2052,6 @@ var PLAYLIST_STATE = {{toJSON .State}};
 <p class="muted">No items yet. Browse to a video or audio file and click <strong>+</strong> to add it.</p>
 {{else}}
 <div class="pl-layout" id="pl-layout">
-  <div class="pl-sidebar" id="pl-sidebar">
-    <div style="padding:8px 12px;border-bottom:1px solid #30363d">
-      <span style="font-size:12px;color:#8b949e;font-weight:500;text-transform:uppercase;letter-spacing:0.5px">Playlist</span>
-    </div>
-    <div id="pl-item-list">
-    {{range $i, $it := .Items}}
-    <div class="pl-item{{if eq $i $.State.CurrentIndex}} active{{end}}" draggable="true" data-idx="{{$i}}" onclick="startPlaylistItem({{$i}}, 0, true)">
-      <span class="pl-drag" onclick="event.stopPropagation()">&#8942;&#8942;</span>
-      <span class="pl-item-name">{{$it.Name}}</span>
-      <span class="badge badge-{{$it.FileType}}" style="flex-shrink:0">{{upper $it.FileType}}</span>
-      <button class="btn btn-danger btn-sm" style="flex-shrink:0;padding:2px 7px" onclick="event.stopPropagation();removePlaylistItem({{$it.ID}})">&#x2715;</button>
-    </div>
-    {{end}}
-    </div>
-  </div>
   <div class="pl-player">
     <div class="pl-title" id="pl-title"></div>
     <video id="pl-video" controls style="display:none"></video>
@@ -2091,6 +2076,21 @@ var PLAYLIST_STATE = {{toJSON .State}};
     </div>
     <div class="pl-controls">
       <span class="pl-badge" id="pl-badge"></span>
+    </div>
+  </div>
+  <div class="pl-sidebar" id="pl-sidebar">
+    <div style="padding:8px 12px;border-bottom:1px solid #30363d">
+      <span style="font-size:12px;color:#8b949e;font-weight:500;text-transform:uppercase;letter-spacing:0.5px">Playlist</span>
+    </div>
+    <div id="pl-item-list">
+    {{range $i, $it := .Items}}
+    <div class="pl-item{{if eq $i $.State.CurrentIndex}} active{{end}}" draggable="true" data-idx="{{$i}}" onclick="startPlaylistItem({{$i}}, 0, true)">
+      <span class="pl-drag" onclick="event.stopPropagation()">&#8942;&#8942;</span>
+      <span class="pl-item-name">{{$it.Name}}</span>
+      <span class="badge badge-{{$it.FileType}}" style="flex-shrink:0">{{upper $it.FileType}}</span>
+      <button class="btn btn-danger btn-sm" style="flex-shrink:0;padding:2px 7px" onclick="event.stopPropagation();removePlaylistItem({{$it.ID}})">&#x2715;</button>
+    </div>
+    {{end}}
     </div>
   </div>
 </div>
@@ -2222,19 +2222,6 @@ var PLAYLIST_STATE = null;
 <p class="muted">No plays yet. Start listening to build your top tracks.</p>
 {{else}}
 <div class="pl-layout" id="pl-layout">
-  <div class="pl-sidebar" id="pl-sidebar">
-    <div style="padding:8px 12px;border-bottom:1px solid #30363d">
-      <span style="font-size:12px;color:#8b949e;font-weight:500;text-transform:uppercase;letter-spacing:0.5px">{{len .Items}} tracks</span>
-    </div>
-    <div id="pl-item-list">
-    {{range $i, $it := .Items}}
-    <div class="pl-item" data-idx="{{$i}}" onclick="startPlaylistItem({{$i}}, 0, true)">
-      <span class="pl-item-name">{{$it.Name}}</span>
-      <span class="badge badge-audio" style="flex-shrink:0">{{$it.WatchCount}}&#xD7;</span>
-    </div>
-    {{end}}
-    </div>
-  </div>
   <div class="pl-player">
     <div class="pl-title" id="pl-title"></div>
     <audio id="pl-audio" style="display:none"></audio>
@@ -2259,6 +2246,19 @@ var PLAYLIST_STATE = null;
     <video id="pl-video" controls style="display:none"></video>
     <div class="pl-controls">
       <span class="pl-badge" id="pl-badge"></span>
+    </div>
+  </div>
+  <div class="pl-sidebar" id="pl-sidebar">
+    <div style="padding:8px 12px;border-bottom:1px solid #30363d">
+      <span style="font-size:12px;color:#8b949e;font-weight:500;text-transform:uppercase;letter-spacing:0.5px">{{len .Items}} tracks</span>
+    </div>
+    <div id="pl-item-list">
+    {{range $i, $it := .Items}}
+    <div class="pl-item" data-idx="{{$i}}" onclick="startPlaylistItem({{$i}}, 0, true)">
+      <span class="pl-item-name">{{$it.Name}}</span>
+      <span class="badge badge-audio" style="flex-shrink:0">{{$it.WatchCount}}&#xD7;</span>
+    </div>
+    {{end}}
     </div>
   </div>
 </div>
