@@ -2095,8 +2095,6 @@ var PLAYLIST_STATE = {{toJSON .State}};
       </div>
     </div>
     <div class="pl-controls">
-      <button class="btn btn-edit btn-sm" onclick="plPrev()">&#9664; Prev</button>
-      <button class="btn btn-edit btn-sm" onclick="plNext()">Next &#9654;</button>
       <span class="pl-badge" id="pl-badge"></span>
     </div>
   </div>
@@ -2270,8 +2268,6 @@ var PLAYLIST_STATE = null;
     </div>
     <video id="pl-video" controls style="display:none"></video>
     <div class="pl-controls">
-      <button class="btn btn-edit btn-sm" onclick="plPrev()">&#9664; Prev</button>
-      <button class="btn btn-edit btn-sm" onclick="plNext()">Next &#9654;</button>
       <span class="pl-badge" id="pl-badge"></span>
     </div>
   </div>
@@ -2353,8 +2349,6 @@ var PLAYLIST_STATE = null;
       </div>
     </div>
     <div class="pl-controls">
-      <button class="btn btn-edit btn-sm" onclick="plPrev()">&#9664; Prev</button>
-      <button class="btn btn-edit btn-sm" onclick="plNext()">Next &#9654;</button>
       <span class="pl-badge" id="pl-badge"></span>
     </div>
   </div>
