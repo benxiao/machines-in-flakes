@@ -1276,7 +1276,7 @@ const browseTmpl = `{{define "content"}}
       <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>
       {{end}}
       <div class="grid-name">{{.Name}}</div>
-      <button class="fav-btn" data-path="{{.AbsPath}}" data-folder="1" onclick="event.stopPropagation();toggleFav(this)" title="Favorite folder" style="position:absolute;top:4px;left:4px;font-size:14px;background:rgba(0,0,0,0.5);border-radius:3px">☆</button>
+      <button class="fav-btn" data-path="{{.AbsPath}}" data-folder="1" onclick="event.stopPropagation();toggleFav(this)" title="Favorite folder" style="position:absolute;top:4px;right:4px;font-size:14px;background:rgba(0,0,0,0.5);border-radius:3px">☆</button>
     </div>
     {{end}}
     {{range .Files}}
@@ -1321,7 +1321,7 @@ const browseTmpl = `{{define "content"}}
       <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#bc60ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>
       {{end}}
       <div class="grid-name">{{.Filename}}</div>
-      <button class="fav-btn" data-path="{{.AbsPath}}" data-folder="0" onclick="event.stopPropagation();toggleFav(this)" title="Favorite" style="position:absolute;top:4px;left:4px;font-size:14px;background:rgba(0,0,0,0.5);border-radius:3px">☆</button>
+      <button class="fav-btn" data-path="{{.AbsPath}}" data-folder="0" onclick="event.stopPropagation();toggleFav(this)" title="Favorite" style="position:absolute;top:4px;right:4px;font-size:14px;background:rgba(0,0,0,0.5);border-radius:3px">☆</button>
     </div>
     {{else if eq .FileType "pdf"}}
     <div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="pdf" onclick="gridClick(event,this)">
