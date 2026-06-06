@@ -544,13 +544,13 @@ input.pl-seek { -webkit-appearance:none; appearance:none; width:100%; height:4px
 input.pl-seek::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; border-radius:50%; background:#bc60ff; cursor:pointer; }
 input.pl-seek::-moz-range-thumb { width:14px; height:14px; border-radius:50%; background:#bc60ff; border:none; cursor:pointer; }
 .pl-time-row { display:flex; justify-content:space-between; font-size:11px; color:#8b949e; }
-.pl-transport { display:flex; align-items:center; justify-content:center; position:relative; }
-.pl-transport-btns { display:flex; align-items:center; gap:16px; }
+.pl-transport { display:grid; grid-template-columns:1fr auto 1fr; align-items:center; }
+.pl-transport-btns { display:flex; align-items:center; justify-content:center; gap:16px; }
 .pl-nav-btn { background:#21262d; border:1px solid #30363d; border-radius:50%; width:36px; height:36px; cursor:pointer; color:#8b949e; font-size:11px; display:flex; align-items:center; justify-content:center; padding:0; line-height:1; }
 .pl-nav-btn:hover { background:#30363d; color:#c9d1d9; }
 #pl-play-btn { background:#21262d; border:1px solid #30363d; border-radius:50%; width:44px; height:44px; cursor:pointer; color:#c9d1d9; font-size:16px; display:flex; align-items:center; justify-content:center; padding:0; line-height:1; }
 #pl-play-btn:hover { background:#30363d; border-color:#bc60ff; }
-.pl-vol-wrap { display:flex; align-items:center; gap:5px; position:absolute; right:0; }
+.pl-vol-wrap { display:flex; align-items:center; gap:5px; justify-self:end; }
 .pl-vol-icon { color:#8b949e; font-size:13px; cursor:default; user-select:none; }
 input.pl-vol { -webkit-appearance:none; appearance:none; width:70px; height:4px; background:#30363d; border-radius:2px; outline:none; cursor:pointer; }
 input.pl-vol::-webkit-slider-thumb { -webkit-appearance:none; width:11px; height:11px; border-radius:50%; background:#58a6ff; cursor:pointer; }
@@ -2086,6 +2086,7 @@ var PLAYLIST_STATE = {{toJSON .State}};
         <div class="pl-time-row"><span id="pl-time-cur">0:00</span><span id="pl-time-dur">--:--</span></div>
       </div>
       <div class="pl-transport">
+        <div></div>
         <div class="pl-transport-btns">
           <button class="pl-nav-btn" onclick="plPrev()" title="Previous">&#9664;&#9664;</button>
           <button id="pl-play-btn" onclick="plTogglePlay()" title="Play / Pause">&#9654;</button>
@@ -2260,6 +2261,7 @@ var PLAYLIST_STATE = null;
         <div class="pl-time-row"><span id="pl-time-cur">0:00</span><span id="pl-time-dur">--:--</span></div>
       </div>
       <div class="pl-transport">
+        <div></div>
         <div class="pl-transport-btns">
           <button class="pl-nav-btn" onclick="plPrev()" title="Previous">&#9664;&#9664;</button>
           <button id="pl-play-btn" onclick="plTogglePlay()" title="Play / Pause">&#9654;</button>
@@ -2344,6 +2346,7 @@ var PLAYLIST_STATE = null;
         <div class="pl-time-row"><span id="pl-time-cur">0:00</span><span id="pl-time-dur">--:--</span></div>
       </div>
       <div class="pl-transport">
+        <div></div>
         <div class="pl-transport-btns">
           <button class="pl-nav-btn" onclick="plPrev()" title="Previous">&#9664;&#9664;</button>
           <button id="pl-play-btn" onclick="plTogglePlay()" title="Play / Pause">&#9654;</button>
