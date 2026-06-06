@@ -33,10 +33,17 @@ type PlaylistRow struct {
 }
 
 type PlaylistItem struct {
-	ID       int64
-	Path     string
-	Name     string
-	FileType string
+	ID         int64
+	Path       string
+	Name       string
+	FileType   string
+	WatchCount int64
+}
+
+type TopPlayedPage struct {
+	ActiveTab string
+	IsAdmin   bool
+	Items     []PlaylistItem
 }
 
 type PlaylistState struct {
@@ -224,6 +231,7 @@ func initTemplates() {
 	add("browse", browseTmpl)
 	add("recent", recentTmpl)
 	add("unplayed", unplayedTmpl)
+	add("top-played", topPlayedTmpl)
 	add("favorites", favoritesTmpl)
 	add("paths", pathsTmpl)
 	add("playlists", playlistsTmpl)
@@ -621,6 +629,7 @@ const baseTmpl = `<!DOCTYPE html>
   <a href="/browse"     {{if eq .ActiveTab "browse"}}class="active"{{end}}>Browse</a>
   <a href="/recent"     {{if eq .ActiveTab "recent"}}class="active"{{end}}>Recent</a>
   <a href="/unplayed"   {{if eq .ActiveTab "unplayed"}}class="active"{{end}}>Unplayed</a>
+  <a href="/top-played" {{if eq .ActiveTab "top-played"}}class="active"{{end}}>Top Played</a>
   <a href="/favorites"  {{if eq .ActiveTab "favorites"}}class="active"{{end}}>Favorites</a>
   <a href="/playlists"  {{if eq .ActiveTab "playlists"}}class="active"{{end}}>Playlists</a>
   {{if .IsAdmin}}<a href="/users" {{if eq .ActiveTab "users"}}class="active"{{end}}>Users</a>{{end}}
@@ -2109,6 +2118,73 @@ document.addEventListener('DOMContentLoaded', function() {
   if (PLAYLIST_ITEMS && PLAYLIST_ITEMS.length > 0) {
     startPlaylistItem(Math.min((PLAYLIST_STATE && PLAYLIST_STATE.CurrentIndex) || 0, PLAYLIST_ITEMS.length - 1),
                      (PLAYLIST_STATE && PLAYLIST_STATE.PositionSec) || 0);
+  }
+});
+</script>
+{{end}}`
+
+const topPlayedTmpl = `{{define "content"}}
+<script>
+var PLAYLIST_ID = 0;
+var PLAYLIST_ITEMS = {{toJSON .Items}};
+var PLAYLIST_STATE = null;
+</script>
+<div class="page-header">
+  <div class="page-header-left">
+    <h2>Top Played</h2>
+  </div>
+</div>
+{{if not .Items}}
+<p class="muted">No plays yet. Start listening to build your top tracks.</p>
+{{else}}
+<div class="pl-layout" id="pl-layout">
+  <div class="pl-sidebar collapsed" id="pl-sidebar">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid #30363d">
+      <span style="font-size:12px;color:#8b949e;font-weight:500;text-transform:uppercase;letter-spacing:0.5px">{{len .Items}} tracks</span>
+      <button onclick="togglePlSidebar()" style="background:transparent;border:none;color:#8b949e;cursor:pointer;font-size:16px;line-height:1;padding:0 2px" title="Expand">&#x276F;</button>
+    </div>
+    <div id="pl-item-list">
+    {{range $i, $it := .Items}}
+    <div class="pl-item" data-idx="{{$i}}" onclick="startPlaylistItem({{$i}}, 0, true)">
+      <span class="pl-item-name">{{$it.Name}}</span>
+      <span class="badge badge-audio" style="flex-shrink:0">{{$it.WatchCount}}&#xD7;</span>
+    </div>
+    {{end}}
+    </div>
+  </div>
+  <div class="pl-player">
+    <div class="pl-title" id="pl-title"></div>
+    <audio id="pl-audio" controls style="display:none"></audio>
+    <video id="pl-video" controls style="display:none"></video>
+    <div class="pl-controls">
+      <button class="btn btn-edit btn-sm" onclick="plPrev()">&#9664; Prev</button>
+      <button class="btn btn-edit btn-sm" onclick="plNext()">Next &#9654;</button>
+      <span class="pl-badge" id="pl-badge"></span>
+    </div>
+  </div>
+</div>
+{{end}}
+<script>
+var plLastSave = 0;
+var plCurrentIdx = 0;
+function getPlMedia() {
+  var v = document.getElementById('pl-video'), a = document.getElementById('pl-audio');
+  if (v && v.style.display !== 'none') return v;
+  if (a && a.style.display !== 'none') return a;
+  return null;
+}
+function savePlState() {}
+` + plSharedJS + `
+function togglePlSidebar() {
+  var sb = document.getElementById('pl-sidebar');
+  var btn = sb.querySelector('button[onclick="togglePlSidebar()"]');
+  sb.classList.toggle('collapsed');
+  btn.innerHTML = sb.classList.contains('collapsed') ? '&#x276F;' : '&#x276E;';
+  btn.title = sb.classList.contains('collapsed') ? 'Expand' : 'Collapse';
+}
+document.addEventListener('DOMContentLoaded', function() {
+  if (PLAYLIST_ITEMS && PLAYLIST_ITEMS.length > 0) {
+    startPlaylistItem(0, 0);
   }
 });
 </script>

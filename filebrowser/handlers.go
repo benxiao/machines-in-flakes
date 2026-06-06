@@ -1737,6 +1737,36 @@ func (a *App) handleHLSSegment(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (a *App) handleTopPlayed(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.db.Query(r.Context(), `
+		SELECT fi.path, fi.filename, fi.file_type, vp.watch_count
+		FROM file_index fi
+		JOIN video_positions vp ON vp.user_id = fi.user_id AND vp.path = fi.path
+		WHERE fi.user_id = $1 AND fi.file_type = 'audio' AND vp.watch_count > 0
+		ORDER BY vp.watch_count DESC
+		LIMIT 50
+	`, uid(r))
+	if err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	defer rows.Close()
+	var items []PlaylistItem
+	for rows.Next() {
+		var path, filename, fileType string
+		var count int64
+		if rows.Scan(&path, &filename, &fileType, &count) != nil {
+			continue
+		}
+		items = append(items, PlaylistItem{Path: path, Name: filename, FileType: fileType, WatchCount: count})
+	}
+	if err := rows.Err(); err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	render(w, "top-played", TopPlayedPage{ActiveTab: "top-played", IsAdmin: isAdmin(r), Items: items})
+}
+
 func (a *App) handleFavoritesPage(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.Query(r.Context(), `
 		SELECT fi.path, fi.filename, fi.file_type

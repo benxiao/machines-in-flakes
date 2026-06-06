@@ -196,6 +196,7 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /search", a.handleSearch)
 	mux.HandleFunc("GET /search/status", a.handleSearchStatus)
 	mux.HandleFunc("POST /search/reindex", a.handleSearchReindex)
+	mux.HandleFunc("GET /top-played",        a.handleTopPlayed)
 	mux.HandleFunc("GET /favorites",         a.handleFavoritesPage)
 	mux.HandleFunc("GET /favorites/list",    a.handleFavoriteList)
 	mux.HandleFunc("POST /favorites/toggle", a.handleFavoriteToggle)
