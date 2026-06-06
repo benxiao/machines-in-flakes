@@ -538,15 +538,23 @@ input:focus, select:focus { outline: none; border-color: #58a6ff; }
 .fav-btn:hover { color:#e3b341; }
 .fav-btn.active { color:#e3b341; }
 /* Custom playlist audio player */
-.pl-audio-ui { padding:14px 16px; background:#0d1117; border-radius:8px; border:1px solid #30363d; margin-bottom:10px; }
-.pl-audio-row { display:flex; align-items:center; gap:12px; }
+.pl-audio-ui { padding:12px 14px; background:#0d1117; border-radius:8px; border:1px solid #30363d; margin-bottom:10px; }
+.pl-audio-row { display:flex; align-items:center; gap:10px; }
+.pl-nav-btn { background:#21262d; border:1px solid #30363d; border-radius:50%; width:30px; height:30px; cursor:pointer; color:#8b949e; font-size:10px; display:flex; align-items:center; justify-content:center; flex-shrink:0; padding:0; line-height:1; }
+.pl-nav-btn:hover { background:#30363d; color:#c9d1d9; }
 #pl-play-btn { background:#21262d; border:1px solid #30363d; border-radius:50%; width:38px; height:38px; cursor:pointer; color:#c9d1d9; font-size:14px; display:flex; align-items:center; justify-content:center; flex-shrink:0; padding:0; line-height:1; }
 #pl-play-btn:hover { background:#30363d; border-color:#bc60ff; }
-.pl-seek-wrap { flex:1; }
-input.pl-seek { -webkit-appearance:none; appearance:none; width:100%; height:4px; background:#30363d; border-radius:2px; outline:none; cursor:pointer; display:block; margin-bottom:6px; }
+.pl-seek-wrap { flex:1; min-width:0; }
+input.pl-seek { -webkit-appearance:none; appearance:none; width:100%; height:4px; background:#30363d; border-radius:2px; outline:none; cursor:pointer; display:block; margin-bottom:5px; }
 input.pl-seek::-webkit-slider-thumb { -webkit-appearance:none; width:12px; height:12px; border-radius:50%; background:#bc60ff; cursor:pointer; }
 input.pl-seek::-moz-range-thumb { width:12px; height:12px; border-radius:50%; background:#bc60ff; border:none; cursor:pointer; }
 .pl-time-row { display:flex; justify-content:space-between; font-size:11px; color:#8b949e; }
+.pl-vol-wrap { display:flex; align-items:center; gap:5px; flex-shrink:0; }
+.pl-vol-icon { color:#8b949e; font-size:13px; cursor:default; user-select:none; }
+input.pl-vol { -webkit-appearance:none; appearance:none; width:70px; height:4px; background:#30363d; border-radius:2px; outline:none; cursor:pointer; }
+input.pl-vol::-webkit-slider-thumb { -webkit-appearance:none; width:11px; height:11px; border-radius:50%; background:#58a6ff; cursor:pointer; }
+input.pl-vol::-moz-range-thumb { width:11px; height:11px; border-radius:50%; background:#58a6ff; border:none; cursor:pointer; }
+@media (max-width:480px) { .pl-vol-wrap { display:none; } }
 @media (max-width: 640px) {
   main { padding: 12px; }
   header { padding: 10px 16px; flex-wrap: wrap; }
@@ -1987,6 +1995,7 @@ function _plUpdateAudioUI() {
   var seek = document.getElementById('pl-seek');
   var cur = document.getElementById('pl-time-cur');
   var dur = document.getElementById('pl-time-dur');
+  var vol = document.getElementById('pl-vol');
   if (btn) btn.innerHTML = a.paused ? '&#9654;' : '&#9646;&#9646;';
   if (seek && a.duration && isFinite(a.duration) && a.duration > 0) {
     var pct = (a.currentTime / a.duration * 100).toFixed(2);
@@ -1995,6 +2004,11 @@ function _plUpdateAudioUI() {
   }
   if (cur) cur.textContent = fmtTime(a.currentTime || 0);
   if (dur && a.duration && isFinite(a.duration)) dur.textContent = fmtTime(a.duration);
+  if (vol) {
+    var vp = Math.round((a.volume || 0) * 100);
+    vol.value = vp;
+    vol.style.background = 'linear-gradient(to right,#58a6ff 0%,#58a6ff ' + vp + '%,#30363d ' + vp + '%,#30363d 100%)';
+  }
 }
 function plInitAudioUI() {
   var a = document.getElementById('pl-audio');
@@ -2009,6 +2023,19 @@ function plInitAudioUI() {
         a.currentTime = parseFloat(seek.value) / 100 * a.duration;
         _plUpdateAudioUI();
       }
+    });
+  }
+  var vol = document.getElementById('pl-vol');
+  if (vol) {
+    vol.value = Math.round(DEFAULT_VOL * 100);
+    var vp0 = Math.round(DEFAULT_VOL * 100);
+    vol.style.background = 'linear-gradient(to right,#58a6ff 0%,#58a6ff ' + vp0 + '%,#30363d ' + vp0 + '%,#30363d 100%)';
+    vol.addEventListener('input', function() {
+      var v = parseFloat(vol.value) / 100;
+      a.volume = v;
+      DEFAULT_VOL = v;
+      try { localStorage.setItem('fb_default_volume', v); } catch(e) {}
+      _plUpdateAudioUI();
     });
   }
 }
@@ -2054,10 +2081,16 @@ var PLAYLIST_STATE = {{toJSON .State}};
     <audio id="pl-audio" style="display:none"></audio>
     <div class="pl-audio-ui" id="pl-audio-ui" style="display:none">
       <div class="pl-audio-row">
-        <button id="pl-play-btn" onclick="plTogglePlay()">&#9654;</button>
+        <button class="pl-nav-btn" onclick="plPrev()" title="Previous">&#9664;&#9664;</button>
+        <button id="pl-play-btn" onclick="plTogglePlay()" title="Play / Pause">&#9654;</button>
+        <button class="pl-nav-btn" onclick="plNext()" title="Next">&#9654;&#9654;</button>
         <div class="pl-seek-wrap">
           <input type="range" class="pl-seek" id="pl-seek" value="0" min="0" max="100" step="0.1">
           <div class="pl-time-row"><span id="pl-time-cur">0:00</span><span id="pl-time-dur">--:--</span></div>
+        </div>
+        <div class="pl-vol-wrap">
+          <span class="pl-vol-icon">&#128266;</span>
+          <input type="range" class="pl-vol" id="pl-vol" value="100" min="0" max="100" step="1">
         </div>
       </div>
     </div>
@@ -2222,10 +2255,16 @@ var PLAYLIST_STATE = null;
     <audio id="pl-audio" style="display:none"></audio>
     <div class="pl-audio-ui" id="pl-audio-ui" style="display:none">
       <div class="pl-audio-row">
-        <button id="pl-play-btn" onclick="plTogglePlay()">&#9654;</button>
+        <button class="pl-nav-btn" onclick="plPrev()" title="Previous">&#9664;&#9664;</button>
+        <button id="pl-play-btn" onclick="plTogglePlay()" title="Play / Pause">&#9654;</button>
+        <button class="pl-nav-btn" onclick="plNext()" title="Next">&#9654;&#9654;</button>
         <div class="pl-seek-wrap">
           <input type="range" class="pl-seek" id="pl-seek" value="0" min="0" max="100" step="0.1">
           <div class="pl-time-row"><span id="pl-time-cur">0:00</span><span id="pl-time-dur">--:--</span></div>
+        </div>
+        <div class="pl-vol-wrap">
+          <span class="pl-vol-icon">&#128266;</span>
+          <input type="range" class="pl-vol" id="pl-vol" value="100" min="0" max="100" step="1">
         </div>
       </div>
     </div>
@@ -2300,10 +2339,16 @@ var PLAYLIST_STATE = null;
     <audio id="pl-audio" style="display:none"></audio>
     <div class="pl-audio-ui" id="pl-audio-ui" style="display:none">
       <div class="pl-audio-row">
-        <button id="pl-play-btn" onclick="plTogglePlay()">&#9654;</button>
+        <button class="pl-nav-btn" onclick="plPrev()" title="Previous">&#9664;&#9664;</button>
+        <button id="pl-play-btn" onclick="plTogglePlay()" title="Play / Pause">&#9654;</button>
+        <button class="pl-nav-btn" onclick="plNext()" title="Next">&#9654;&#9654;</button>
         <div class="pl-seek-wrap">
           <input type="range" class="pl-seek" id="pl-seek" value="0" min="0" max="100" step="0.1">
           <div class="pl-time-row"><span id="pl-time-cur">0:00</span><span id="pl-time-dur">--:--</span></div>
+        </div>
+        <div class="pl-vol-wrap">
+          <span class="pl-vol-icon">&#128266;</span>
+          <input type="range" class="pl-vol" id="pl-vol" value="100" min="0" max="100" step="1">
         </div>
       </div>
     </div>
