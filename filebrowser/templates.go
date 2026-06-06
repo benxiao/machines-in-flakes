@@ -708,11 +708,14 @@ var modal = document.getElementById('preview-modal');
   loadPlayStats();
   setInterval(loadPlayStats, 60000);
 })();
+function _getStoredSort() { try { return localStorage.getItem('fb_sort') || ''; } catch(e) { return ''; } }
 function _sortParam() {
-  var s = new URLSearchParams(window.location.search).get('sort');
+  var fromUrl = new URLSearchParams(window.location.search).get('sort');
+  var s = fromUrl !== null ? fromUrl : _getStoredSort();
   return s ? '&sort=' + encodeURIComponent(s) : '';
 }
 function setSort(s) {
+  try { localStorage.setItem('fb_sort', s === 'name' ? '' : s); } catch(e) {}
   var params = new URLSearchParams(window.location.search);
   if (s === 'name') { params.delete('sort'); } else { params.set('sort', s); }
   params.set('dir', params.get('dir') || '');
@@ -1544,6 +1547,20 @@ function toggleFav(btn) {
   }).catch(function(){});
 }
 loadFavStates();
+// Apply saved sort preference if URL has no sort param
+(function() {
+  try {
+    var urlSort = new URLSearchParams(window.location.search).get('sort');
+    if (urlSort === null) {
+      var saved = _getStoredSort();
+      if (saved === 'date') {
+        var p = new URLSearchParams(window.location.search);
+        p.set('sort', 'date');
+        window.location.replace('/browse?' + p.toString());
+      }
+    }
+  } catch(e) {}
+})();
 </script>
 {{end}}`
 
