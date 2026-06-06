@@ -399,7 +399,7 @@ tr:hover td { background: #161b22; }
 .pl-sidebar.collapsed .pl-collapse-btn { transform: rotate(180deg); }
 @media (max-width: 768px) {
   .pl-layout { flex-direction: column; height: calc(100dvh - 140px); overflow: hidden; }
-  .pl-player { order: 1; flex-shrink: 0; }
+  .pl-player { order: 1; flex: 0 0 auto; }
   .pl-sidebar { order: 2; width: 100%; flex: 1; min-height: 0; max-height: none; }
 }
 .btn {
