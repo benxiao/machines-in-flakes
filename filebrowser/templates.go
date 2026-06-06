@@ -24,6 +24,7 @@ type BrowsePage struct {
 	Playlists     []PlaylistRow
 	PlaylistsJSON template.JS
 	DirAlbumArt   string
+	SortBy        string
 }
 
 type PlaylistRow struct {
@@ -74,9 +75,10 @@ type Breadcrumb struct {
 }
 
 type SubdirRow struct {
-	AbsPath  string
-	Name     string
-	AlbumArt string // abs path of cover image inside this dir, empty if none
+	AbsPath    string
+	Name       string
+	AlbumArt   string // abs path of cover image inside this dir, empty if none
+	ModifiedAt string
 }
 
 type FileRow struct {
@@ -703,8 +705,18 @@ var modal = document.getElementById('preview-modal');
   loadPlayStats();
   setInterval(loadPlayStats, 60000);
 })();
+function _sortParam() {
+  var s = new URLSearchParams(window.location.search).get('sort');
+  return s ? '&sort=' + encodeURIComponent(s) : '';
+}
+function setSort(s) {
+  var params = new URLSearchParams(window.location.search);
+  if (s === 'name') { params.delete('sort'); } else { params.set('sort', s); }
+  params.set('dir', params.get('dir') || '');
+  window.location = '/browse?' + params.toString();
+}
 function browseDir(el) {
-  window.location = '/browse?dir=' + encodeURIComponent(el.dataset.dir);
+  window.location = '/browse?dir=' + encodeURIComponent(el.dataset.dir) + _sortParam();
 }
 // onReady(videoEl) is called once the player is ready for seeking:
 // for hls.js that's after MANIFEST_PARSED; for others after loadedmetadata.
@@ -1157,6 +1169,7 @@ document.addEventListener('scroll', function() {
   }
 }, true);
 function openSearchResult(el) {
+  // intentionally doesn't preserve sort — search jumps to a fresh folder
   var panel = document.getElementById('search-panel');
   if (panel) panel.style.display = 'none';
   document.getElementById('search-q').value = '';
@@ -1212,6 +1225,10 @@ const browseTmpl = `{{define "content"}}
       </div>
       <div style="display:flex;gap:8px;align-items:center">
         <button id="btn-play-all" class="btn btn-primary btn-sm" onclick="playFolderAll()" style="display:none" title="Play all media in this folder in a loop">&#9654; Loop</button>
+        <div class="view-toggle">
+          <button class="btn-view {{if eq .SortBy "date"}}active{{end}}" onclick="setSort('date')" title="Sort by date">&#128197; Date</button>
+          <button class="btn-view {{if ne .SortBy "date"}}active{{end}}" onclick="setSort('name')" title="Sort by name">A&#8250;Z Name</button>
+        </div>
         <div class="view-toggle">
           <button id="btn-list" class="btn-view" onclick="setView('list')" title="List view">&#9776; List</button>
           <button id="btn-grid" class="btn-view" onclick="setView('grid')" title="Grid view">&#8859; Grid</button>

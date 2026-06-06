@@ -159,16 +159,18 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sortBy := r.URL.Query().Get("sort") // "" or "name" = alphabetical; "date" = newest first
+
 	var subdirs []SubdirRow
 	var files []FileRow
 	for _, e := range entries {
 		if e.IsDir() {
 			absDir := filepath.Join(dirParam, e.Name())
-			subdirs = append(subdirs, SubdirRow{
-				AbsPath:  absDir,
-				Name:     e.Name(),
-				AlbumArt: findAlbumArt(absDir),
-			})
+			row := SubdirRow{AbsPath: absDir, Name: e.Name(), AlbumArt: findAlbumArt(absDir)}
+			if info, err := e.Info(); err == nil {
+				row.ModifiedAt = info.ModTime().Format("2006-01-02 15:04")
+			}
+			subdirs = append(subdirs, row)
 			continue
 		}
 		info, err := e.Info()
@@ -187,10 +189,15 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 			ModifiedAt: info.ModTime().Format("2006-01-02 15:04"),
 		})
 	}
-	sort.Slice(subdirs, func(i, j int) bool { return subdirs[i].Name < subdirs[j].Name })
-	sort.Slice(files, func(i, j int) bool {
-		return strings.ToLower(files[i].Filename) < strings.ToLower(files[j].Filename)
-	})
+	if sortBy == "date" {
+		sort.Slice(subdirs, func(i, j int) bool { return subdirs[i].ModifiedAt > subdirs[j].ModifiedAt })
+		sort.Slice(files, func(i, j int) bool { return files[i].ModifiedAt > files[j].ModifiedAt })
+	} else {
+		sort.Slice(subdirs, func(i, j int) bool { return subdirs[i].Name < subdirs[j].Name })
+		sort.Slice(files, func(i, j int) bool {
+			return strings.ToLower(files[i].Filename) < strings.ToLower(files[j].Filename)
+		})
+	}
 
 	// Batch-fetch watch counts for video and audio files.
 	var mediaPaths []string
@@ -247,6 +254,7 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		Playlists:     pls,
 		PlaylistsJSON: template.JS(plJSON),
 		DirAlbumArt:   albumArt,
+		SortBy:        sortBy,
 	})
 }
 
