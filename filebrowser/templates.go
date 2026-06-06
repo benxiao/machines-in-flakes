@@ -554,7 +554,16 @@ input.pl-seek::-moz-range-thumb { width:12px; height:12px; border-radius:50%; ba
 input.pl-vol { -webkit-appearance:none; appearance:none; width:70px; height:4px; background:#30363d; border-radius:2px; outline:none; cursor:pointer; }
 input.pl-vol::-webkit-slider-thumb { -webkit-appearance:none; width:11px; height:11px; border-radius:50%; background:#58a6ff; cursor:pointer; }
 input.pl-vol::-moz-range-thumb { width:11px; height:11px; border-radius:50%; background:#58a6ff; border:none; cursor:pointer; }
-@media (max-width:480px) { .pl-vol-wrap { display:none; } }
+@media (max-width:640px) {
+  .pl-audio-row { flex-wrap:wrap; gap:8px; }
+  .pl-seek-wrap { order:-1; width:100%; }
+  .pl-nav-btn { width:44px; height:44px; font-size:12px; }
+  #pl-play-btn { width:48px; height:48px; font-size:17px; }
+  .pl-vol-wrap { margin-left:auto; }
+  input.pl-seek { height:6px; margin-bottom:6px; }
+  input.pl-seek::-webkit-slider-thumb { width:18px; height:18px; }
+  input.pl-seek::-moz-range-thumb { width:18px; height:18px; }
+}
 @media (max-width: 640px) {
   main { padding: 12px; }
   header { padding: 10px 16px; flex-wrap: wrap; }
