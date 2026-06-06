@@ -378,10 +378,10 @@ tr:hover td { background: #161b22; }
 /* Zoomable image must render at natural size; the transform handles all sizing.
    Override the .modal-body img max-width/height constraints below. */
 #modal-zoom-wrap img { max-width: none !important; max-height: none !important; width: auto; height: auto; }
-.pl-layout { display: flex; gap: 16px; align-items: flex-start; }
-.pl-sidebar { width: 32%; max-height: 80vh; overflow-y: auto; border: 1px solid #30363d; border-radius: 6px; }
-.pl-player { flex: 1; min-width: 0; }
+.pl-layout { display: flex; flex-direction: column; gap: 12px; }
+.pl-player { width: 100%; min-width: 0; }
 .pl-player video, .pl-player audio { width: 100%; max-height: 70vh; display: block; background: #000; }
+.pl-sidebar { width: 100%; border: 1px solid #30363d; border-radius: 6px; max-height: 400px; overflow-y: auto; }
 .pl-item { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #21262d; cursor: pointer; }
 .pl-drag { cursor:grab; color:#30363d; padding:0 4px; font-size:14px; flex-shrink:0; user-select:none; line-height:1; }
 .pl-drag:hover { color:#8b949e; }
@@ -394,14 +394,6 @@ tr:hover td { background: #161b22; }
 .pl-controls { display: flex; gap: 10px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
 .pl-title { font-size: 14px; color: #c9d1d9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 8px; min-height: 1.5em; }
 .pl-badge { color: #8b949e; font-size: 12px; }
-.pl-sidebar.collapsed { width: auto; min-width: 0; }
-.pl-sidebar.collapsed #pl-item-list { display: none; }
-.pl-sidebar.collapsed .pl-collapse-btn { transform: rotate(180deg); }
-@media (max-width: 768px) {
-  .pl-layout { flex-direction: column; height: calc(100dvh - 140px); overflow: hidden; }
-  .pl-player { order: 1; flex: 0 0 auto; }
-  .pl-sidebar { order: 2; width: 100%; flex: 1; min-height: 0; max-height: none; }
-}
 .btn {
   display: inline-block;
   padding: 6px 14px;
@@ -538,7 +530,7 @@ input:focus, select:focus { outline: none; border-color: #58a6ff; }
 .fav-btn:hover { color:#e3b341; }
 .fav-btn.active { color:#e3b341; }
 /* Custom playlist audio player */
-.pl-audio-ui { padding:12px 14px; background:#0d1117; border-radius:8px; border:1px solid #30363d; margin-bottom:10px; }
+.pl-audio-ui { padding:12px 14px; background:#0d1117; border-radius:8px; border:1px solid #30363d; margin-bottom:10px; box-sizing:border-box; width:100%; overflow:hidden; }
 .pl-seek-wrap { width:100%; margin-bottom:10px; }
 input.pl-seek { -webkit-appearance:none; appearance:none; width:100%; height:4px; background:#30363d; border-radius:2px; outline:none; cursor:pointer; display:block; margin-bottom:5px; }
 input.pl-seek::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; border-radius:50%; background:#bc60ff; cursor:pointer; }
@@ -2060,10 +2052,9 @@ var PLAYLIST_STATE = {{toJSON .State}};
 <p class="muted">No items yet. Browse to a video or audio file and click <strong>+</strong> to add it.</p>
 {{else}}
 <div class="pl-layout" id="pl-layout">
-  <div class="pl-sidebar collapsed" id="pl-sidebar">
-    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid #30363d">
+  <div class="pl-sidebar" id="pl-sidebar">
+    <div style="padding:8px 12px;border-bottom:1px solid #30363d">
       <span style="font-size:12px;color:#8b949e;font-weight:500;text-transform:uppercase;letter-spacing:0.5px">Playlist</span>
-      <button onclick="togglePlSidebar()" style="background:transparent;border:none;color:#8b949e;cursor:pointer;font-size:16px;line-height:1;padding:0 2px" title="Expand">&#x276F;</button>
     </div>
     <div id="pl-item-list">
     {{range $i, $it := .Items}}
@@ -2201,13 +2192,6 @@ function savePlaylistOrder() {
     body: JSON.stringify({order: PLAYLIST_ITEMS.map(function(it){ return it.ID; })})
   });
 }
-function togglePlSidebar() {
-  var sb = document.getElementById('pl-sidebar');
-  var btn = sb.querySelector('button[onclick="togglePlSidebar()"]');
-  sb.classList.toggle('collapsed');
-  btn.innerHTML = sb.classList.contains('collapsed') ? '&#x276F;' : '&#x276E;';
-  btn.title = sb.classList.contains('collapsed') ? 'Expand' : 'Collapse';
-}
 window.addEventListener('beforeunload', savePlState);
 // This inline script runs during body parse, BEFORE hls.js and the base
 // script (attachVideo/fmtTime) load further down the page. Defer the
@@ -2238,10 +2222,9 @@ var PLAYLIST_STATE = null;
 <p class="muted">No plays yet. Start listening to build your top tracks.</p>
 {{else}}
 <div class="pl-layout" id="pl-layout">
-  <div class="pl-sidebar collapsed" id="pl-sidebar">
-    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid #30363d">
+  <div class="pl-sidebar" id="pl-sidebar">
+    <div style="padding:8px 12px;border-bottom:1px solid #30363d">
       <span style="font-size:12px;color:#8b949e;font-weight:500;text-transform:uppercase;letter-spacing:0.5px">{{len .Items}} tracks</span>
-      <button onclick="togglePlSidebar()" style="background:transparent;border:none;color:#8b949e;cursor:pointer;font-size:16px;line-height:1;padding:0 2px" title="Expand">&#x276F;</button>
     </div>
     <div id="pl-item-list">
     {{range $i, $it := .Items}}
@@ -2291,13 +2274,6 @@ function getPlMedia() {
 }
 function savePlState() {}
 ` + plSharedJS + `
-function togglePlSidebar() {
-  var sb = document.getElementById('pl-sidebar');
-  var btn = sb.querySelector('button[onclick="togglePlSidebar()"]');
-  sb.classList.toggle('collapsed');
-  btn.innerHTML = sb.classList.contains('collapsed') ? '&#x276F;' : '&#x276E;';
-  btn.title = sb.classList.contains('collapsed') ? 'Expand' : 'Collapse';
-}
 document.addEventListener('DOMContentLoaded', function() {
   plInitAudioUI();
   if (PLAYLIST_ITEMS && PLAYLIST_ITEMS.length > 0) {
@@ -2322,10 +2298,9 @@ var PLAYLIST_STATE = null;
 <p class="muted">No favorites yet. In Browse, click &#9734; on a folder or audio file to add it here.</p>
 {{else}}
 <div class="pl-layout" id="pl-layout">
-  <div class="pl-sidebar collapsed" id="pl-sidebar">
-    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid #30363d">
+  <div class="pl-sidebar" id="pl-sidebar">
+    <div style="padding:8px 12px;border-bottom:1px solid #30363d">
       <span style="font-size:12px;color:#8b949e;font-weight:500;text-transform:uppercase;letter-spacing:0.5px">{{len .Items}} tracks</span>
-      <button onclick="togglePlSidebar()" style="background:transparent;border:none;color:#8b949e;cursor:pointer;font-size:16px;line-height:1;padding:0 2px" title="Expand">&#x276F;</button>
     </div>
     <div id="pl-item-list">
     {{range $i, $it := .Items}}
@@ -2375,13 +2350,6 @@ function getPlMedia() {
 }
 function savePlState() {}
 ` + plSharedJS + `
-function togglePlSidebar() {
-  var sb = document.getElementById('pl-sidebar');
-  var btn = sb.querySelector('button[onclick="togglePlSidebar()"]');
-  sb.classList.toggle('collapsed');
-  btn.innerHTML = sb.classList.contains('collapsed') ? '&#x276F;' : '&#x276E;';
-  btn.title = sb.classList.contains('collapsed') ? 'Expand' : 'Collapse';
-}
 document.addEventListener('DOMContentLoaded', function() {
   plInitAudioUI();
   if (PLAYLIST_ITEMS && PLAYLIST_ITEMS.length > 0) {
