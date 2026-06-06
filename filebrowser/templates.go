@@ -539,31 +539,23 @@ input:focus, select:focus { outline: none; border-color: #58a6ff; }
 .fav-btn.active { color:#e3b341; }
 /* Custom playlist audio player */
 .pl-audio-ui { padding:12px 14px; background:#0d1117; border-radius:8px; border:1px solid #30363d; margin-bottom:10px; }
-.pl-audio-row { display:flex; align-items:center; gap:10px; }
-.pl-nav-btn { background:#21262d; border:1px solid #30363d; border-radius:50%; width:30px; height:30px; cursor:pointer; color:#8b949e; font-size:10px; display:flex; align-items:center; justify-content:center; flex-shrink:0; padding:0; line-height:1; }
-.pl-nav-btn:hover { background:#30363d; color:#c9d1d9; }
-#pl-play-btn { background:#21262d; border:1px solid #30363d; border-radius:50%; width:38px; height:38px; cursor:pointer; color:#c9d1d9; font-size:14px; display:flex; align-items:center; justify-content:center; flex-shrink:0; padding:0; line-height:1; }
-#pl-play-btn:hover { background:#30363d; border-color:#bc60ff; }
-.pl-seek-wrap { flex:1; min-width:0; }
+.pl-seek-wrap { width:100%; margin-bottom:10px; }
 input.pl-seek { -webkit-appearance:none; appearance:none; width:100%; height:4px; background:#30363d; border-radius:2px; outline:none; cursor:pointer; display:block; margin-bottom:5px; }
-input.pl-seek::-webkit-slider-thumb { -webkit-appearance:none; width:12px; height:12px; border-radius:50%; background:#bc60ff; cursor:pointer; }
-input.pl-seek::-moz-range-thumb { width:12px; height:12px; border-radius:50%; background:#bc60ff; border:none; cursor:pointer; }
+input.pl-seek::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; border-radius:50%; background:#bc60ff; cursor:pointer; }
+input.pl-seek::-moz-range-thumb { width:14px; height:14px; border-radius:50%; background:#bc60ff; border:none; cursor:pointer; }
 .pl-time-row { display:flex; justify-content:space-between; font-size:11px; color:#8b949e; }
-.pl-vol-wrap { display:flex; align-items:center; gap:5px; flex-shrink:0; }
+.pl-transport { display:flex; align-items:center; justify-content:center; position:relative; }
+.pl-transport-btns { display:flex; align-items:center; gap:16px; }
+.pl-nav-btn { background:#21262d; border:1px solid #30363d; border-radius:50%; width:36px; height:36px; cursor:pointer; color:#8b949e; font-size:11px; display:flex; align-items:center; justify-content:center; padding:0; line-height:1; }
+.pl-nav-btn:hover { background:#30363d; color:#c9d1d9; }
+#pl-play-btn { background:#21262d; border:1px solid #30363d; border-radius:50%; width:44px; height:44px; cursor:pointer; color:#c9d1d9; font-size:16px; display:flex; align-items:center; justify-content:center; padding:0; line-height:1; }
+#pl-play-btn:hover { background:#30363d; border-color:#bc60ff; }
+.pl-vol-wrap { display:flex; align-items:center; gap:5px; position:absolute; right:0; }
 .pl-vol-icon { color:#8b949e; font-size:13px; cursor:default; user-select:none; }
 input.pl-vol { -webkit-appearance:none; appearance:none; width:70px; height:4px; background:#30363d; border-radius:2px; outline:none; cursor:pointer; }
 input.pl-vol::-webkit-slider-thumb { -webkit-appearance:none; width:11px; height:11px; border-radius:50%; background:#58a6ff; cursor:pointer; }
 input.pl-vol::-moz-range-thumb { width:11px; height:11px; border-radius:50%; background:#58a6ff; border:none; cursor:pointer; }
-@media (max-width:640px) {
-  .pl-audio-row { flex-wrap:wrap; gap:8px; }
-  .pl-seek-wrap { order:-1; width:100%; }
-  .pl-nav-btn { width:44px; height:44px; font-size:12px; }
-  #pl-play-btn { width:48px; height:48px; font-size:17px; }
-  .pl-vol-wrap { margin-left:auto; }
-  input.pl-seek { height:6px; margin-bottom:6px; }
-  input.pl-seek::-webkit-slider-thumb { width:18px; height:18px; }
-  input.pl-seek::-moz-range-thumb { width:18px; height:18px; }
-}
+@media (max-width:480px) { .pl-vol-wrap { display:none; } }
 @media (max-width: 640px) {
   main { padding: 12px; }
   header { padding: 10px 16px; flex-wrap: wrap; }
@@ -2089,13 +2081,15 @@ var PLAYLIST_STATE = {{toJSON .State}};
     <video id="pl-video" controls style="display:none"></video>
     <audio id="pl-audio" style="display:none"></audio>
     <div class="pl-audio-ui" id="pl-audio-ui" style="display:none">
-      <div class="pl-audio-row">
-        <button class="pl-nav-btn" onclick="plPrev()" title="Previous">&#9664;&#9664;</button>
-        <button id="pl-play-btn" onclick="plTogglePlay()" title="Play / Pause">&#9654;</button>
-        <button class="pl-nav-btn" onclick="plNext()" title="Next">&#9654;&#9654;</button>
-        <div class="pl-seek-wrap">
-          <input type="range" class="pl-seek" id="pl-seek" value="0" min="0" max="100" step="0.1">
-          <div class="pl-time-row"><span id="pl-time-cur">0:00</span><span id="pl-time-dur">--:--</span></div>
+      <div class="pl-seek-wrap">
+        <input type="range" class="pl-seek" id="pl-seek" value="0" min="0" max="100" step="0.1">
+        <div class="pl-time-row"><span id="pl-time-cur">0:00</span><span id="pl-time-dur">--:--</span></div>
+      </div>
+      <div class="pl-transport">
+        <div class="pl-transport-btns">
+          <button class="pl-nav-btn" onclick="plPrev()" title="Previous">&#9664;&#9664;</button>
+          <button id="pl-play-btn" onclick="plTogglePlay()" title="Play / Pause">&#9654;</button>
+          <button class="pl-nav-btn" onclick="plNext()" title="Next">&#9654;&#9654;</button>
         </div>
         <div class="pl-vol-wrap">
           <span class="pl-vol-icon">&#128266;</span>
@@ -2261,13 +2255,15 @@ var PLAYLIST_STATE = null;
     <div class="pl-title" id="pl-title"></div>
     <audio id="pl-audio" style="display:none"></audio>
     <div class="pl-audio-ui" id="pl-audio-ui" style="display:none">
-      <div class="pl-audio-row">
-        <button class="pl-nav-btn" onclick="plPrev()" title="Previous">&#9664;&#9664;</button>
-        <button id="pl-play-btn" onclick="plTogglePlay()" title="Play / Pause">&#9654;</button>
-        <button class="pl-nav-btn" onclick="plNext()" title="Next">&#9654;&#9654;</button>
-        <div class="pl-seek-wrap">
-          <input type="range" class="pl-seek" id="pl-seek" value="0" min="0" max="100" step="0.1">
-          <div class="pl-time-row"><span id="pl-time-cur">0:00</span><span id="pl-time-dur">--:--</span></div>
+      <div class="pl-seek-wrap">
+        <input type="range" class="pl-seek" id="pl-seek" value="0" min="0" max="100" step="0.1">
+        <div class="pl-time-row"><span id="pl-time-cur">0:00</span><span id="pl-time-dur">--:--</span></div>
+      </div>
+      <div class="pl-transport">
+        <div class="pl-transport-btns">
+          <button class="pl-nav-btn" onclick="plPrev()" title="Previous">&#9664;&#9664;</button>
+          <button id="pl-play-btn" onclick="plTogglePlay()" title="Play / Pause">&#9654;</button>
+          <button class="pl-nav-btn" onclick="plNext()" title="Next">&#9654;&#9654;</button>
         </div>
         <div class="pl-vol-wrap">
           <span class="pl-vol-icon">&#128266;</span>
@@ -2343,13 +2339,15 @@ var PLAYLIST_STATE = null;
     <video id="pl-video" controls style="display:none"></video>
     <audio id="pl-audio" style="display:none"></audio>
     <div class="pl-audio-ui" id="pl-audio-ui" style="display:none">
-      <div class="pl-audio-row">
-        <button class="pl-nav-btn" onclick="plPrev()" title="Previous">&#9664;&#9664;</button>
-        <button id="pl-play-btn" onclick="plTogglePlay()" title="Play / Pause">&#9654;</button>
-        <button class="pl-nav-btn" onclick="plNext()" title="Next">&#9654;&#9654;</button>
-        <div class="pl-seek-wrap">
-          <input type="range" class="pl-seek" id="pl-seek" value="0" min="0" max="100" step="0.1">
-          <div class="pl-time-row"><span id="pl-time-cur">0:00</span><span id="pl-time-dur">--:--</span></div>
+      <div class="pl-seek-wrap">
+        <input type="range" class="pl-seek" id="pl-seek" value="0" min="0" max="100" step="0.1">
+        <div class="pl-time-row"><span id="pl-time-cur">0:00</span><span id="pl-time-dur">--:--</span></div>
+      </div>
+      <div class="pl-transport">
+        <div class="pl-transport-btns">
+          <button class="pl-nav-btn" onclick="plPrev()" title="Previous">&#9664;&#9664;</button>
+          <button id="pl-play-btn" onclick="plTogglePlay()" title="Play / Pause">&#9654;</button>
+          <button class="pl-nav-btn" onclick="plNext()" title="Next">&#9654;&#9654;</button>
         </div>
         <div class="pl-vol-wrap">
           <span class="pl-vol-icon">&#128266;</span>
