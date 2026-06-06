@@ -173,6 +173,7 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	})
 	mux.HandleFunc("GET /browse", a.handleBrowse)
 	mux.HandleFunc("GET /recent", a.handleRecent)
+	mux.HandleFunc("GET /unplayed", a.handleUnplayed)
 	mux.HandleFunc("GET /file", a.handleServeFile)
 	mux.HandleFunc("GET /thumbnail", a.handleThumbnail)
 	mux.HandleFunc("GET /hls/playlist", a.handleHLSPlaylist)

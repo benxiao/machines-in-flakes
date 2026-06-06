@@ -1,0 +1,11 @@
+{
+  "name": "filebrowser-verify",
+  "version": "1.0.0",
+  "description": "Smoke verification for filebrowser UI",
+  "scripts": {
+    "verify": "node verify.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.52.0"
+  }
+}

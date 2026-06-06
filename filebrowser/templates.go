@@ -125,10 +125,25 @@ type RecentPage struct {
 	Items     []RecentItem
 }
 
+type UnplayedItem struct {
+	Path     string
+	Filename string
+	FileType string
+	Dir      string
+	AlbumArt string
+}
+
+type UnplayedPage struct {
+	ActiveTab string
+	IsAdmin   bool
+	Items     []UnplayedItem
+}
+
 type PathRow struct {
 	ID           int64
 	Path         string
 	Enabled      bool
+	SizeGB       float64
 	GrantedUsers []GrantedUserRow
 }
 
@@ -202,6 +217,7 @@ func initTemplates() {
 	}
 	add("browse", browseTmpl)
 	add("recent", recentTmpl)
+	add("unplayed", unplayedTmpl)
 	add("paths", pathsTmpl)
 	add("playlists", playlistsTmpl)
 	add("playlist_detail", playlistDetailTmpl)
@@ -325,7 +341,7 @@ tr:hover td { background: #161b22; }
 .search-result-thumb { width:56px; height:42px; flex-shrink:0; border-radius:4px; overflow:hidden; background:#0d1117; display:flex; align-items:center; justify-content:center; }
 .search-result-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
 .search-result-name { font-size:13px; color:#c9d1d9; margin-bottom:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.search-result-dir { font-size:11px; font-family:monospace; color:#8b949e; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:280px; }
+.search-result-dir { font-size:11px; font-family:monospace; color:#8b949e; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .sel-spacer { height: 60px; }
 .view-toggle { display:flex; gap:4px; }
 .btn-view { background:transparent; border:1px solid #30363d; color:#8b949e; border-radius:6px; padding:4px 10px; font-size:13px; cursor:pointer; line-height:1.4; }
@@ -503,7 +519,8 @@ input:focus, select:focus { outline: none; border-color: #58a6ff; }
 }
 @media (max-width: 640px) {
   main { padding: 12px; }
-  header { padding: 10px 16px; }
+  header { padding: 10px 16px; flex-wrap: wrap; }
+  #play-stats { order: 3; width: 100%; margin-left: 0; justify-content: flex-start; padding-top: 4px; border-top: 1px solid #21262d; }
   nav { overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 0 12px; }
   nav a { white-space: nowrap; padding: 10px 10px; font-size: 13px; }
   .page-header { flex-direction: column; align-items: flex-start; gap: 10px; }
@@ -531,9 +548,13 @@ input:focus, select:focus { outline: none; border-color: #58a6ff; }
   .btn-view { padding: 4px 8px; font-size: 12px; }
   /* Prevent iOS auto-zoom on form inputs */
   input[type=text], input[type=password], select { font-size: 16px; }
-  /* Search */
+  /* Search: full-width fixed panel on mobile */
   .header-search { max-width:none; }
-  .search-result-dir { max-width:160px; }
+  .search-panel { position:fixed; left:0; right:0; border-radius:0 0 8px 8px; }
+  .search-result { padding:8px 10px; gap:8px; }
+  .search-result-thumb { width:44px; height:33px; }
+  .search-result-name { font-size:12px; }
+  .search-result-dir { font-size:10px; }
   /* Browse: stack sidebar above content on mobile */
   .browse-layout { flex-direction:column; margin:-12px; min-height:0; }
   .browse-sidebar { width:100% !important; border-right:none; border-bottom:1px solid #30363d; flex-direction:row; transition:none; }
@@ -586,6 +607,7 @@ const baseTmpl = `<!DOCTYPE html>
 <nav>
   <a href="/browse"     {{if eq .ActiveTab "browse"}}class="active"{{end}}>Browse</a>
   <a href="/recent"     {{if eq .ActiveTab "recent"}}class="active"{{end}}>Recent</a>
+  <a href="/unplayed"   {{if eq .ActiveTab "unplayed"}}class="active"{{end}}>Unplayed</a>
   <a href="/playlists"  {{if eq .ActiveTab "playlists"}}class="active"{{end}}>Playlists</a>
   {{if .IsAdmin}}<a href="/users" {{if eq .ActiveTab "users"}}class="active"{{end}}>Users</a>{{end}}
   <a href="/settings"   {{if eq .ActiveTab "settings"}}class="active"{{end}}>Settings</a>
@@ -1021,16 +1043,26 @@ document.addEventListener('submit', function(e) {
 });
 // ---- Search ----
 var _searchTimer, _searchType = 'all', _searchOffset = 0, _searchMore = false, _searchLoading = false;
+function _anchorSearchPanel() {
+  if (!MOBILE) return;
+  var panel = document.getElementById('search-panel');
+  var hdr = document.querySelector('header');
+  if (!panel || !hdr) return;
+  var bottom = hdr.getBoundingClientRect().bottom;
+  panel.style.top = bottom + 'px';
+  panel.style.maxHeight = (window.innerHeight - bottom - 12) + 'px';
+}
 function onSearchInput() {
   clearTimeout(_searchTimer);
   _searchTimer = setTimeout(function(){ runSearch(0); }, 300);
   var q = document.getElementById('search-q').value.trim();
   var panel = document.getElementById('search-panel');
-  if (panel) panel.style.display = q.length >= 2 ? '' : 'none';
+  if (panel) { panel.style.display = q.length >= 2 ? '' : 'none'; if (q.length >= 2) _anchorSearchPanel(); }
 }
 function onSearchFocus() {
   var q = document.getElementById('search-q').value.trim();
   if (q.length >= 2 && !document.getElementById('search-results-list').innerHTML) runSearch(0);
+  _anchorSearchPanel();
 }
 function setSearchType(btn, type) {
   _searchType = type;
@@ -1043,7 +1075,7 @@ function runSearch(offset) {
   var panel = document.getElementById('search-panel');
   if (!panel) return;
   if (q.length < 2) { panel.style.display = 'none'; return; }
-  panel.style.display = '';
+  panel.style.display = ''; _anchorSearchPanel();
   if (_searchLoading) return;
   _searchLoading = true;
   var status = document.getElementById('search-status');
@@ -1456,7 +1488,7 @@ const recentTmpl = `{{define "content"}}
 </tr></thead>
 <tbody>
 {{range .Items}}
-<tr class="file-row" style="cursor:pointer" onclick="location.href='/browse?dir='+encodeURIComponent('{{.Dir}}')">
+<tr class="file-row" data-dir="{{.Dir}}" style="cursor:pointer" onclick="browseDir(this)">
   <td>{{.Filename}}</td>
   <td><span class="badge badge-{{.FileType}}">{{upper .FileType}}</span></td>
   <td class="muted" style="font-size:12px;font-family:monospace">{{.Dir}}</td>
@@ -1471,7 +1503,7 @@ const recentTmpl = `{{define "content"}}
 <div id="view-grid" class="view-grid" style="display:none">
 {{range .Items}}
 {{if eq .FileType "video"}}
-<div class="grid-card" onclick="location.href='/browse?dir='+encodeURIComponent('{{.Dir}}')">
+<div class="grid-card" data-dir="{{.Dir}}" onclick="browseDir(this)">
   {{if gt .WatchCount 0}}<span class="grid-plays">{{.WatchCount}}×</span>{{end}}
   <div class="grid-thumb">
     <img src="{{thumbURL .Path}}" loading="lazy" alt="" style="width:100%;height:100%;object-fit:cover;display:block"
@@ -1483,7 +1515,7 @@ const recentTmpl = `{{define "content"}}
   <div class="grid-name">{{.Filename}}</div>
 </div>
 {{else if eq .FileType "audio"}}
-<div class="grid-card" onclick="location.href='/browse?dir='+encodeURIComponent('{{.Dir}}')">
+<div class="grid-card" data-dir="{{.Dir}}" onclick="browseDir(this)">
   {{if gt .WatchCount 0}}<span class="grid-plays">{{.WatchCount}}×</span>{{end}}
   {{if .AlbumArt}}
   <div class="grid-thumb">
@@ -1536,6 +1568,103 @@ function setView(v) {
 </script>
 {{end}}`
 
+const unplayedTmpl = `{{define "content"}}
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+  <div>
+    <h2 style="margin:0 0 2px">Unplayed</h2>
+    <div class="summary">{{len .Items}} file{{if ne (len .Items) 1}}s{{end}} never played</div>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <div class="search-filters" style="margin:0">
+      <button class="sf-chip active" onclick="setTypeFilter(this,'all')">All</button>
+      <button class="sf-chip" onclick="setTypeFilter(this,'video')">Video</button>
+      <button class="sf-chip" onclick="setTypeFilter(this,'audio')">Audio</button>
+    </div>
+    <div class="view-toggle">
+      <button id="btn-list" class="btn-view" onclick="setView('list')" title="List view">&#9776; List</button>
+      <button id="btn-grid" class="btn-view" onclick="setView('grid')" title="Grid view">&#8859; Grid</button>
+    </div>
+  </div>
+</div>
+{{if not .Items}}
+<p class="muted">Everything has been played — nothing left to discover here.</p>
+{{else}}
+<div id="view-list">
+<div class="table-wrap">
+<table>
+<thead><tr>
+  <th>Name</th>
+  <th>Type</th>
+  <th>Directory</th>
+</tr></thead>
+<tbody>
+{{range .Items}}
+<tr class="file-row" data-type="{{.FileType}}" data-dir="{{.Dir}}" style="cursor:pointer" onclick="browseDir(this)">
+  <td>{{.Filename}}</td>
+  <td><span class="badge badge-{{.FileType}}">{{upper .FileType}}</span></td>
+  <td class="muted" style="font-size:12px;font-family:monospace">{{.Dir}}</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+</div>
+</div>
+<div id="view-grid" class="view-grid" style="display:none">
+{{range .Items}}
+{{if eq .FileType "video"}}
+<div class="grid-card" data-type="video" data-dir="{{.Dir}}" onclick="browseDir(this)">
+  <div class="grid-thumb">
+    <img src="{{thumbURL .Path}}" loading="lazy" alt="" style="width:100%;height:100%;object-fit:cover;display:block"
+         onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+    <div style="display:none;width:100%;height:100%;align-items:center;justify-content:center">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="17" y1="7" x2="22" y2="7"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="2" y1="17" x2="7" y2="17"/></svg>
+    </div>
+  </div>
+  <div class="grid-name">{{.Filename}}</div>
+</div>
+{{else if eq .FileType "audio"}}
+<div class="grid-card" data-type="audio" data-dir="{{.Dir}}" onclick="browseDir(this)">
+  {{if .AlbumArt}}
+  <div class="grid-thumb">
+    <img src="{{thumbURL .AlbumArt}}" loading="lazy" alt="" style="width:100%;height:100%;object-fit:cover;display:block"
+         onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+    <div style="display:none;width:100%;height:100%;align-items:center;justify-content:center">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#bc60ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+    </div>
+  </div>
+  {{else}}
+  <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#bc60ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>
+  {{end}}
+  <div class="grid-name">{{.Filename}}</div>
+</div>
+{{end}}
+{{end}}
+</div>
+{{end}}
+<script>
+function setView(v) {
+  var list = document.getElementById('view-list');
+  var grid = document.getElementById('view-grid');
+  if (!list || !grid) return;
+  list.style.display = v === 'list' ? '' : 'none';
+  grid.style.display = v === 'grid' ? 'grid' : 'none';
+  document.getElementById('btn-list').classList.toggle('active', v === 'list');
+  document.getElementById('btn-grid').classList.toggle('active', v === 'grid');
+  try { localStorage.setItem('fb_view', v); } catch(e) {}
+}
+function setTypeFilter(btn, t) {
+  document.querySelectorAll('.sf-chip').forEach(function(b) { b.classList.remove('active'); });
+  btn.classList.add('active');
+  document.querySelectorAll('[data-type]').forEach(function(el) {
+    el.style.display = (t === 'all' || el.dataset.type === t) ? '' : 'none';
+  });
+}
+(function() {
+  var v = 'list'; try { v = localStorage.getItem('fb_view') || 'list'; } catch(e) {}
+  setView(v);
+})();
+</script>
+{{end}}`
 
 const pathsTmpl = `{{define "content"}}
 <div class="page-header">
@@ -1720,7 +1849,7 @@ function plStartPreload(idx) {
   fetch(url, {signal: ctrl.signal})
     .then(function(r) {
       var len = parseInt(r.headers.get('Content-Length') || '0', 10);
-      if (len > 20 * 1024 * 1024) return null; // skip files >20 MB
+      if (len > 50 * 1024 * 1024) return null; // skip files >50 MB
       return r.blob();
     })
     .then(function(blob) {
@@ -1729,6 +1858,29 @@ function plStartPreload(idx) {
       _plPreload.ctrl = null;
     })
     .catch(function(){});
+}
+// Wait for an in-progress blob fetch before falling back to direct URL.
+// Eliminates the race where the blob isn't ready exactly when the track ends
+// (common on cellular+VPN). Waits up to 3 s then gives up.
+function _useBlobOrFallback(fileUrl, cb) {
+  if (_plPreload.path === fileUrl && _plPreload.blobUrl) {
+    var b = _plPreload.blobUrl;
+    _plActiveBlobUrl = b; _plPreload = {path: null, blobUrl: null, ctrl: null};
+    cb(b); return;
+  }
+  if (_plPreload.path === fileUrl && _plPreload.ctrl) {
+    var deadline = Date.now() + 10000;
+    var t = setInterval(function() {
+      if (_plPreload.blobUrl) {
+        clearInterval(t);
+        var b = _plPreload.blobUrl;
+        _plActiveBlobUrl = b; _plPreload = {path: null, blobUrl: null, ctrl: null};
+        cb(b);
+      } else if (Date.now() >= deadline || !_plPreload.ctrl) {
+        clearInterval(t); cb(fileUrl);
+      }
+    }, 50);
+  } else { cb(fileUrl); }
 }
 function startPlaylistItem(idx, seekTo, autoplay) {
   if (!PLAYLIST_ITEMS || idx < 0 || idx >= PLAYLIST_ITEMS.length) return;
@@ -1781,25 +1933,22 @@ function startPlaylistItem(idx, seekTo, autoplay) {
     media = a;
     a.style.display = 'block'; a.volume = DEFAULT_VOL;
     if (a.hlsInstance) { a.hlsInstance.destroy(); a.hlsInstance = null; }
-    // Revoke the previous track's blob now that we're moving on.
     if (_plActiveBlobUrl) { URL.revokeObjectURL(_plActiveBlobUrl); _plActiveBlobUrl = null; }
-    // Use the preloaded blob if ready — plays instantly from RAM, bypassing any
-    // Android network throttling that would drain the buffer mid-track.
-    if (_plPreload.path === fileUrl && _plPreload.blobUrl) {
-      a.src = _plPreload.blobUrl;
-      _plActiveBlobUrl = _plPreload.blobUrl;
-      _plPreload = {path: null, blobUrl: null, ctrl: null};
-    } else {
-      a.src = fileUrl;
-    }
-    if (seekTo > 1) {
-      a.addEventListener('loadedmetadata', function() { startPlayback(a); }, {once: true});
-    } else {
-      plPlay(a);
-    }
-    // Preload next track after 5 s — delay avoids wasting bandwidth on quick skips.
+    // _useBlobOrFallback waits up to 3 s for an in-progress fetch so we use
+    // a Blob URL (already in RAM) rather than a live HTTP stream that Android
+    // may throttle once the screen is off.
+    _useBlobOrFallback(fileUrl, function(src) {
+      a.src = src;
+      if (seekTo > 1) {
+        a.addEventListener('loadedmetadata', function() { startPlayback(a); }, {once: true});
+      } else {
+        plPlay(a);
+      }
+    });
+    // Start preloading the next track after 2 s (was 5 s) — more lead time on
+    // slow cellular/VPN connections.
     var _pIdx = idx + 1;
-    setTimeout(function() { if (plCurrentIdx === idx) plStartPreload(_pIdx); }, 5000);
+    setTimeout(function() { if (plCurrentIdx === idx) plStartPreload(_pIdx); }, 2000);
   }
   // Register an OS media session so Android keeps the page alive across the gap
   // between tracks (otherwise the next track stops a few seconds in with the
@@ -2095,7 +2244,7 @@ const settingsTmpl = `{{define "content"}}
   {{if .Paths}}
   <div class="table-wrap" style="margin-bottom:16px">
   <table>
-  <thead><tr><th style="width:40px" title="Enabled in Browse">Active</th><th>Path</th><th></th></tr></thead>
+  <thead><tr><th style="width:40px" title="Enabled in Browse">Active</th><th>Path</th><th style="width:80px;text-align:right">Size (GB)</th><th></th></tr></thead>
   <tbody>
   {{range .Paths}}
   <tr>
@@ -2104,6 +2253,7 @@ const settingsTmpl = `{{define "content"}}
         {{if .Enabled}}checked{{end}} title="Enable or disable this path in Browse" style="cursor:pointer;width:16px;height:16px">
     </td>
     <td><a href="{{browseURL .Path}}">{{.Path}}</a></td>
+    <td style="text-align:right;color:#8b949e;font-size:13px">{{printf "%.1f" .SizeGB}}</td>
     <td class="actions-cell">
       <form class="inline" action="/paths/{{.ID}}/delete" method="post">
         <button class="btn btn-danger btn-sm" type="submit">Remove</button>
@@ -2136,10 +2286,13 @@ const settingsTmpl = `{{define "content"}}
   {{if .Paths}}
   <div class="table-wrap" style="margin-bottom:16px">
   <table>
-  <thead><tr><th>Path</th></tr></thead>
+  <thead><tr><th>Path</th><th style="width:80px;text-align:right">Size (GB)</th></tr></thead>
   <tbody>
   {{range .Paths}}
-  <tr><td><a href="{{browseURL .Path}}">{{.Path}}</a></td></tr>
+  <tr>
+    <td><a href="{{browseURL .Path}}">{{.Path}}</a></td>
+    <td style="text-align:right;color:#8b949e;font-size:13px">{{printf "%.1f" .SizeGB}}</td>
+  </tr>
   {{end}}
   </tbody>
   </table>

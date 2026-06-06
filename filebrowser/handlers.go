@@ -268,6 +268,7 @@ func (a *App) handleRecent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
+	artCache := make(map[string]string)
 	var items []RecentItem
 	for rows.Next() {
 		var path string
@@ -281,7 +282,12 @@ func (a *App) handleRecent(w http.ResponseWriter, r *http.Request) {
 		dir := filepath.Dir(path)
 		var art string
 		if ft == "audio" {
-			art = findAlbumArt(dir)
+			if cached, ok := artCache[dir]; ok {
+				art = cached
+			} else {
+				art = findAlbumArt(dir)
+				artCache[dir] = art
+			}
 		}
 		items = append(items, RecentItem{
 			Path:        path,
@@ -295,6 +301,50 @@ func (a *App) handleRecent(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	render(w, "recent", RecentPage{ActiveTab: "recent", IsAdmin: isAdmin(r), Items: items})
+}
+
+func (a *App) handleUnplayed(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.db.Query(r.Context(), `
+		SELECT fi.path, fi.filename, fi.file_type, fi.dir_path
+		FROM file_index fi
+		WHERE fi.user_id = $1
+		  AND fi.file_type IN ('video', 'audio')
+		  AND NOT EXISTS (
+		    SELECT 1 FROM video_positions vp
+		    WHERE vp.user_id = fi.user_id AND vp.path = fi.path
+		      AND (vp.watch_count > 0 OR vp.position_sec > 0)
+		  )
+		ORDER BY lower(fi.filename)
+		LIMIT 500
+	`, uid(r))
+	if err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	defer rows.Close()
+	artCache := make(map[string]string)
+	var items []UnplayedItem
+	for rows.Next() {
+		var path, filename, fileType, dir string
+		if rows.Scan(&path, &filename, &fileType, &dir) != nil {
+			continue
+		}
+		var art string
+		if fileType == "audio" {
+			if cached, ok := artCache[dir]; ok {
+				art = cached
+			} else {
+				art = findAlbumArt(dir)
+				artCache[dir] = art
+			}
+		}
+		items = append(items, UnplayedItem{Path: path, Filename: filename, FileType: fileType, Dir: dir, AlbumArt: art})
+	}
+	if err := rows.Err(); err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	render(w, "unplayed", UnplayedPage{ActiveTab: "unplayed", IsAdmin: isAdmin(r), Items: items})
 }
 
 func findAlbumArt(dir string) string {
@@ -473,14 +523,12 @@ func (a *App) handlePathToggle(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if enabled {
-		userID := uid(r)
-		go func() {
-			ctx2, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-			defer cancel()
-			a.reindexUser(ctx2, userID)
-		}()
-	}
+	userID := uid(r)
+	go func() {
+		ctx2, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		a.reindexUser(ctx2, userID)
+	}()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -950,6 +998,11 @@ func (a *App) handlePathRevoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.db.Exec(r.Context(), `DELETE FROM path_grants WHERE path_id=$1 AND user_id=$2`, pathID, revokeUID)
+	go func() {
+		ctx2, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		a.reindexUser(ctx2, revokeUID)
+	}()
 	http.Redirect(w, r, fmt.Sprintf("/users/%d", revokeUID), http.StatusFound)
 }
 
@@ -1351,6 +1404,20 @@ func (a *App) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	rows.Close()
+
+	for i := range paths {
+		var total int64
+		filepath.WalkDir(paths[i].Path, func(_ string, d os.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return nil
+			}
+			if info, e := d.Info(); e == nil {
+				total += info.Size()
+			}
+			return nil
+		})
+		paths[i].SizeGB = float64(total) / 1e9
+	}
 
 	s := a.getTranscodeSettings(ctx, userID)
 	savedOK := r.URL.Query().Get("saved") == "1"
