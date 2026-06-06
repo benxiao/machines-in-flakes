@@ -537,6 +537,16 @@ input:focus, select:focus { outline: none; border-color: #58a6ff; }
 .fav-btn { background:none; border:none; cursor:pointer; color:#8b949e; font-size:16px; padding:2px 4px; line-height:1; }
 .fav-btn:hover { color:#e3b341; }
 .fav-btn.active { color:#e3b341; }
+/* Custom playlist audio player */
+.pl-audio-ui { padding:14px 16px; background:#0d1117; border-radius:8px; border:1px solid #30363d; margin-bottom:10px; }
+.pl-audio-row { display:flex; align-items:center; gap:12px; }
+#pl-play-btn { background:#21262d; border:1px solid #30363d; border-radius:50%; width:38px; height:38px; cursor:pointer; color:#c9d1d9; font-size:14px; display:flex; align-items:center; justify-content:center; flex-shrink:0; padding:0; line-height:1; }
+#pl-play-btn:hover { background:#30363d; border-color:#bc60ff; }
+.pl-seek-wrap { flex:1; }
+input.pl-seek { -webkit-appearance:none; appearance:none; width:100%; height:4px; background:#30363d; border-radius:2px; outline:none; cursor:pointer; display:block; margin-bottom:6px; }
+input.pl-seek::-webkit-slider-thumb { -webkit-appearance:none; width:12px; height:12px; border-radius:50%; background:#bc60ff; cursor:pointer; }
+input.pl-seek::-moz-range-thumb { width:12px; height:12px; border-radius:50%; background:#bc60ff; border:none; cursor:pointer; }
+.pl-time-row { display:flex; justify-content:space-between; font-size:11px; color:#8b949e; }
 @media (max-width: 640px) {
   main { padding: 12px; }
   header { padding: 10px 16px; flex-wrap: wrap; }
@@ -1894,7 +1904,7 @@ function startPlaylistItem(idx, seekTo, autoplay) {
     if (a.hlsInstance) { a.hlsInstance.destroy(); a.hlsInstance = null; }
     if (item.FileType !== 'video') { a.pause(); }
     if (item.FileType === 'video') {
-      a.pause(); a.style.display = 'none';
+      a.pause(); a.style.display = 'none'; _plUpdateAudioUI();
       v.volume = DEFAULT_VOL; v.style.display = 'block'; media = v;
       if (MOBILE) {
         attachVideo(v, '/hls/playlist?path=' + encodeURIComponent(item.Path), fileUrl, startPlayback);
@@ -1904,12 +1914,12 @@ function startPlaylistItem(idx, seekTo, autoplay) {
       }
     } else {
       if (_plActiveBlobUrl) { URL.revokeObjectURL(_plActiveBlobUrl); _plActiveBlobUrl = null; }
-      media = a; a.style.display = 'block'; a.volume = DEFAULT_VOL;
+      media = a; a.style.display = 'block'; a.volume = DEFAULT_VOL; _plUpdateAudioUI();
       attachVideo(a, '/hls/playlist?path=' + encodeURIComponent(item.Path), fileUrl, startPlayback);
     }
   } else {
     media = a;
-    a.style.display = 'block'; a.volume = DEFAULT_VOL;
+    a.style.display = 'block'; a.volume = DEFAULT_VOL; _plUpdateAudioUI();
     if (a.hlsInstance) { a.hlsInstance.destroy(); a.hlsInstance = null; }
     if (_plActiveBlobUrl) { URL.revokeObjectURL(_plActiveBlobUrl); _plActiveBlobUrl = null; }
     _useBlobOrFallback(fileUrl, function(src) {
@@ -1957,6 +1967,47 @@ function startPlaylistItem(idx, seekTo, autoplay) {
 }
 function plPrev() { savePlState(); startPlaylistItem((plCurrentIdx - 1 + PLAYLIST_ITEMS.length) % PLAYLIST_ITEMS.length, 0, true); }
 function plNext() { savePlState(); startPlaylistItem((plCurrentIdx + 1) % PLAYLIST_ITEMS.length, 0, true); }
+function plTogglePlay() {
+  var a = document.getElementById('pl-audio');
+  if (!a) return;
+  if (a.paused) { plPlay(a); } else { a.pause(); }
+}
+function _plUpdateAudioUI() {
+  var a = document.getElementById('pl-audio');
+  var ui = document.getElementById('pl-audio-ui');
+  if (!a || !ui) return;
+  var active = a.style.display !== 'none';
+  ui.style.display = active ? '' : 'none';
+  if (!active) return;
+  var btn = document.getElementById('pl-play-btn');
+  var seek = document.getElementById('pl-seek');
+  var cur = document.getElementById('pl-time-cur');
+  var dur = document.getElementById('pl-time-dur');
+  if (btn) btn.innerHTML = a.paused ? '&#9654;' : '&#9646;&#9646;';
+  if (seek && a.duration && isFinite(a.duration) && a.duration > 0) {
+    var pct = (a.currentTime / a.duration * 100).toFixed(2);
+    seek.value = pct;
+    seek.style.background = 'linear-gradient(to right,#bc60ff 0%,#bc60ff ' + pct + '%,#30363d ' + pct + '%,#30363d 100%)';
+  }
+  if (cur) cur.textContent = fmtTime(a.currentTime || 0);
+  if (dur && a.duration && isFinite(a.duration)) dur.textContent = fmtTime(a.duration);
+}
+function plInitAudioUI() {
+  var a = document.getElementById('pl-audio');
+  var seek = document.getElementById('pl-seek');
+  if (!a) return;
+  ['timeupdate','play','pause','loadedmetadata','durationchange'].forEach(function(ev) {
+    a.addEventListener(ev, _plUpdateAudioUI);
+  });
+  if (seek) {
+    seek.addEventListener('input', function() {
+      if (a.duration && isFinite(a.duration)) {
+        a.currentTime = parseFloat(seek.value) / 100 * a.duration;
+        _plUpdateAudioUI();
+      }
+    });
+  }
+}
 `
 
 const playlistDetailTmpl = `{{define "content"}}
@@ -1996,7 +2047,16 @@ var PLAYLIST_STATE = {{toJSON .State}};
   <div class="pl-player">
     <div class="pl-title" id="pl-title"></div>
     <video id="pl-video" controls style="display:none"></video>
-    <audio id="pl-audio" controls style="display:none"></audio>
+    <audio id="pl-audio" style="display:none"></audio>
+    <div class="pl-audio-ui" id="pl-audio-ui" style="display:none">
+      <div class="pl-audio-row">
+        <button id="pl-play-btn" onclick="plTogglePlay()">&#9654;</button>
+        <div class="pl-seek-wrap">
+          <input type="range" class="pl-seek" id="pl-seek" value="0" min="0" max="100" step="0.1">
+          <div class="pl-time-row"><span id="pl-time-cur">0:00</span><span id="pl-time-dur">--:--</span></div>
+        </div>
+      </div>
+    </div>
     <div class="pl-controls">
       <button class="btn btn-edit btn-sm" onclick="plPrev()">&#9664; Prev</button>
       <button class="btn btn-edit btn-sm" onclick="plNext()">Next &#9654;</button>
@@ -2114,6 +2174,7 @@ window.addEventListener('beforeunload', savePlState);
 // script (attachVideo/fmtTime) load further down the page. Defer the
 // initial autostart until DOMContentLoaded so those are defined.
 document.addEventListener('DOMContentLoaded', function() {
+  plInitAudioUI();
   bindPlDrag();
   if (PLAYLIST_ITEMS && PLAYLIST_ITEMS.length > 0) {
     startPlaylistItem(Math.min((PLAYLIST_STATE && PLAYLIST_STATE.CurrentIndex) || 0, PLAYLIST_ITEMS.length - 1),
@@ -2154,7 +2215,16 @@ var PLAYLIST_STATE = null;
   </div>
   <div class="pl-player">
     <div class="pl-title" id="pl-title"></div>
-    <audio id="pl-audio" controls style="display:none"></audio>
+    <audio id="pl-audio" style="display:none"></audio>
+    <div class="pl-audio-ui" id="pl-audio-ui" style="display:none">
+      <div class="pl-audio-row">
+        <button id="pl-play-btn" onclick="plTogglePlay()">&#9654;</button>
+        <div class="pl-seek-wrap">
+          <input type="range" class="pl-seek" id="pl-seek" value="0" min="0" max="100" step="0.1">
+          <div class="pl-time-row"><span id="pl-time-cur">0:00</span><span id="pl-time-dur">--:--</span></div>
+        </div>
+      </div>
+    </div>
     <video id="pl-video" controls style="display:none"></video>
     <div class="pl-controls">
       <button class="btn btn-edit btn-sm" onclick="plPrev()">&#9664; Prev</button>
@@ -2183,6 +2253,7 @@ function togglePlSidebar() {
   btn.title = sb.classList.contains('collapsed') ? 'Expand' : 'Collapse';
 }
 document.addEventListener('DOMContentLoaded', function() {
+  plInitAudioUI();
   if (PLAYLIST_ITEMS && PLAYLIST_ITEMS.length > 0) {
     startPlaylistItem(0, 0);
   }
@@ -2222,7 +2293,16 @@ var PLAYLIST_STATE = null;
   <div class="pl-player">
     <div class="pl-title" id="pl-title"></div>
     <video id="pl-video" controls style="display:none"></video>
-    <audio id="pl-audio" controls style="display:none"></audio>
+    <audio id="pl-audio" style="display:none"></audio>
+    <div class="pl-audio-ui" id="pl-audio-ui" style="display:none">
+      <div class="pl-audio-row">
+        <button id="pl-play-btn" onclick="plTogglePlay()">&#9654;</button>
+        <div class="pl-seek-wrap">
+          <input type="range" class="pl-seek" id="pl-seek" value="0" min="0" max="100" step="0.1">
+          <div class="pl-time-row"><span id="pl-time-cur">0:00</span><span id="pl-time-dur">--:--</span></div>
+        </div>
+      </div>
+    </div>
     <div class="pl-controls">
       <button class="btn btn-edit btn-sm" onclick="plPrev()">&#9664; Prev</button>
       <button class="btn btn-edit btn-sm" onclick="plNext()">Next &#9654;</button>
@@ -2250,6 +2330,7 @@ function togglePlSidebar() {
   btn.title = sb.classList.contains('collapsed') ? 'Expand' : 'Collapse';
 }
 document.addEventListener('DOMContentLoaded', function() {
+  plInitAudioUI();
   if (PLAYLIST_ITEMS && PLAYLIST_ITEMS.length > 0) {
     startPlaylistItem(0, 0);
   }

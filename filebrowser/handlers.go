@@ -1771,14 +1771,15 @@ func (a *App) handleFavoritesPage(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.Query(r.Context(), `
 		SELECT fi.path, fi.filename, fi.file_type
 		FROM favorites f
-		JOIN file_index fi ON fi.user_id = f.user_id AND fi.path = f.path
-		WHERE f.user_id = $1 AND NOT f.is_folder AND fi.file_type = 'audio'
-		UNION
-		SELECT fi.path, fi.filename, fi.file_type
-		FROM favorites f
-		JOIN file_index fi ON fi.user_id = f.user_id AND fi.dir_path = f.path
-		WHERE f.user_id = $1 AND f.is_folder AND fi.file_type = 'audio'
-		ORDER BY 2
+		JOIN file_index fi ON fi.user_id = f.user_id
+		  AND fi.file_type = 'audio'
+		  AND (
+		    (NOT f.is_folder AND fi.path = f.path)
+		    OR (f.is_folder AND fi.dir_path = f.path)
+		  )
+		WHERE f.user_id = $1
+		GROUP BY fi.path, fi.filename, fi.file_type
+		ORDER BY min(f.created_at), lower(fi.filename)
 	`, uid(r))
 	if err != nil {
 		httpErr(w, err, 500)
