@@ -550,7 +550,7 @@ input:focus, select:focus { outline: none; border-color: #58a6ff; }
   input[type=text], input[type=password], select { font-size: 16px; }
   /* Search: full-width fixed panel on mobile */
   .header-search { max-width:none; }
-  .search-panel { position:fixed; left:0; right:0; border-radius:0 0 8px 8px; }
+  .search-panel { position:fixed; top:80px; left:0; right:0; border-radius:0 0 8px 8px; }
   .search-result { padding:8px 10px; gap:8px; }
   .search-result-thumb { width:44px; height:33px; }
   .search-result-name { font-size:12px; }
@@ -1044,10 +1044,10 @@ document.addEventListener('submit', function(e) {
 // ---- Search ----
 var _searchTimer, _searchType = 'all', _searchOffset = 0, _searchMore = false, _searchLoading = false;
 function _anchorSearchPanel() {
-  if (!MOBILE) return;
   var panel = document.getElementById('search-panel');
+  if (!panel || getComputedStyle(panel).position !== 'fixed') return;
   var hdr = document.querySelector('header');
-  if (!panel || !hdr) return;
+  if (!hdr) return;
   var bottom = hdr.getBoundingClientRect().bottom;
   panel.style.top = bottom + 'px';
   panel.style.maxHeight = (window.innerHeight - bottom - 12) + 'px';
