@@ -1736,3 +1736,88 @@ func (a *App) handleHLSSegment(w http.ResponseWriter, r *http.Request) {
 		log.Printf("transcode segment %s/%d: %v\n%s", absPath, n, err, stderr.String())
 	}
 }
+
+func (a *App) handleFavoritesPage(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.db.Query(r.Context(), `
+		SELECT fi.path, fi.filename, fi.file_type
+		FROM favorites f
+		JOIN file_index fi ON fi.user_id = f.user_id AND fi.path = f.path
+		WHERE f.user_id = $1 AND NOT f.is_folder AND fi.file_type = 'audio'
+		UNION
+		SELECT fi.path, fi.filename, fi.file_type
+		FROM favorites f
+		JOIN file_index fi ON fi.user_id = f.user_id AND fi.dir_path = f.path
+		WHERE f.user_id = $1 AND f.is_folder AND fi.file_type = 'audio'
+		ORDER BY 2
+	`, uid(r))
+	if err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	defer rows.Close()
+	var items []PlaylistItem
+	for rows.Next() {
+		var path, filename, fileType string
+		if rows.Scan(&path, &filename, &fileType) != nil {
+			continue
+		}
+		items = append(items, PlaylistItem{Path: path, Name: filename, FileType: fileType})
+	}
+	if err := rows.Err(); err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	render(w, "favorites", FavoritesPage{ActiveTab: "favorites", IsAdmin: isAdmin(r), Items: items})
+}
+
+func (a *App) handleFavoriteList(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.db.Query(r.Context(), `SELECT path FROM favorites WHERE user_id = $1`, uid(r))
+	if err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	defer rows.Close()
+	var paths []string
+	for rows.Next() {
+		var p string
+		if rows.Scan(&p) == nil {
+			paths = append(paths, p)
+		}
+	}
+	if paths == nil {
+		paths = []string{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(paths)
+}
+
+func (a *App) handleFavoriteToggle(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Path     string `json:"path"`
+		IsFolder bool   `json:"is_folder"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Path == "" {
+		http.Error(w, "bad request", 400)
+		return
+	}
+	tag, err := a.db.Exec(r.Context(),
+		`INSERT INTO favorites (user_id, path, is_folder) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+		uid(r), body.Path, body.IsFolder,
+	)
+	if err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	favorited := tag.RowsAffected() > 0
+	if !favorited {
+		if _, err := a.db.Exec(r.Context(),
+			`DELETE FROM favorites WHERE user_id = $1 AND path = $2`,
+			uid(r), body.Path,
+		); err != nil {
+			httpErr(w, err, 500)
+			return
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"favorited": favorited})
+}

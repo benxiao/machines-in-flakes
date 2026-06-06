@@ -86,6 +86,13 @@ CREATE TABLE IF NOT EXISTS file_index (
 	PRIMARY KEY (user_id, path)
 );
 CREATE INDEX IF NOT EXISTS file_index_search ON file_index (user_id, lower(filename));
+CREATE TABLE IF NOT EXISTS favorites (
+	user_id   BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	path      TEXT NOT NULL,
+	is_folder BOOLEAN NOT NULL DEFAULT FALSE,
+	created_at TIMESTAMPTZ DEFAULT now(),
+	PRIMARY KEY (user_id, path)
+);
 `
 
 const migrations = `
@@ -189,6 +196,9 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /search", a.handleSearch)
 	mux.HandleFunc("GET /search/status", a.handleSearchStatus)
 	mux.HandleFunc("POST /search/reindex", a.handleSearchReindex)
+	mux.HandleFunc("GET /favorites",         a.handleFavoritesPage)
+	mux.HandleFunc("GET /favorites/list",    a.handleFavoriteList)
+	mux.HandleFunc("POST /favorites/toggle", a.handleFavoriteToggle)
 	mux.HandleFunc("GET /playlists", a.handlePlaylistList)
 	mux.HandleFunc("POST /playlists", a.handlePlaylistCreate)
 	mux.HandleFunc("GET /playlists/{id}", a.handlePlaylistDetail)

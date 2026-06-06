@@ -139,6 +139,12 @@ type UnplayedPage struct {
 	Items     []UnplayedItem
 }
 
+type FavoritesPage struct {
+	ActiveTab string
+	IsAdmin   bool
+	Items     []PlaylistItem
+}
+
 type PathRow struct {
 	ID           int64
 	Path         string
@@ -218,6 +224,7 @@ func initTemplates() {
 	add("browse", browseTmpl)
 	add("recent", recentTmpl)
 	add("unplayed", unplayedTmpl)
+	add("favorites", favoritesTmpl)
 	add("paths", pathsTmpl)
 	add("playlists", playlistsTmpl)
 	add("playlist_detail", playlistDetailTmpl)
@@ -504,6 +511,8 @@ input:focus, select:focus { outline: none; border-color: #58a6ff; }
 .modal-body { overflow: auto; flex: 1; display: flex; align-items: center; justify-content: center; }
 .modal-body img   { max-width: 90vw; max-height: 85vh; display: block; }
 .modal-body video { max-width: 90vw; max-height: 85vh; display: block; }
+.modal-box.modal-wide { width: 92vw; }
+.modal-box.modal-wide .modal-body video { width: 100%; max-height: calc(92vh - 90px); }
 .modal-body iframe { width: 82vw; height: 84vh; border: none; display: block; }
 .modal-body pre {
   padding: 16px;
@@ -517,6 +526,9 @@ input:focus, select:focus { outline: none; border-color: #58a6ff; }
   word-break: break-all;
   font-family: monospace;
 }
+.fav-btn { background:none; border:none; cursor:pointer; color:#8b949e; font-size:16px; padding:2px 4px; line-height:1; }
+.fav-btn:hover { color:#e3b341; }
+.fav-btn.active { color:#e3b341; }
 @media (max-width: 640px) {
   main { padding: 12px; }
   header { padding: 10px 16px; flex-wrap: wrap; }
@@ -532,8 +544,9 @@ input:focus, select:focus { outline: none; border-color: #58a6ff; }
   table th:nth-child(5), table td:nth-child(5),
   table th:nth-child(6), table td:nth-child(6) { display: none; }
   /* Modal: let media fill the screen width */
-  .modal-box { max-width: 100vw; max-height: 100vh; border-radius: 0; }
-  .modal-body video { max-width: 100vw; max-height: 52vh; }
+  .modal-box { max-width: 100vw; max-height: 100vh; width: 100vw; border-radius: 0; }
+  .modal-box.modal-wide .modal-body video { max-height: 52vh; }
+  .modal-body video { max-width: 100vw; max-height: 52vh; width: 100%; }
   .modal-body audio { width: 90vw; }
   .modal-body iframe { width: 98vw; height: 72vh; }
   .modal-body pre { max-width: 96vw; max-height: 60vh; font-size: 12px; }
@@ -608,6 +621,7 @@ const baseTmpl = `<!DOCTYPE html>
   <a href="/browse"     {{if eq .ActiveTab "browse"}}class="active"{{end}}>Browse</a>
   <a href="/recent"     {{if eq .ActiveTab "recent"}}class="active"{{end}}>Recent</a>
   <a href="/unplayed"   {{if eq .ActiveTab "unplayed"}}class="active"{{end}}>Unplayed</a>
+  <a href="/favorites"  {{if eq .ActiveTab "favorites"}}class="active"{{end}}>Favorites</a>
   <a href="/playlists"  {{if eq .ActiveTab "playlists"}}class="active"{{end}}>Playlists</a>
   {{if .IsAdmin}}<a href="/users" {{if eq .ActiveTab "users"}}class="active"{{end}}>Users</a>{{end}}
   <a href="/settings"   {{if eq .ActiveTab "settings"}}class="active"{{end}}>Settings</a>
@@ -628,7 +642,7 @@ const baseTmpl = `<!DOCTYPE html>
       <div id="modal-zoom-wrap" style="display:none;overflow:hidden;position:relative;cursor:grab;touch-action:none">
         <img id="modal-img" src="" alt="" style="position:absolute;top:0;left:0;transform-origin:0 0;user-select:none;-webkit-user-select:none;pointer-events:none">
       </div>
-      <video id="modal-video" controls style="display:none;max-width:90vw;max-height:78vh"></video>
+      <video id="modal-video" controls style="display:none"></video>
       <audio id="modal-audio" controls style="display:none;width:90vw;max-width:600px"></audio>
       <iframe id="modal-pdf" src="" style="display:none"></iframe>
       <pre id="modal-text" style="display:none"></pre>
@@ -941,6 +955,7 @@ function openPreview(el, autoplay) {
     hint.style.display = 'block';
     izInit(wrap, img);
   } else if (type === 'video') {
+    modal.querySelector('.modal-box').classList.add('modal-wide');
     seekBack.style.display = ''; seekFwd.style.display = '';
     var _nv = dirNextMediaLooping(path);
     if (MOBILE) {
@@ -1011,6 +1026,7 @@ function openPreview(el, autoplay) {
 }
 function closePreview() {
   modal.classList.remove('open');
+  modal.querySelector('.modal-box').classList.remove('modal-wide');
   if (_folderLoop) {
     _folderLoop = false;
     var _pbtn = document.getElementById('btn-play-all');
@@ -1204,7 +1220,7 @@ const browseTmpl = `{{define "content"}}
       <td><span class="badge badge-dir">DIR</span></td>
       <td class="muted">—</td>
       <td class="muted">—</td>
-      <td class="muted">—</td>
+      <td onclick="event.stopPropagation()"><button class="fav-btn" data-path="{{.AbsPath}}" data-folder="1" onclick="toggleFav(this)" title="Favorite folder">☆</button></td>
     </tr>
     {{end}}
     {{range .Files}}
@@ -1225,6 +1241,7 @@ const browseTmpl = `{{define "content"}}
       <td class="muted">{{.Size}}</td>
       <td class="muted">{{.ModifiedAt}}</td>
       <td>{{if and (or (eq .FileType "video") (eq .FileType "audio")) (gt .WatchCount 0)}}<span class="badge badge-{{.FileType}}">{{.WatchCount}}×</span>{{else}}<span class="muted">—</span>{{end}}</td>
+      <td onclick="event.stopPropagation()">{{if eq .FileType "audio"}}<button class="fav-btn" data-path="{{.AbsPath}}" data-folder="0" onclick="toggleFav(this)" title="Favorite">☆</button>{{end}}</td>
     </tr>
     {{end}}
     {{end}}
@@ -1250,6 +1267,7 @@ const browseTmpl = `{{define "content"}}
       <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>
       {{end}}
       <div class="grid-name">{{.Name}}</div>
+      <button class="fav-btn" data-path="{{.AbsPath}}" data-folder="1" onclick="event.stopPropagation();toggleFav(this)" title="Favorite folder" style="position:absolute;top:4px;left:4px;font-size:14px;background:rgba(0,0,0,0.5);border-radius:3px">☆</button>
     </div>
     {{end}}
     {{range .Files}}
@@ -1294,6 +1312,7 @@ const browseTmpl = `{{define "content"}}
       <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#bc60ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>
       {{end}}
       <div class="grid-name">{{.Filename}}</div>
+      <button class="fav-btn" data-path="{{.AbsPath}}" data-folder="0" onclick="event.stopPropagation();toggleFav(this)" title="Favorite" style="position:absolute;top:4px;left:4px;font-size:14px;background:rgba(0,0,0,0.5);border-radius:3px">☆</button>
     </div>
     {{else if eq .FileType "pdf"}}
     <div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="pdf" onclick="gridClick(event,this)">
@@ -1459,6 +1478,29 @@ function toggleSidebar() {
     }
   } catch(e) {}
 })();
+function loadFavStates() {
+  fetch('/favorites/list').then(function(r){ return r.json(); }).then(function(paths) {
+    var set = new Set(paths);
+    document.querySelectorAll('.fav-btn').forEach(function(btn) {
+      var active = set.has(btn.dataset.path);
+      btn.classList.toggle('active', active);
+      btn.textContent = active ? '★' : '☆';
+    });
+  }).catch(function(){});
+}
+function toggleFav(btn) {
+  var path = btn.dataset.path;
+  var isFolder = btn.dataset.folder === '1';
+  fetch('/favorites/toggle', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({path: path, is_folder: isFolder})
+  }).then(function(r){ return r.json(); }).then(function(res) {
+    btn.classList.toggle('active', res.favorited);
+    btn.textContent = res.favorited ? '★' : '☆';
+  }).catch(function(){});
+}
+loadFavStates();
 </script>
 {{end}}`
 
@@ -1761,6 +1803,153 @@ function hideNewPl() { document.getElementById('new-pl-form').style.display='non
 {{end}}
 {{end}}`
 
+// plSharedJS contains playlist player functions shared between the playlist
+// detail page and the favorites page. Callers must define PLAYLIST_ITEMS,
+// plCurrentIdx, getPlMedia, plLastSave, and savePlState before including this.
+const plSharedJS = `
+function plPlay(el) { var p = el.play(); if (p && p.catch) p.catch(function(){}); }
+var _plPreload = {path: null, blobUrl: null, ctrl: null};
+var _plActiveBlobUrl = null;
+function plStartPreload(idx) {
+  if (!PLAYLIST_ITEMS || idx < 0 || idx >= PLAYLIST_ITEMS.length) return;
+  var item = PLAYLIST_ITEMS[idx];
+  if (item.FileType !== 'audio') return;
+  var url = '/file?path=' + encodeURIComponent(item.Path);
+  if (_plPreload.path === url) return;
+  if (_plPreload.ctrl) _plPreload.ctrl.abort();
+  if (_plPreload.blobUrl) URL.revokeObjectURL(_plPreload.blobUrl);
+  _plPreload = {path: url, blobUrl: null, ctrl: null};
+  var ctrl = new AbortController();
+  _plPreload.ctrl = ctrl;
+  fetch(url, {signal: ctrl.signal})
+    .then(function(r) {
+      var len = parseInt(r.headers.get('Content-Length') || '0', 10);
+      if (len > 50 * 1024 * 1024) return null;
+      return r.blob();
+    })
+    .then(function(blob) {
+      if (!blob || _plPreload.ctrl !== ctrl) return;
+      _plPreload.blobUrl = URL.createObjectURL(blob);
+      _plPreload.ctrl = null;
+    })
+    .catch(function(){});
+}
+function _useBlobOrFallback(fileUrl, cb) {
+  if (_plPreload.path === fileUrl && _plPreload.blobUrl) {
+    var b = _plPreload.blobUrl;
+    _plActiveBlobUrl = b; _plPreload = {path: null, blobUrl: null, ctrl: null};
+    cb(b); return;
+  }
+  if (_plPreload.path === fileUrl && _plPreload.ctrl) {
+    var deadline = Date.now() + 10000;
+    var t = setInterval(function() {
+      if (_plPreload.blobUrl) {
+        clearInterval(t);
+        var b = _plPreload.blobUrl;
+        _plActiveBlobUrl = b; _plPreload = {path: null, blobUrl: null, ctrl: null};
+        cb(b);
+      } else if (Date.now() >= deadline || !_plPreload.ctrl) {
+        clearInterval(t); cb(fileUrl);
+      }
+    }, 50);
+  } else { cb(fileUrl); }
+}
+function startPlaylistItem(idx, seekTo, autoplay) {
+  if (!PLAYLIST_ITEMS || idx < 0 || idx >= PLAYLIST_ITEMS.length) return;
+  plCurrentIdx = idx;
+  document.querySelectorAll('.pl-item').forEach(function(r, i) { r.classList.toggle('active', i === idx); });
+  var rows = document.querySelectorAll('.pl-item');
+  if (rows[idx]) rows[idx].scrollIntoView({block: 'nearest'});
+  var item = PLAYLIST_ITEMS[idx];
+  var fileUrl = '/file?path=' + encodeURIComponent(item.Path);
+  var v = document.getElementById('pl-video'), a = document.getElementById('pl-audio');
+  document.getElementById('pl-title').textContent = item.Name;
+  document.getElementById('pl-badge').textContent = seekTo > 1 ? 'Resumed from ' + fmtTime(seekTo) : '';
+  if (v.hlsInstance) { v.hlsInstance.destroy(); v.hlsInstance = null; }
+  v.pause(); v.src = ''; v.style.display = 'none';
+  var media;
+  var startPlayback = function(el) {
+    if (seekTo > 1) {
+      el.currentTime = seekTo;
+      el.addEventListener('seeked', function() { if (autoplay) plPlay(el); else el.pause(); }, {once: true});
+    } else if (autoplay) {
+      plPlay(el);
+    } else {
+      el.pause();
+    }
+  };
+  var _losslessExts = {'.flac':1,'.wav':1,'.aiff':1,'.alac':1,'.ape':1};
+  var _ext = item.Path.slice(item.Path.lastIndexOf('.')).toLowerCase();
+  var usesHLS = MOBILE && (item.FileType === 'video' || !!_losslessExts[_ext]);
+  if (item.FileType === 'video' || usesHLS) {
+    if (a.hlsInstance) { a.hlsInstance.destroy(); a.hlsInstance = null; }
+    if (item.FileType !== 'video') { a.pause(); }
+    if (item.FileType === 'video') {
+      a.pause(); a.style.display = 'none';
+      v.volume = DEFAULT_VOL; v.style.display = 'block'; media = v;
+      if (MOBILE) {
+        attachVideo(v, '/hls/playlist?path=' + encodeURIComponent(item.Path), fileUrl, startPlayback);
+      } else {
+        v.preload = 'auto'; v.src = fileUrl; v.load();
+        v.addEventListener('loadedmetadata', function() { startPlayback(v); }, {once: true});
+      }
+    } else {
+      if (_plActiveBlobUrl) { URL.revokeObjectURL(_plActiveBlobUrl); _plActiveBlobUrl = null; }
+      media = a; a.style.display = 'block'; a.volume = DEFAULT_VOL;
+      attachVideo(a, '/hls/playlist?path=' + encodeURIComponent(item.Path), fileUrl, startPlayback);
+    }
+  } else {
+    media = a;
+    a.style.display = 'block'; a.volume = DEFAULT_VOL;
+    if (a.hlsInstance) { a.hlsInstance.destroy(); a.hlsInstance = null; }
+    if (_plActiveBlobUrl) { URL.revokeObjectURL(_plActiveBlobUrl); _plActiveBlobUrl = null; }
+    _useBlobOrFallback(fileUrl, function(src) {
+      a.src = src;
+      if (seekTo > 1) {
+        a.addEventListener('loadedmetadata', function() { startPlayback(a); }, {once: true});
+      } else {
+        plPlay(a);
+      }
+    });
+    var _pIdx = idx + 1;
+    setTimeout(function() { if (plCurrentIdx === idx) plStartPreload(_pIdx); }, 2000);
+  }
+  setMediaSession(item.Name, {
+    play:  function(){ plPlay(media); },
+    pause: function(){ media.pause(); if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'; },
+    prev:  plPrev,
+    next:  plNext,
+    seekbackward: function(){ media.currentTime = Math.max(0, media.currentTime - 15); },
+    seekforward:  function(){ media.currentTime = media.currentTime + 15; }
+  });
+  bindMediaSessionState(media);
+  var advanced = false;
+  var plAdvance = function() {
+    if (advanced) return;
+    advanced = true;
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = 'playing';
+      var _nextItem = PLAYLIST_ITEMS[plCurrentIdx + 1];
+      if (_nextItem) {
+        try { navigator.mediaSession.metadata = new MediaMetadata({ title: _nextItem.Name, album: 'filebrowser' }); } catch(e) {}
+      }
+    }
+    savePlState();
+    startPlaylistItem(plCurrentIdx + 1, 0, true);
+  };
+  media.addEventListener('ended', plAdvance, {once: true});
+  media.addEventListener('timeupdate', function onTU() {
+    var cur = getPlMedia();
+    if (!cur || cur !== media) { media.removeEventListener('timeupdate', onTU); return; }
+    var now = Date.now();
+    if (now - plLastSave > 5000 && cur.currentTime > 1) { plLastSave = now; savePlState(); }
+    if (media.duration && isFinite(media.duration) && media.currentTime >= media.duration - 0.3) plAdvance();
+  });
+}
+function plPrev() { savePlState(); startPlaylistItem(plCurrentIdx - 1, 0, true); }
+function plNext() { savePlState(); startPlaylistItem(plCurrentIdx + 1, 0, true); }
+`
+
 const playlistDetailTmpl = `{{define "content"}}
 <script>
 var PLAYLIST_ID = {{.ID}};
@@ -1829,171 +2018,7 @@ function savePlState() {
     body: JSON.stringify({current_index: plCurrentIdx, position_sec: pos, delta_sec: delta, media_type: mediaType})
   });
 }
-function plPlay(el) { var p = el.play(); if (p && p.catch) p.catch(function(){}); }
-// Blob-based preloader. While track N plays (active audio = no throttling),
-// fetch track N+1 entirely into memory. On advance we set src to a Blob URL —
-// playback is instant and Chrome can't throttle what's already in RAM.
-var _plPreload = {path: null, blobUrl: null, ctrl: null};
-var _plActiveBlobUrl = null;
-function plStartPreload(idx) {
-  if (!PLAYLIST_ITEMS || idx < 0 || idx >= PLAYLIST_ITEMS.length) return;
-  var item = PLAYLIST_ITEMS[idx];
-  if (item.FileType !== 'audio') return;
-  var url = '/file?path=' + encodeURIComponent(item.Path);
-  if (_plPreload.path === url) return;
-  if (_plPreload.ctrl) _plPreload.ctrl.abort();
-  if (_plPreload.blobUrl) URL.revokeObjectURL(_plPreload.blobUrl);
-  _plPreload = {path: url, blobUrl: null, ctrl: null};
-  var ctrl = new AbortController();
-  _plPreload.ctrl = ctrl;
-  fetch(url, {signal: ctrl.signal})
-    .then(function(r) {
-      var len = parseInt(r.headers.get('Content-Length') || '0', 10);
-      if (len > 50 * 1024 * 1024) return null; // skip files >50 MB
-      return r.blob();
-    })
-    .then(function(blob) {
-      if (!blob || _plPreload.ctrl !== ctrl) return;
-      _plPreload.blobUrl = URL.createObjectURL(blob);
-      _plPreload.ctrl = null;
-    })
-    .catch(function(){});
-}
-// Wait for an in-progress blob fetch before falling back to direct URL.
-// Eliminates the race where the blob isn't ready exactly when the track ends
-// (common on cellular+VPN). Waits up to 3 s then gives up.
-function _useBlobOrFallback(fileUrl, cb) {
-  if (_plPreload.path === fileUrl && _plPreload.blobUrl) {
-    var b = _plPreload.blobUrl;
-    _plActiveBlobUrl = b; _plPreload = {path: null, blobUrl: null, ctrl: null};
-    cb(b); return;
-  }
-  if (_plPreload.path === fileUrl && _plPreload.ctrl) {
-    var deadline = Date.now() + 10000;
-    var t = setInterval(function() {
-      if (_plPreload.blobUrl) {
-        clearInterval(t);
-        var b = _plPreload.blobUrl;
-        _plActiveBlobUrl = b; _plPreload = {path: null, blobUrl: null, ctrl: null};
-        cb(b);
-      } else if (Date.now() >= deadline || !_plPreload.ctrl) {
-        clearInterval(t); cb(fileUrl);
-      }
-    }, 50);
-  } else { cb(fileUrl); }
-}
-function startPlaylistItem(idx, seekTo, autoplay) {
-  if (!PLAYLIST_ITEMS || idx < 0 || idx >= PLAYLIST_ITEMS.length) return;
-  plCurrentIdx = idx;
-  document.querySelectorAll('.pl-item').forEach(function(r, i) { r.classList.toggle('active', i === idx); });
-  var rows = document.querySelectorAll('.pl-item');
-  if (rows[idx]) rows[idx].scrollIntoView({block: 'nearest'});
-  var item = PLAYLIST_ITEMS[idx];
-  var fileUrl = '/file?path=' + encodeURIComponent(item.Path);
-  var v = document.getElementById('pl-video'), a = document.getElementById('pl-audio');
-  document.getElementById('pl-title').textContent = item.Name;
-  document.getElementById('pl-badge').textContent = seekTo > 1 ? 'Resumed from ' + fmtTime(seekTo) : '';
-  // Stop video.
-  if (v.hlsInstance) { v.hlsInstance.destroy(); v.hlsInstance = null; }
-  v.pause(); v.src = ''; v.style.display = 'none';
-  var media;
-  var startPlayback = function(el) {
-    if (seekTo > 1) {
-      el.currentTime = seekTo;
-      el.addEventListener('seeked', function() { if (autoplay) plPlay(el); else el.pause(); }, {once: true});
-    } else if (autoplay) {
-      plPlay(el);
-    } else {
-      el.pause();
-    }
-  };
-  var _losslessExts = {'.flac':1,'.wav':1,'.aiff':1,'.alac':1,'.ape':1};
-  var _ext = item.Path.slice(item.Path.lastIndexOf('.')).toLowerCase();
-  var usesHLS = MOBILE && (item.FileType === 'video' || !!_losslessExts[_ext]);
-  if (item.FileType === 'video' || usesHLS) {
-    // Destroy any previous audio HLS instance before switching.
-    if (a.hlsInstance) { a.hlsInstance.destroy(); a.hlsInstance = null; }
-    if (item.FileType !== 'video') { a.pause(); }
-    if (item.FileType === 'video') {
-      a.pause(); a.style.display = 'none';
-      v.volume = DEFAULT_VOL; v.style.display = 'block'; media = v;
-      if (MOBILE) {
-        attachVideo(v, '/hls/playlist?path=' + encodeURIComponent(item.Path), fileUrl, startPlayback);
-      } else {
-        v.preload = 'auto'; v.src = fileUrl; v.load();
-        v.addEventListener('loadedmetadata', function() { startPlayback(v); }, {once: true});
-      }
-    } else {
-      // Lossless audio on mobile: transcode to AAC via HLS.
-      if (_plActiveBlobUrl) { URL.revokeObjectURL(_plActiveBlobUrl); _plActiveBlobUrl = null; }
-      media = a; a.style.display = 'block'; a.volume = DEFAULT_VOL;
-      attachVideo(a, '/hls/playlist?path=' + encodeURIComponent(item.Path), fileUrl, startPlayback);
-    }
-  } else {
-    media = a;
-    a.style.display = 'block'; a.volume = DEFAULT_VOL;
-    if (a.hlsInstance) { a.hlsInstance.destroy(); a.hlsInstance = null; }
-    if (_plActiveBlobUrl) { URL.revokeObjectURL(_plActiveBlobUrl); _plActiveBlobUrl = null; }
-    // _useBlobOrFallback waits up to 3 s for an in-progress fetch so we use
-    // a Blob URL (already in RAM) rather than a live HTTP stream that Android
-    // may throttle once the screen is off.
-    _useBlobOrFallback(fileUrl, function(src) {
-      a.src = src;
-      if (seekTo > 1) {
-        a.addEventListener('loadedmetadata', function() { startPlayback(a); }, {once: true});
-      } else {
-        plPlay(a);
-      }
-    });
-    // Start preloading the next track after 2 s (was 5 s) — more lead time on
-    // slow cellular/VPN connections.
-    var _pIdx = idx + 1;
-    setTimeout(function() { if (plCurrentIdx === idx) plStartPreload(_pIdx); }, 2000);
-  }
-  // Register an OS media session so Android keeps the page alive across the gap
-  // between tracks (otherwise the next track stops a few seconds in with the
-  // screen off), and so lock-screen controls drive the playlist.
-  setMediaSession(item.Name, {
-    play:  function(){ plPlay(media); },
-    pause: function(){ media.pause(); if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'; },
-    prev:  plPrev,
-    next:  plNext,
-    seekbackward: function(){ media.currentTime = Math.max(0, media.currentTime - 15); },
-    seekforward:  function(){ media.currentTime = media.currentTime + 15; }
-  });
-  bindMediaSessionState(media);
-  // Advance to the next item when this one finishes. Guard so the native
-  // 'ended' event and the near-end safety net below can't double-fire.
-  var advanced = false;
-  var plAdvance = function() {
-    if (advanced) return;
-    advanced = true;
-    // Update lock-screen notification to the NEXT track's name BEFORE we touch
-    // any audio element. Setting src='' or pausing causes Chrome to drop the
-    // media notification; updating metadata first keeps it visible continuously.
-    if ('mediaSession' in navigator) {
-      navigator.mediaSession.playbackState = 'playing';
-      var _nextItem = PLAYLIST_ITEMS[plCurrentIdx + 1];
-      if (_nextItem) {
-        try { navigator.mediaSession.metadata = new MediaMetadata({ title: _nextItem.Name, album: 'filebrowser' }); } catch(e) {}
-      }
-    }
-    savePlState();
-    startPlaylistItem(plCurrentIdx + 1, 0, true);
-  };
-  media.addEventListener('ended', plAdvance, {once: true});
-  media.addEventListener('timeupdate', function onTU() {
-    var cur = getPlMedia();
-    if (!cur || cur !== media) { media.removeEventListener('timeupdate', onTU); return; }
-    var now = Date.now();
-    if (now - plLastSave > 5000 && cur.currentTime > 1) { plLastSave = now; savePlState(); }
-    // HLS VOD sometimes doesn't fire 'ended' if declared duration slightly
-    // exceeds the actual media; advance when we reach the very end.
-    if (media.duration && isFinite(media.duration) && media.currentTime >= media.duration - 0.3) plAdvance();
-  });
-}
-function plPrev() { savePlState(); startPlaylistItem(plCurrentIdx - 1, 0, true); }
-function plNext() { savePlState(); startPlaylistItem(plCurrentIdx + 1, 0, true); }
+` + plSharedJS + `
 function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function removePlaylistItem(itemId) {
   fetch('/playlists/' + PLAYLIST_ID + '/items/' + itemId + '/delete', {method: 'POST'})
@@ -2084,6 +2109,73 @@ document.addEventListener('DOMContentLoaded', function() {
   if (PLAYLIST_ITEMS && PLAYLIST_ITEMS.length > 0) {
     startPlaylistItem(Math.min((PLAYLIST_STATE && PLAYLIST_STATE.CurrentIndex) || 0, PLAYLIST_ITEMS.length - 1),
                      (PLAYLIST_STATE && PLAYLIST_STATE.PositionSec) || 0);
+  }
+});
+</script>
+{{end}}`
+
+const favoritesTmpl = `{{define "content"}}
+<script>
+var PLAYLIST_ID = 0;
+var PLAYLIST_ITEMS = {{toJSON .Items}};
+var PLAYLIST_STATE = null;
+</script>
+<div class="page-header">
+  <div class="page-header-left">
+    <h2>Favorites &#9733;</h2>
+  </div>
+</div>
+{{if not .Items}}
+<p class="muted">No favorites yet. In Browse, click &#9734; on a folder or audio file to add it here.</p>
+{{else}}
+<div class="pl-layout" id="pl-layout">
+  <div class="pl-sidebar collapsed" id="pl-sidebar">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid #30363d">
+      <span style="font-size:12px;color:#8b949e;font-weight:500;text-transform:uppercase;letter-spacing:0.5px">{{len .Items}} tracks</span>
+      <button onclick="togglePlSidebar()" style="background:transparent;border:none;color:#8b949e;cursor:pointer;font-size:16px;line-height:1;padding:0 2px" title="Expand">&#x276F;</button>
+    </div>
+    <div id="pl-item-list">
+    {{range $i, $it := .Items}}
+    <div class="pl-item" data-idx="{{$i}}" onclick="startPlaylistItem({{$i}}, 0, true)">
+      <span class="pl-item-name">{{$it.Name}}</span>
+      <span class="badge badge-{{$it.FileType}}" style="flex-shrink:0">{{upper $it.FileType}}</span>
+    </div>
+    {{end}}
+    </div>
+  </div>
+  <div class="pl-player">
+    <div class="pl-title" id="pl-title"></div>
+    <video id="pl-video" controls style="display:none"></video>
+    <audio id="pl-audio" controls style="display:none"></audio>
+    <div class="pl-controls">
+      <button class="btn btn-edit btn-sm" onclick="plPrev()">&#9664; Prev</button>
+      <button class="btn btn-edit btn-sm" onclick="plNext()">Next &#9654;</button>
+      <span class="pl-badge" id="pl-badge"></span>
+    </div>
+  </div>
+</div>
+{{end}}
+<script>
+var plLastSave = 0;
+var plCurrentIdx = 0;
+function getPlMedia() {
+  var v = document.getElementById('pl-video'), a = document.getElementById('pl-audio');
+  if (v && v.style.display !== 'none') return v;
+  if (a && a.style.display !== 'none') return a;
+  return null;
+}
+function savePlState() {}
+` + plSharedJS + `
+function togglePlSidebar() {
+  var sb = document.getElementById('pl-sidebar');
+  var btn = sb.querySelector('button[onclick="togglePlSidebar()"]');
+  sb.classList.toggle('collapsed');
+  btn.innerHTML = sb.classList.contains('collapsed') ? '&#x276F;' : '&#x276E;';
+  btn.title = sb.classList.contains('collapsed') ? 'Expand' : 'Collapse';
+}
+document.addEventListener('DOMContentLoaded', function() {
+  if (PLAYLIST_ITEMS && PLAYLIST_ITEMS.length > 0) {
+    startPlaylistItem(0, 0);
   }
 });
 </script>
