@@ -1944,7 +1944,7 @@ function startPlaylistItem(idx, seekTo, autoplay) {
       }
     }
     savePlState();
-    startPlaylistItem(plCurrentIdx + 1, 0, true);
+    startPlaylistItem((plCurrentIdx + 1) % PLAYLIST_ITEMS.length, 0, true);
   };
   media.addEventListener('ended', plAdvance, {once: true});
   media.addEventListener('timeupdate', function onTU() {
@@ -1955,8 +1955,8 @@ function startPlaylistItem(idx, seekTo, autoplay) {
     if (media.duration && isFinite(media.duration) && media.currentTime >= media.duration - 0.3) plAdvance();
   });
 }
-function plPrev() { savePlState(); startPlaylistItem(plCurrentIdx - 1, 0, true); }
-function plNext() { savePlState(); startPlaylistItem(plCurrentIdx + 1, 0, true); }
+function plPrev() { savePlState(); startPlaylistItem((plCurrentIdx - 1 + PLAYLIST_ITEMS.length) % PLAYLIST_ITEMS.length, 0, true); }
+function plNext() { savePlState(); startPlaylistItem((plCurrentIdx + 1) % PLAYLIST_ITEMS.length, 0, true); }
 `
 
 const playlistDetailTmpl = `{{define "content"}}

@@ -256,10 +256,78 @@ try {
 
   // ── 13. Nav bar has all expected tabs ─────────────────────────────────
   const navLinks = await page.$$eval('nav a', els => els.map(e => e.textContent.trim()));
-  const expected = ['Browse', 'Recent', 'Unplayed', 'Playlists', 'Settings'];
+  const expected = ['Browse', 'Recent', 'Unplayed', 'Top Played', 'Favorites', 'Playlists', 'Settings'];
   const missing = expected.filter(t => !navLinks.some(l => l.includes(t)));
   log(missing.length === 0 ? '✅' : '❌',
     `Nav tabs: ${navLinks.join(', ')}${missing.length ? ' — MISSING: ' + missing.join(', ') : ''}`);
+
+  // ── 14. Top Played tab ────────────────────────────────────────────────
+  await page.goto(BASE + '/top-played');
+  await page.waitForSelector('.pl-layout, p.muted', { timeout: 5000 }).catch(() => {});
+  const topPlayedTitle = await page.locator('h2').first().textContent().catch(() => '');
+  const topPlayedLayout = await page.locator('.pl-layout').isVisible().catch(() => false);
+  const topPlayedEmpty = await page.locator('p.muted').first().isVisible().catch(() => false);
+  log(topPlayedTitle.includes('Top') ? '✅' : '❌', `Top Played page loads — "${topPlayedTitle}"`);
+  log(topPlayedLayout || topPlayedEmpty ? '✅' : '⚠️',
+    topPlayedLayout ? 'Top Played has tracks — player layout visible' : 'Top Played empty state shown');
+  await ss(page, '14-top-played');
+
+  // ── 15. Favorites tab ─────────────────────────────────────────────────
+  await page.goto(BASE + '/favorites');
+  await page.waitForSelector('.pl-layout, p.muted', { timeout: 5000 }).catch(() => {});
+  const favTitle = await page.locator('h2').first().textContent().catch(() => '');
+  const favLayout = await page.locator('.pl-layout').isVisible().catch(() => false);
+  const favEmpty = await page.locator('p.muted').first().isVisible().catch(() => false);
+  log(favTitle.includes('Favorites') || favTitle.includes('★') ? '✅' : '❌',
+    `Favorites page loads — "${favTitle}"`);
+  log(favLayout || favEmpty ? '✅' : '⚠️',
+    favLayout ? 'Favorites has tracks — player layout visible' : 'Favorites empty state shown');
+  await ss(page, '15-favorites');
+
+  // ── 16. Star buttons in Browse (list + grid) ─────────────────────────
+  await page.goto(BASE + '/browse');
+  await page.waitForTimeout(600);
+  // Check list view: fav-btn on folder row and audio row
+  const favBtnsListView = await page.$$('#view-list .fav-btn');
+  log(favBtnsListView.length > 0 ? '✅' : '⚠️',
+    `Star buttons in list view — ${favBtnsListView.length} visible`);
+
+  // Switch to grid view and check star position (must be top-right, not top-left)
+  await page.locator('#btn-grid').click({ timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(300);
+  const favBtnsGrid = await page.$$('#view-grid .fav-btn');
+  log(favBtnsGrid.length > 0 ? '✅' : '⚠️',
+    `Star buttons in grid view — ${favBtnsGrid.length} visible`);
+
+  // Verify the star is right-aligned (not overlapping the top-left checkbox)
+  if (favBtnsGrid.length > 0) {
+    const btnBox = await favBtnsGrid[0].boundingBox().catch(() => null);
+    const cardBox = await favBtnsGrid[0].evaluate(el => {
+      const card = el.closest('.grid-card');
+      return card ? card.getBoundingClientRect().toJSON() : null;
+    }).catch(() => null);
+    if (btnBox && cardBox) {
+      const isRight = btnBox.x + btnBox.width > cardBox.x + cardBox.width / 2;
+      log(isRight ? '✅' : '❌',
+        `Grid star is top-right (x=${Math.round(btnBox.x)}, card right edge=${Math.round(cardBox.x + cardBox.width)})`);
+    }
+  }
+
+  // Toggle a star on a folder or audio file — scope to the active grid view
+  const firstFavBtn = page.locator('#view-grid .fav-btn').first();
+  if (await firstFavBtn.count() > 0) {
+    const before = await firstFavBtn.textContent().catch(() => '');
+    await firstFavBtn.click({ timeout: 3000 });
+    await page.waitForTimeout(500);
+    const after = await firstFavBtn.textContent().catch(() => '');
+    log(before !== after ? '✅' : '❌',
+      `Star toggle changes icon: "${before}" → "${after}"`);
+    // Toggle back
+    await firstFavBtn.click({ timeout: 3000 });
+    await page.waitForTimeout(400);
+  }
+  await ss(page, '16-star-buttons');
+  await page.locator('#btn-list').click({ timeout: 3000 }).catch(() => {}); // reset view
 
 } catch (err) {
   console.error('\nEXCEPTION:', err.message);
