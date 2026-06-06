@@ -977,7 +977,9 @@ function openPreview(el, autoplay) {
     modal.querySelector('.modal-box').classList.add('modal-wide');
     seekBack.style.display = ''; seekFwd.style.display = '';
     var _nv = dirNextMediaLooping(path);
-    if (MOBILE) {
+    var _vext = path.slice(path.lastIndexOf('.')).toLowerCase();
+    var _forceHLS = {'.wmv':1,'.avi':1,'.mkv':1,'.flv':1,'.mov':1}[_vext];
+    if (MOBILE || _forceHLS) {
       attachVideo(video, '/hls/playlist?path=' + encodeURIComponent(path), fileUrl,
         autoplay ? function(v) { v.play(); } : null);
     } else {
@@ -1898,15 +1900,17 @@ function startPlaylistItem(idx, seekTo, autoplay) {
     }
   };
   var _losslessExts = {'.flac':1,'.wav':1,'.aiff':1,'.alac':1,'.ape':1};
+  var _needsHlsExts = {'.wmv':1,'.avi':1,'.mkv':1,'.flv':1,'.mov':1};
   var _ext = item.Path.slice(item.Path.lastIndexOf('.')).toLowerCase();
-  var usesHLS = MOBILE && (item.FileType === 'video' || !!_losslessExts[_ext]);
+  var _forceHLS = !!_needsHlsExts[_ext];
+  var usesHLS = (MOBILE || _forceHLS) && item.FileType === 'video' || (MOBILE && !!_losslessExts[_ext]);
   if (item.FileType === 'video' || usesHLS) {
     if (a.hlsInstance) { a.hlsInstance.destroy(); a.hlsInstance = null; }
     if (item.FileType !== 'video') { a.pause(); }
     if (item.FileType === 'video') {
       a.pause(); a.style.display = 'none'; _plUpdateAudioUI();
       v.volume = DEFAULT_VOL; v.style.display = 'block'; media = v;
-      if (MOBILE) {
+      if (MOBILE || _forceHLS) {
         attachVideo(v, '/hls/playlist?path=' + encodeURIComponent(item.Path), fileUrl, startPlayback);
       } else {
         v.preload = 'auto'; v.src = fileUrl; v.load();
