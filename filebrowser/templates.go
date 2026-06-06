@@ -2298,19 +2298,6 @@ var PLAYLIST_STATE = null;
 <p class="muted">No favorites yet. In Browse, click &#9734; on a folder or audio file to add it here.</p>
 {{else}}
 <div class="pl-layout" id="pl-layout">
-  <div class="pl-sidebar" id="pl-sidebar">
-    <div style="padding:8px 12px;border-bottom:1px solid #30363d">
-      <span style="font-size:12px;color:#8b949e;font-weight:500;text-transform:uppercase;letter-spacing:0.5px">{{len .Items}} tracks</span>
-    </div>
-    <div id="pl-item-list">
-    {{range $i, $it := .Items}}
-    <div class="pl-item" data-idx="{{$i}}" onclick="startPlaylistItem({{$i}}, 0, true)">
-      <span class="pl-item-name">{{$it.Name}}</span>
-      <span class="badge badge-{{$it.FileType}}" style="flex-shrink:0">{{upper $it.FileType}}</span>
-    </div>
-    {{end}}
-    </div>
-  </div>
   <div class="pl-player">
     <div class="pl-title" id="pl-title"></div>
     <video id="pl-video" controls style="display:none"></video>
@@ -2335,6 +2322,19 @@ var PLAYLIST_STATE = null;
     </div>
     <div class="pl-controls">
       <span class="pl-badge" id="pl-badge"></span>
+    </div>
+  </div>
+  <div class="pl-sidebar" id="pl-sidebar">
+    <div style="padding:8px 12px;border-bottom:1px solid #30363d">
+      <span style="font-size:12px;color:#8b949e;font-weight:500;text-transform:uppercase;letter-spacing:0.5px">{{len .Items}} tracks</span>
+    </div>
+    <div id="pl-item-list">
+    {{range $i, $it := .Items}}
+    <div class="pl-item" data-idx="{{$i}}" onclick="startPlaylistItem({{$i}}, 0, true)">
+      <span class="pl-item-name">{{$it.Name}}</span>
+      <span class="badge badge-{{$it.FileType}}" style="flex-shrink:0">{{upper $it.FileType}}</span>
+    </div>
+    {{end}}
     </div>
   </div>
 </div>
