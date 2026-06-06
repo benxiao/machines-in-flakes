@@ -565,7 +565,9 @@ func (a *App) handleSearchStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) reindexUser(ctx context.Context, userID int64) {
-	a.reindexing.Store(userID, true)
+	if _, running := a.reindexing.LoadOrStore(userID, true); running {
+		return
+	}
 	defer a.reindexing.Delete(userID)
 	rows, err := a.db.Query(ctx, `
 		SELECT ip.path FROM indexed_paths ip
@@ -1829,6 +1831,10 @@ func (a *App) handleFavoriteList(w http.ResponseWriter, r *http.Request) {
 			paths = append(paths, p)
 		}
 	}
+	if err := rows.Err(); err != nil {
+		httpErr(w, err, 500)
+		return
+	}
 	if paths == nil {
 		paths = []string{}
 	}
@@ -1845,9 +1851,14 @@ func (a *App) handleFavoriteToggle(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", 400)
 		return
 	}
+	absPath := filepath.Clean(body.Path)
+	if !a.isAllowedPath(r, absPath) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
 	tag, err := a.db.Exec(r.Context(),
 		`INSERT INTO favorites (user_id, path, is_folder) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
-		uid(r), body.Path, body.IsFolder,
+		uid(r), absPath, body.IsFolder,
 	)
 	if err != nil {
 		httpErr(w, err, 500)
@@ -1857,7 +1868,7 @@ func (a *App) handleFavoriteToggle(w http.ResponseWriter, r *http.Request) {
 	if !favorited {
 		if _, err := a.db.Exec(r.Context(),
 			`DELETE FROM favorites WHERE user_id = $1 AND path = $2`,
-			uid(r), body.Path,
+			uid(r), absPath,
 		); err != nil {
 			httpErr(w, err, 500)
 			return
