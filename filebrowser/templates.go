@@ -2407,8 +2407,8 @@ var PLAYLIST_STATE = null;
       <span class="pl-drag" onclick="event.stopPropagation()">&#8942;&#8942;</span>
       <span class="fav-item-icon">{{if $it.IsFolder}}&#128193;{{else}}&#9834;{{end}}</span>
       <div class="fav-item-info">
-        <span class="fav-item-name">{{if $it.IsFolder}}{{$it.Dir}}{{else}}{{$it.Name}}{{end}}</span>
-        {{if not $it.IsFolder}}<span class="fav-item-path">{{$it.Dir}}</span>{{end}}
+        <span class="fav-item-name">{{$it.Name}}</span>
+        <span class="fav-item-path">{{$it.Dir}}</span>
       </div>
       {{if $it.IsFolder}}<span class="fav-item-count">{{$it.TrackCount}}</span>{{end}}
       <button class="pl-unstar-btn" onclick="event.stopPropagation();plUnstarFavItem(this,{{$i}})" title="Remove from favorites">&#9733;</button>

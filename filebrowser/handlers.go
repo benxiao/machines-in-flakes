@@ -1802,7 +1802,7 @@ func (a *App) handleFavoritesPage(w http.ResponseWriter, r *http.Request) {
 			favItems = append(favItems, FavoriteItem{
 				Path:       f.Path,
 				Name:       filepath.Base(f.Path),
-				Dir:        trimPath(f.Path),
+				Dir:        trimPath(filepath.Dir(f.Path)),
 				IsFolder:   true,
 				StartIdx:   startIdx,
 				EndIdx:     endIdx,
