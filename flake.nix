@@ -505,7 +505,7 @@
                 })
               (makeGoService {
                 pname = "fpv-manager";
-                version = "0.6.1";
+                version = "0.6.2";
                 src = ./fpv-manager;
                 vendorHash = "sha256-Qs23BHgrlK0P5BREEzS5Y/2G7mL1pcSd1k3z8NUw/mM=";
                 description = "FPV Drone Inventory Manager";

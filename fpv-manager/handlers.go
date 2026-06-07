@@ -739,7 +739,7 @@ func (a *App) handleDroneSave(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	a.db.Exec(r.Context(), `
+	if _, err := a.db.Exec(r.Context(), `
         UPDATE drones SET name=$1,frame_id=$2,fc_id=$3,esc_id=$4,vtx_id=$5,
         motor_id=$6,motor_count=$7,size_id=$8,cell_id=$9,
         gps_id=$10,rx_id=$11,status=$12,build_date=$13,weight_g=$14,sub_250g=$15,notes=$16
@@ -760,7 +760,10 @@ func (a *App) handleDroneSave(w http.ResponseWriter, r *http.Request) {
 		nullIntPtr(r.FormValue("weight_g")),
 		r.FormValue("sub_250g") == "on",
 		r.FormValue("notes"),
-		id)
+		id); err != nil {
+		httpErr(w, err)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

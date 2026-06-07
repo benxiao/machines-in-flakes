@@ -1028,7 +1028,6 @@ const droneListTmpl = `{{define "content"}}
 }
 .drone-card-photo img { width:100%;height:100%;object-fit:cover;display:block; }
 .drone-card-photo-icon { font-size:36px;color:#8b949e; }
-.drone-card-status { position:absolute;top:8px;right:8px; }
 .drone-card-body { padding:10px 12px 6px;flex:1; }
 .drone-card-name {
   font-weight: 600;
@@ -1057,11 +1056,11 @@ const droneListTmpl = `{{define "content"}}
     {{else}}
     <span class="drone-card-photo-icon">✈</span>
     {{end}}
-    <div class="drone-card-status"><span class="badge {{badgeClass .Status}}">{{.Status}}</span></div>
   </div>
   <div class="drone-card-body">
     <div class="drone-card-name" title="{{.Name}}">{{.Name}}</div>
     <div class="drone-card-meta">
+      <span class="badge {{badgeClass .Status}}">{{.Status}}</span>
       {{if .SizeInch}}<span>{{.SizeInch}}"</span>{{end}}
       {{if .CellLabel}}<span>{{.CellLabel}}</span>{{end}}
       {{if gt .FlightCount 0}}<span>{{.FlightCount}} flights</span>{{end}}
@@ -1099,7 +1098,7 @@ const droneEditTmpl = `{{define "content"}}
   <div class="page-header-left" style="gap:12px;align-items:center">
     <input type="text" id="drone-name" value="{{.Name}}" oninput="saveDrone()" onblur="saveDrone()"
       style="font-size:1.4rem;font-weight:600;background:none;border:none;border-bottom:1px solid transparent;color:#c9d1d9;padding:2px 0;min-width:160px;width:auto;outline:none">
-    <span class="badge {{badgeClass .Status}}">{{.Status}}</span>
+    <span id="status-badge" class="badge {{badgeClass .Status}}">{{.Status}}</span>
   </div>
   <div style="display:flex;gap:8px;align-items:center">
     <a href="/drones/{{.ID}}" class="btn btn-cancel">View</a>
@@ -1116,7 +1115,7 @@ const droneEditTmpl = `{{define "content"}}
     <div>
       <table style="border-collapse:collapse;width:100%">
         <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap;width:90px">Status</td><td>
-          <select name="status" onchange="saveDrone()">
+          <select name="status" onchange="changeStatus(this.value)">
             <option value="build"     {{if eq .Status "build"}}selected{{end}}>build</option>
             <option value="flying"    {{if eq .Status "flying"}}selected{{end}}>flying</option>
             <option value="repairing" {{if eq .Status "repairing"}}selected{{end}}>repairing</option>
@@ -1213,15 +1212,26 @@ const droneEditTmpl = `{{define "content"}}
 </div>
 </form>
 <script>
+var _statusClasses = {flying:'badge-flying',build:'badge-build',repairing:'badge-repairing',retired:'badge-retired'};
+function changeStatus(val) {
+  var badge = document.getElementById('status-badge');
+  badge.textContent = val;
+  badge.className = 'badge ' + (_statusClasses[val] || '');
+  saveDroneNow();
+}
 var _saveDroneTimer = null;
+function saveDroneNow() {
+  clearTimeout(_saveDroneTimer);
+  var form = document.getElementById('drone-form');
+  var body = new URLSearchParams(new FormData(form));
+  body.set('name', document.getElementById('drone-name').value);
+  fetch(form.action, {method:'POST', body:body}).then(function(r) {
+    if (!r.ok) console.error('save failed', r.status);
+  }).catch(function(e) { console.error('save failed', e); });
+}
 function saveDrone() {
   clearTimeout(_saveDroneTimer);
-  _saveDroneTimer = setTimeout(function() {
-    var form = document.getElementById('drone-form');
-    var body = new URLSearchParams(new FormData(form));
-    body.set('name', document.getElementById('drone-name').value);
-    fetch(form.action, {method:'POST', body:body}).catch(function(e) { console.error('save failed', e); });
-  }, 300);
+  _saveDroneTimer = setTimeout(saveDroneNow, 300);
 }
 function saveBatteries() {
   var checks = document.querySelectorAll('#bat-checks input[type=checkbox]');
