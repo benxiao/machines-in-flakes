@@ -584,10 +584,8 @@ CREATE TABLE IF NOT EXISTS session_checklist (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_sc_session_label ON session_checklist(session_id, label);
 DELETE FROM checklist_items WHERE id BETWEEN 1 AND 8 AND label IN ('Props secure','Battery charged','Video link OK','GPS lock','Failsafe tested','Camera angle set','Controller charged','Air space clear');
-DO $$ BEGIN
-  ALTER TABLE drones DROP CONSTRAINT IF EXISTS drones_status_check;
-  ALTER TABLE drones ADD CONSTRAINT drones_status_check CHECK (status IN ('flying','build','retired','repairing'));
-EXCEPTION WHEN OTHERS THEN NULL; END $$;
+ALTER TABLE drones DROP CONSTRAINT IF EXISTS drones_status_check;
+ALTER TABLE drones ADD CONSTRAINT drones_status_check CHECK (status IN ('flying','build','retired','repairing'));
 `
 
 func (a *App) initSchema(ctx context.Context) error {

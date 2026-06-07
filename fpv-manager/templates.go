@@ -1115,11 +1115,11 @@ const droneEditTmpl = `{{define "content"}}
     <div>
       <table style="border-collapse:collapse;width:100%">
         <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap;width:90px">Status</td><td>
-          <select name="status" onchange="changeStatus(this.value)">
-            <option value="build"     {{if eq .Status "build"}}selected{{end}}>build</option>
-            <option value="flying"    {{if eq .Status "flying"}}selected{{end}}>flying</option>
-            <option value="repairing" {{if eq .Status "repairing"}}selected{{end}}>repairing</option>
-            <option value="retired"   {{if eq .Status "retired"}}selected{{end}}>retired</option>
+          <select name="status" onchange="changeStatus(this)">
+            <option value="build"     data-class="{{badgeClass "build"}}"     {{if eq .Status "build"}}selected{{end}}>build</option>
+            <option value="flying"    data-class="{{badgeClass "flying"}}"    {{if eq .Status "flying"}}selected{{end}}>flying</option>
+            <option value="repairing" data-class="{{badgeClass "repairing"}}" {{if eq .Status "repairing"}}selected{{end}}>repairing</option>
+            <option value="retired"   data-class="{{badgeClass "retired"}}"   {{if eq .Status "retired"}}selected{{end}}>retired</option>
           </select>
         </td></tr>
         <tr><td style="padding:5px 12px 5px 0;color:#8b949e;white-space:nowrap">Size</td><td>
@@ -1212,11 +1212,11 @@ const droneEditTmpl = `{{define "content"}}
 </div>
 </form>
 <script>
-var _statusClasses = {flying:'badge-flying',build:'badge-build',repairing:'badge-repairing',retired:'badge-retired'};
-function changeStatus(val) {
+function changeStatus(sel) {
+  var opt = sel.options[sel.selectedIndex];
   var badge = document.getElementById('status-badge');
-  badge.textContent = val;
-  badge.className = 'badge ' + (_statusClasses[val] || '');
+  badge.textContent = opt.value;
+  badge.className = 'badge ' + (opt.getAttribute('data-class') || '');
   saveDroneNow();
 }
 var _saveDroneTimer = null;

@@ -354,11 +354,17 @@ func (a *App) handleDroneNew(w http.ResponseWriter, r *http.Request) {
 			httpErr(w, err)
 			return
 		}
-		a.updateDroneBatteries(ctx, droneID, r.Form["battery_ids"])
+		if err := a.updateDroneBatteries(ctx, droneID, r.Form["battery_ids"]); err != nil {
+			httpErr(w, err)
+			return
+		}
 		for _, pidStr := range r.Form["prop_ids"] {
 			pid, _ := strconv.Atoi(pidStr)
 			if pid > 0 {
-				a.db.Exec(ctx, `INSERT INTO drone_props (drone_id,prop_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, droneID, pid)
+				if _, err := a.db.Exec(ctx, `INSERT INTO drone_props (drone_id,prop_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, droneID, pid); err != nil {
+					httpErr(w, err)
+					return
+				}
 			}
 		}
 		http.Redirect(w, r, "/drones", http.StatusSeeOther)
@@ -491,11 +497,20 @@ func (a *App) handleDroneEdit(w http.ResponseWriter, r *http.Request) {
 			httpErr(w, err)
 			return
 		}
-		a.updateDroneBatteries(ctx, id, r.Form["battery_ids"])
+		if err := a.updateDroneBatteries(ctx, id, r.Form["battery_ids"]); err != nil {
+			httpErr(w, err)
+			return
+		}
 		newPropIDs := parseIntList(r.Form["prop_ids"])
-		a.db.Exec(ctx, `DELETE FROM drone_props WHERE drone_id=$1`, id)
+		if _, err := a.db.Exec(ctx, `DELETE FROM drone_props WHERE drone_id=$1`, id); err != nil {
+			httpErr(w, err)
+			return
+		}
 		for _, pid := range newPropIDs {
-			a.db.Exec(ctx, `INSERT INTO drone_props (drone_id,prop_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, id, pid)
+			if _, err := a.db.Exec(ctx, `INSERT INTO drone_props (drone_id,prop_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, id, pid); err != nil {
+				httpErr(w, err)
+				return
+			}
 		}
 		http.Redirect(w, r, "/drones", http.StatusSeeOther)
 		return
@@ -570,7 +585,10 @@ func (a *App) handleDroneDelete(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	a.db.Exec(r.Context(), `DELETE FROM drones WHERE id=$1`, id)
+	if _, err := a.db.Exec(r.Context(), `DELETE FROM drones WHERE id=$1`, id); err != nil {
+		httpErr(w, err)
+		return
+	}
 	http.Redirect(w, r, "/drones", http.StatusSeeOther)
 }
 
@@ -696,14 +714,19 @@ func (a *App) handleDroneDetail(w http.ResponseWriter, r *http.Request) {
 	render(w, "drone", page)
 }
 
-func (a *App) updateDroneBatteries(ctx context.Context, droneID int, bidStrs []string) {
-	a.db.Exec(ctx, `DELETE FROM drone_batteries WHERE drone_id=$1`, droneID)
+func (a *App) updateDroneBatteries(ctx context.Context, droneID int, bidStrs []string) error {
+	if _, err := a.db.Exec(ctx, `DELETE FROM drone_batteries WHERE drone_id=$1`, droneID); err != nil {
+		return err
+	}
 	for _, s := range bidStrs {
 		bid, _ := strconv.Atoi(s)
 		if bid > 0 {
-			a.db.Exec(ctx, `INSERT INTO drone_batteries (drone_id,battery_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, droneID, bid)
+			if _, err := a.db.Exec(ctx, `INSERT INTO drone_batteries (drone_id,battery_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, droneID, bid); err != nil {
+				return err
+			}
 		}
 	}
+	return nil
 }
 
 func (a *App) handleDroneBatteries(w http.ResponseWriter, r *http.Request) {
@@ -716,7 +739,10 @@ func (a *App) handleDroneBatteries(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, err)
 		return
 	}
-	a.updateDroneBatteries(r.Context(), id, r.Form["battery_ids"])
+	if err := a.updateDroneBatteries(r.Context(), id, r.Form["battery_ids"]); err != nil {
+		httpErr(w, err)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
