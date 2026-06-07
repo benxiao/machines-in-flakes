@@ -18,7 +18,6 @@
           unstable = import nixpkgs-unstable {
             inherit system;
             config.allowUnfree = true;
-            config.permittedInsecurePackages = [ "openclaw-2026.2.26" ];
           };
 
           master = import nixpkgs-master {
@@ -152,7 +151,7 @@
               acceleration = "cuda";
               package = unstable.ollama;
             };
-            environment.systemPackages = [ unstable.openclaw unstable.opencode ];
+            environment.systemPackages = [ unstable.opencode ];
           });
 
           makeRouterMonitorModule = { routerIp ? "192.168.30.1" }: ({ pkgs, ... }: {
