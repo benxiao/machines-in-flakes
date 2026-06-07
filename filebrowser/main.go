@@ -72,10 +72,6 @@ CREATE TABLE IF NOT EXISTS sessions (
 	expires_at TIMESTAMPTZ NOT NULL,
 	created_at TIMESTAMPTZ DEFAULT now()
 );
-CREATE TABLE IF NOT EXISTS settings (
-	key   TEXT PRIMARY KEY,
-	value TEXT NOT NULL
-);
 ALTER TABLE indexed_paths ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE;
 CREATE TABLE IF NOT EXISTS file_index (
 	user_id   BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -87,9 +83,10 @@ CREATE TABLE IF NOT EXISTS file_index (
 );
 CREATE INDEX IF NOT EXISTS file_index_search ON file_index (user_id, lower(filename));
 CREATE TABLE IF NOT EXISTS favorites (
-	user_id   BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-	path      TEXT NOT NULL,
-	is_folder BOOLEAN NOT NULL DEFAULT FALSE,
+	user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	path       TEXT NOT NULL,
+	is_folder  BOOLEAN NOT NULL DEFAULT FALSE,
+	position   INT NOT NULL DEFAULT 0,
 	created_at TIMESTAMPTZ DEFAULT now(),
 	PRIMARY KEY (user_id, path)
 );
@@ -103,14 +100,11 @@ DO $$ BEGIN
     ALTER TABLE indexed_paths DROP CONSTRAINT IF EXISTS indexed_paths_path_key;
     ALTER TABLE indexed_paths ADD CONSTRAINT indexed_paths_user_id_path_key UNIQUE (user_id, path);
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='settings' AND column_name='user_id') THEN
-    ALTER TABLE settings ADD COLUMN user_id BIGINT REFERENCES users(id) ON DELETE CASCADE;
-    UPDATE settings SET user_id = (SELECT id FROM users ORDER BY id LIMIT 1) WHERE user_id IS NULL;
-    IF NOT EXISTS (SELECT 1 FROM settings WHERE user_id IS NULL) THEN
-      ALTER TABLE settings DROP CONSTRAINT IF EXISTS settings_pkey;
-      ALTER TABLE settings ADD PRIMARY KEY (user_id, key);
-    END IF;
-  END IF;
+  DROP TABLE IF EXISTS settings;
+  ALTER TABLE favorites ADD COLUMN IF NOT EXISTS position INT NOT NULL DEFAULT 0;
+  UPDATE favorites f SET position = sub.rn - 1
+    FROM (SELECT user_id, path, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at) AS rn FROM favorites) sub
+    WHERE f.user_id = sub.user_id AND f.path = sub.path AND f.position = 0 AND f.created_at IS NOT NULL;
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='playlists' AND column_name='user_id') THEN
     ALTER TABLE playlists ADD COLUMN user_id BIGINT REFERENCES users(id) ON DELETE CASCADE;
     UPDATE playlists SET user_id = (SELECT id FROM users ORDER BY id LIMIT 1) WHERE user_id IS NULL;
@@ -189,7 +183,7 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /video/position", a.handleSaveVideoPosition)
 	mux.HandleFunc("GET /play/stats", a.handlePlayStats)
 	mux.HandleFunc("GET /settings", a.handleSettingsPage)
-	mux.HandleFunc("POST /settings", a.handleSettingsSave)
+	mux.HandleFunc("GET /api/path-size", a.handlePathSize)
 	mux.HandleFunc("POST /paths", a.handlePathAdd)
 	mux.HandleFunc("POST /paths/{id}/delete", a.handlePathDelete)
 	mux.HandleFunc("POST /paths/{id}/toggle", a.handlePathToggle)
@@ -197,9 +191,10 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /search/status", a.handleSearchStatus)
 	mux.HandleFunc("POST /search/reindex", a.handleSearchReindex)
 	mux.HandleFunc("GET /top-played",        a.handleTopPlayed)
-	mux.HandleFunc("GET /favorites",         a.handleFavoritesPage)
-	mux.HandleFunc("GET /favorites/list",    a.handleFavoriteList)
-	mux.HandleFunc("POST /favorites/toggle", a.handleFavoriteToggle)
+	mux.HandleFunc("GET /favorites",           a.handleFavoritesPage)
+	mux.HandleFunc("GET /favorites/list",      a.handleFavoriteList)
+	mux.HandleFunc("POST /favorites/toggle",   a.handleFavoriteToggle)
+	mux.HandleFunc("POST /favorites/reorder",  a.handleFavoriteReorder)
 	mux.HandleFunc("GET /playlists", a.handlePlaylistList)
 	mux.HandleFunc("POST /playlists", a.handlePlaylistCreate)
 	mux.HandleFunc("GET /playlists/{id}", a.handlePlaylistDetail)

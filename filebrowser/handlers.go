@@ -1340,58 +1340,43 @@ var validPresets = map[string]bool{
 	"fast": true, "medium": true, "slow": true, "slower": true, "veryslow": true,
 }
 
-func (a *App) getTranscodeSettings(ctx context.Context, userID int64) TranscodeSettings {
-	s := TranscodeSettings{CRF: 23, Preset: "fast", MaxWidth: 1280, VideoKbps: 3000, AudioKbps: 128, SegmentSec: 6, AudioHLS: true, AudioHLSThreshold: 320, DefaultVolume: 1.0}
-	rows, err := a.db.Query(ctx, `SELECT key, value FROM settings WHERE user_id = $1`, userID)
-	if err != nil {
-		return s
+func transcodeParamsFromRequest(r *http.Request) TranscodeSettings {
+	q := r.URL.Query()
+	s := TranscodeSettings{CRF: 23, Preset: "fast", MaxWidth: 1280, VideoKbps: 3000, AudioKbps: 128, SegmentSec: 6, AudioHLS: true, AudioHLSThreshold: 320}
+	if n, err := strconv.Atoi(q.Get("crf")); err == nil && n >= 0 && n <= 51 {
+		s.CRF = n
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var k, v string
-		if rows.Scan(&k, &v) != nil {
-			continue
-		}
-		switch k {
-		case "transcode_crf":
-			if n, err := strconv.Atoi(v); err == nil && n >= 0 && n <= 51 {
-				s.CRF = n
-			}
-		case "transcode_preset":
-			if validPresets[v] {
-				s.Preset = v
-			}
-		case "transcode_max_width":
-			if n, err := strconv.Atoi(v); err == nil && n >= 0 {
-				s.MaxWidth = n
-			}
-		case "transcode_video_kbps":
-			if n, err := strconv.Atoi(v); err == nil && n > 0 {
-				s.VideoKbps = n
-			}
-		case "transcode_audio_kbps":
-			if n, err := strconv.Atoi(v); err == nil && n > 0 {
-				s.AudioKbps = n
-			}
-		case "transcode_segment_sec":
-			if n, err := strconv.Atoi(v); err == nil && n >= 2 && n <= 60 {
-				s.SegmentSec = n
-			}
-		case "audio_hls_enabled":
-			s.AudioHLS = v == "1"
-		case "audio_hls_threshold_kbps":
-			if n, err := strconv.Atoi(v); err == nil && n > 0 {
-				s.AudioHLSThreshold = n
-			}
-		case "playback_force_original":
-			s.ForceOriginal = v == "1"
-		case "playback_default_volume":
-			if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 && f <= 1 {
-				s.DefaultVolume = f
-			}
-		}
+	if v := q.Get("preset"); validPresets[v] {
+		s.Preset = v
+	}
+	if n, err := strconv.Atoi(q.Get("max_width")); err == nil && n >= 0 {
+		s.MaxWidth = n
+	}
+	if n, err := strconv.Atoi(q.Get("video_kbps")); err == nil && n > 0 {
+		s.VideoKbps = n
+	}
+	if n, err := strconv.Atoi(q.Get("audio_kbps")); err == nil && n > 0 {
+		s.AudioKbps = n
+	}
+	if n, err := strconv.Atoi(q.Get("segment_sec")); err == nil && n >= 2 && n <= 60 {
+		s.SegmentSec = n
+	}
+	if v := q.Get("audio_hls"); v != "" {
+		s.AudioHLS = v == "1"
+	}
+	if n, err := strconv.Atoi(q.Get("audio_hls_threshold")); err == nil && n > 0 {
+		s.AudioHLSThreshold = n
 	}
 	return s
+}
+
+func tsQueryParams(ts TranscodeSettings) string {
+	audioHLS := "0"
+	if ts.AudioHLS {
+		audioHLS = "1"
+	}
+	return fmt.Sprintf("&crf=%d&preset=%s&max_width=%d&video_kbps=%d&audio_kbps=%d&segment_sec=%d&audio_hls=%s&audio_hls_threshold=%d",
+		ts.CRF, ts.Preset, ts.MaxWidth, ts.VideoKbps, ts.AudioKbps, ts.SegmentSec, audioHLS, ts.AudioHLSThreshold)
 }
 
 // ---- Settings page handlers ----
@@ -1421,83 +1406,31 @@ func (a *App) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 	}
 	rows.Close()
 
-	for i := range paths {
-		var total int64
-		filepath.WalkDir(paths[i].Path, func(_ string, d os.DirEntry, err error) error {
-			if err != nil || d.IsDir() {
-				return nil
-			}
-			if info, e := d.Info(); e == nil {
-				total += info.Size()
-			}
-			return nil
-		})
-		paths[i].SizeGB = float64(total) / 1e9
-	}
-
-	s := a.getTranscodeSettings(ctx, userID)
-	savedOK := r.URL.Query().Get("saved") == "1"
 	pathErr := r.URL.Query().Get("err")
 	render(w, "settings", SettingsPage{
 		ActiveTab: "settings",
 		IsAdmin:   admin,
 		Paths:     paths,
 		PathError: pathErr,
-		Settings:  s,
-		SavedOK:   savedOK,
 	})
 }
 
-func (a *App) handleSettingsSave(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
-	userID := uid(r)
-	save := func(k, v string) error {
-		_, err := a.db.Exec(r.Context(), `
-			INSERT INTO settings (user_id, key, value) VALUES ($1, $2, $3)
-			ON CONFLICT (user_id, key) DO UPDATE SET value = EXCLUDED.value
-		`, userID, k, v)
-		return err
-	}
-	checkbox := func(key string) string {
-		if r.FormValue(key) != "" {
-			return "1"
-		}
-		return "0"
-	}
-	if r.FormValue("save_playback") == "1" {
-		dv := r.FormValue("default_volume")
-		if dv == "" {
-			dv = "1.0"
-		}
-		for k, v := range map[string]string{"playback_force_original": checkbox("force_original"), "playback_default_volume": dv} {
-			if err := save(k, v); err != nil {
-				httpErr(w, err, 500)
-				return
-			}
-		}
-		w.WriteHeader(http.StatusNoContent)
+
+func (a *App) handlePathSize(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		http.Error(w, "missing path", http.StatusBadRequest)
 		return
 	}
-	updates := map[string]string{
-		"transcode_crf":            r.FormValue("crf"),
-		"transcode_preset":         r.FormValue("preset"),
-		"transcode_max_width":      r.FormValue("max_width"),
-		"transcode_video_kbps":     r.FormValue("video_kbps"),
-		"transcode_audio_kbps":     r.FormValue("audio_kbps"),
-		"transcode_segment_sec":    r.FormValue("segment_sec"),
-		"audio_hls_enabled":        checkbox("audio_hls_enabled"),
-		"audio_hls_threshold_kbps": r.FormValue("audio_hls_threshold_kbps"),
+	out, err := exec.CommandContext(r.Context(), "du", "-sb", path).Output()
+	var gb float64
+	if err == nil {
+		var bytes int64
+		fmt.Sscanf(string(out), "%d", &bytes)
+		gb = float64(bytes) / 1e9
 	}
-	for k, v := range updates {
-		if v == "" {
-			continue
-		}
-		if err := save(k, v); err != nil {
-			httpErr(w, err, 500)
-			return
-		}
-	}
-	w.WriteHeader(http.StatusNoContent)
+	w.Header().Set("Content-Type", "application/json")
+	fmt.Fprintf(w, `{"gb":%.2f}`, gb)
 }
 
 func (a *App) handleHLSPlaylist(w http.ResponseWriter, r *http.Request) {
@@ -1516,7 +1449,7 @@ func (a *App) handleHLSPlaylist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ffprobePath := filepath.Join(filepath.Dir(a.ffmpegPath), "ffprobe")
-	ts := a.getTranscodeSettings(r.Context(), uid(r))
+	ts := transcodeParamsFromRequest(r)
 	if classifyExt(filepath.Ext(absPath)) == "audio" {
 		// Redirect to direct file if audio HLS is disabled or bitrate is below threshold.
 		if !ts.AudioHLS {
@@ -1547,6 +1480,7 @@ func (a *App) handleHLSPlaylist(w http.ResponseWriter, r *http.Request) {
 	}
 	segSec := ts.SegmentSec
 	encodedPath := url.QueryEscape(absPath)
+	tsP := tsQueryParams(ts)
 	var b strings.Builder
 	b.WriteString("#EXTM3U\n#EXT-X-VERSION:3\n")
 	fmt.Fprintf(&b, "#EXT-X-TARGETDURATION:%d\n", segSec)
@@ -1554,10 +1488,10 @@ func (a *App) handleHLSPlaylist(w http.ResponseWriter, r *http.Request) {
 	fullSegments := int(duration) / segSec
 	lastDur := duration - float64(fullSegments*segSec)
 	for i := range fullSegments {
-		fmt.Fprintf(&b, "#EXTINF:%d.000,\n/hls/segment?path=%s&n=%d\n", segSec, encodedPath, i)
+		fmt.Fprintf(&b, "#EXTINF:%d.000,\n/hls/segment?path=%s&n=%d%s\n", segSec, encodedPath, i, tsP)
 	}
 	if lastDur > 0.05 {
-		fmt.Fprintf(&b, "#EXTINF:%.3f,\n/hls/segment?path=%s&n=%d\n", lastDur, encodedPath, fullSegments)
+		fmt.Fprintf(&b, "#EXTINF:%.3f,\n/hls/segment?path=%s&n=%d%s\n", lastDur, encodedPath, fullSegments, tsP)
 	}
 	b.WriteString("#EXT-X-ENDLIST\n")
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
@@ -1702,7 +1636,7 @@ func (a *App) handleHLSSegment(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	ts := a.getTranscodeSettings(r.Context(), uid(r))
+	ts := transcodeParamsFromRequest(r)
 	startSec := n * ts.SegmentSec
 	abr := fmt.Sprintf("%dk", ts.AudioKbps)
 	var args []string
@@ -1784,37 +1718,113 @@ func (a *App) handleTopPlayed(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleFavoritesPage(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(r.Context(), `
-		SELECT fi.path, fi.filename, fi.file_type
-		FROM favorites f
-		JOIN file_index fi ON fi.user_id = f.user_id
-		  AND fi.file_type = 'audio'
-		  AND (
-		    (NOT f.is_folder AND fi.path = f.path)
-		    OR (f.is_folder AND fi.dir_path = f.path)
-		  )
-		WHERE f.user_id = $1
-		GROUP BY fi.path, fi.filename, fi.file_type
-		ORDER BY min(f.created_at), lower(fi.filename)
-	`, uid(r))
+	ctx := r.Context()
+	userID := uid(r)
+
+	// Fetch indexed path prefixes for display trimming.
+	var indexedPrefixes []string
+	if ipRows, err := a.db.Query(ctx, `SELECT path FROM indexed_paths WHERE user_id = $1 AND enabled = TRUE`, userID); err == nil {
+		for ipRows.Next() {
+			var p string
+			if ipRows.Scan(&p) == nil {
+				indexedPrefixes = append(indexedPrefixes, strings.TrimRight(p, "/")+"/")
+			}
+		}
+		ipRows.Close()
+	}
+	trimPath := func(p string) string {
+		best := ""
+		for _, prefix := range indexedPrefixes {
+			if strings.HasPrefix(p, prefix) && (best == "" || len(prefix) < len(best)) {
+				best = prefix
+			}
+		}
+		if best == "" {
+			return p
+		}
+		rel := strings.TrimRight(strings.TrimPrefix(p, best), "/")
+		if rel == "" {
+			return p
+		}
+		return rel
+	}
+
+	favRows, err := a.db.Query(ctx, `
+		SELECT path, is_folder FROM favorites WHERE user_id = $1 ORDER BY position, created_at
+	`, userID)
 	if err != nil {
 		httpErr(w, err, 500)
 		return
 	}
-	defer rows.Close()
-	var items []PlaylistItem
-	for rows.Next() {
-		var path, filename, fileType string
-		if rows.Scan(&path, &filename, &fileType) != nil {
-			continue
+	type rawFav struct {
+		Path     string
+		IsFolder bool
+	}
+	var rawFavs []rawFav
+	for favRows.Next() {
+		var f rawFav
+		if favRows.Scan(&f.Path, &f.IsFolder) == nil {
+			rawFavs = append(rawFavs, f)
 		}
-		items = append(items, PlaylistItem{Path: path, Name: filename, FileType: fileType})
 	}
-	if err := rows.Err(); err != nil {
-		httpErr(w, err, 500)
-		return
+	favRows.Close()
+
+	var favItems []FavoriteItem
+	var tracks []PlaylistItem
+
+	for _, f := range rawFavs {
+		startIdx := len(tracks)
+		if f.IsFolder {
+			fileRows, err := a.db.Query(ctx, `
+				SELECT path, filename, file_type FROM file_index
+				WHERE user_id = $1 AND dir_path = $2 AND file_type = 'audio'
+				ORDER BY lower(filename)
+			`, userID, f.Path)
+			if err == nil {
+				for fileRows.Next() {
+					var pi PlaylistItem
+					if fileRows.Scan(&pi.Path, &pi.Name, &pi.FileType) == nil {
+						tracks = append(tracks, pi)
+					}
+				}
+				fileRows.Close()
+			}
+			endIdx := len(tracks)
+			if endIdx == startIdx {
+				continue
+			}
+			favItems = append(favItems, FavoriteItem{
+				Path:       f.Path,
+				Name:       filepath.Base(f.Path),
+				Dir:        trimPath(f.Path),
+				IsFolder:   true,
+				StartIdx:   startIdx,
+				EndIdx:     endIdx,
+				TrackCount: endIdx - startIdx,
+			})
+		} else {
+			var pi PlaylistItem
+			err := a.db.QueryRow(ctx, `
+				SELECT path, filename, file_type FROM file_index
+				WHERE user_id = $1 AND path = $2
+			`, userID, f.Path).Scan(&pi.Path, &pi.Name, &pi.FileType)
+			if err != nil {
+				continue
+			}
+			tracks = append(tracks, pi)
+			favItems = append(favItems, FavoriteItem{
+				Path:       f.Path,
+				Name:       pi.Name,
+				Dir:        trimPath(filepath.Dir(f.Path)),
+				IsFolder:   false,
+				StartIdx:   startIdx,
+				EndIdx:     startIdx + 1,
+				TrackCount: 1,
+			})
+		}
 	}
-	render(w, "favorites", FavoritesPage{ActiveTab: "favorites", IsAdmin: isAdmin(r), Items: items})
+
+	render(w, "favorites", FavoritesPage{ActiveTab: "favorites", IsAdmin: isAdmin(r), Items: favItems, Tracks: tracks})
 }
 
 func (a *App) handleFavoriteList(w http.ResponseWriter, r *http.Request) {
@@ -1857,7 +1867,9 @@ func (a *App) handleFavoriteToggle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tag, err := a.db.Exec(r.Context(),
-		`INSERT INTO favorites (user_id, path, is_folder) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+		`INSERT INTO favorites (user_id, path, is_folder, position)
+		 VALUES ($1, $2, $3, (SELECT COALESCE(MAX(position)+1, 0) FROM favorites WHERE user_id = $1))
+		 ON CONFLICT DO NOTHING`,
 		uid(r), absPath, body.IsFolder,
 	)
 	if err != nil {
@@ -1876,4 +1888,34 @@ func (a *App) handleFavoriteToggle(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"favorited": favorited})
+}
+
+func (a *App) handleFavoriteReorder(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Paths []string `json:"paths"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", 400)
+		return
+	}
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	for i, path := range req.Paths {
+		if _, err := tx.Exec(r.Context(),
+			`UPDATE favorites SET position = $1 WHERE user_id = $2 AND path = $3`,
+			i, uid(r), path,
+		); err != nil {
+			httpErr(w, err, 500)
+			return
+		}
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

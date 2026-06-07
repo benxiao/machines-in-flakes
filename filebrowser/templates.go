@@ -42,6 +42,16 @@ type PlaylistItem struct {
 	WatchCount int64
 }
 
+type FavoriteItem struct {
+	Path       string
+	Name       string
+	Dir        string
+	IsFolder   bool
+	StartIdx   int
+	EndIdx     int
+	TrackCount int
+}
+
 type TopPlayedPage struct {
 	ActiveTab string
 	IsAdmin   bool
@@ -154,7 +164,8 @@ type UnplayedPage struct {
 type FavoritesPage struct {
 	ActiveTab string
 	IsAdmin   bool
-	Items     []PlaylistItem
+	Items     []FavoriteItem
+	Tracks    []PlaylistItem
 }
 
 type PathRow struct {
@@ -170,8 +181,6 @@ type SettingsPage struct {
 	IsAdmin   bool
 	Paths     []PathRow
 	PathError string
-	Settings  TranscodeSettings
-	SavedOK   bool
 }
 
 type LoginPage struct {
@@ -534,6 +543,18 @@ input:focus, select:focus { outline: none; border-color: #58a6ff; }
 .fav-btn { background:none; border:none; cursor:pointer; color:#8b949e; font-size:16px; padding:2px 4px; line-height:1; }
 .fav-btn:hover { color:#e3b341; }
 .fav-btn.active { color:#e3b341; }
+.pl-unstar-btn { background:none; border:none; color:#e3b341; cursor:pointer; font-size:13px; padding:0 3px; flex-shrink:0; line-height:1; opacity:0.5; transition:opacity 0.15s; }
+.pl-unstar-btn:hover { opacity:1; }
+.fav-item { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid #21262d; cursor:pointer; }
+.fav-item:hover { background:#161b22; }
+.fav-item.active { background:rgba(88,166,255,0.1); border-left:3px solid #58a6ff; padding-left:9px; }
+.fav-item.dragging { opacity:0.35; }
+.fav-item.drag-over { border-top:2px solid #58a6ff; margin-top:-1px; }
+.fav-item-icon { flex-shrink:0; font-size:14px; color:#8b949e; }
+.fav-item-info { flex:1; min-width:0; display:flex; flex-direction:column; gap:1px; }
+.fav-item-name { font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fav-item-path { font-size:11px; color:#8b949e; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fav-item-count { font-size:11px; color:#8b949e; flex-shrink:0; background:#21262d; border-radius:8px; padding:1px 6px; }
 /* Custom playlist audio player */
 .pl-audio-ui { padding:12px 14px; background:#0d1117; border-radius:8px; border:1px solid #30363d; margin-bottom:10px; box-sizing:border-box; width:100%; overflow:hidden; }
 .pl-seek-wrap { width:100%; margin-bottom:10px; }
@@ -687,6 +708,19 @@ const baseTmpl = `<!DOCTYPE html>
 var _fo = false; try { _fo = !!localStorage.getItem('fb_force_original'); } catch(e) {}
 var MOBILE = !_fo && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 var DEFAULT_VOL = 1; try { var _dv = parseFloat(localStorage.getItem('fb_default_volume')); if (!isNaN(_dv)) DEFAULT_VOL = Math.max(0, Math.min(1, _dv)); } catch(e) {}
+function hlsParams() {
+  try {
+    var ls = localStorage;
+    return '&crf=' + (ls.getItem('fb_transcode_crf') || '23') +
+      '&preset=' + (ls.getItem('fb_transcode_preset') || 'fast') +
+      '&max_width=' + (ls.getItem('fb_transcode_max_width') || '1280') +
+      '&video_kbps=' + (ls.getItem('fb_transcode_video_kbps') || '3000') +
+      '&audio_kbps=' + (ls.getItem('fb_transcode_audio_kbps') || '128') +
+      '&segment_sec=' + (ls.getItem('fb_transcode_segment_sec') || '6') +
+      '&audio_hls=' + (ls.getItem('fb_audio_hls_enabled') === '0' ? '0' : '1') +
+      '&audio_hls_threshold=' + (ls.getItem('fb_audio_hls_threshold_kbps') || '320');
+  } catch(e) { return ''; }
+}
 var modal = document.getElementById('preview-modal');
 (function() {
   function fmtHM(sec) {
@@ -999,7 +1033,7 @@ function openPreview(el, autoplay) {
     var _vext = path.slice(path.lastIndexOf('.')).toLowerCase();
     var _forceHLS = {'.wmv':1,'.avi':1,'.mkv':1,'.flv':1,'.mov':1}[_vext];
     if (MOBILE || _forceHLS) {
-      attachVideo(video, '/hls/playlist?path=' + encodeURIComponent(path), fileUrl,
+      attachVideo(video, '/hls/playlist?path=' + encodeURIComponent(path) + hlsParams(), fileUrl,
         autoplay ? function(v) { v.play(); } : null);
     } else {
       video.preload = 'auto';
@@ -1950,7 +1984,7 @@ function startPlaylistItem(idx, seekTo, autoplay) {
       a.pause(); a.style.display = 'none'; _plUpdateAudioUI();
       v.volume = DEFAULT_VOL; v.style.display = 'block'; media = v;
       if (MOBILE || _forceHLS) {
-        attachVideo(v, '/hls/playlist?path=' + encodeURIComponent(item.Path), fileUrl, startPlayback);
+        attachVideo(v, '/hls/playlist?path=' + encodeURIComponent(item.Path) + hlsParams(), fileUrl, startPlayback);
       } else {
         v.preload = 'auto'; v.src = fileUrl; v.load();
         v.addEventListener('loadedmetadata', function() { startPlayback(v); }, {once: true});
@@ -1958,7 +1992,7 @@ function startPlaylistItem(idx, seekTo, autoplay) {
     } else {
       if (_plActiveBlobUrl) { URL.revokeObjectURL(_plActiveBlobUrl); _plActiveBlobUrl = null; }
       media = a; a.style.display = 'block'; a.volume = DEFAULT_VOL; _plUpdateAudioUI();
-      attachVideo(a, '/hls/playlist?path=' + encodeURIComponent(item.Path), fileUrl, startPlayback);
+      attachVideo(a, '/hls/playlist?path=' + encodeURIComponent(item.Path) + hlsParams(), fileUrl, startPlayback);
     }
   } else {
     media = a;
@@ -2324,7 +2358,8 @@ document.addEventListener('DOMContentLoaded', function() {
 const favoritesTmpl = `{{define "content"}}
 <script>
 var PLAYLIST_ID = 0;
-var PLAYLIST_ITEMS = {{toJSON .Items}};
+var PLAYLIST_ITEMS = {{toJSON .Tracks}};
+var FAVORITE_ITEMS = {{toJSON .Items}};
 var PLAYLIST_STATE = null;
 </script>
 <div class="page-header">
@@ -2364,13 +2399,19 @@ var PLAYLIST_STATE = null;
   </div>
   <div class="pl-sidebar" id="pl-sidebar">
     <div style="padding:8px 12px;border-bottom:1px solid #30363d">
-      <span style="font-size:12px;color:#8b949e;font-weight:500;text-transform:uppercase;letter-spacing:0.5px">{{len .Items}} tracks</span>
+      <span id="fav-track-count" style="font-size:12px;color:#8b949e;font-weight:500;text-transform:uppercase;letter-spacing:0.5px">{{len .Tracks}} tracks</span>
     </div>
     <div id="pl-item-list">
     {{range $i, $it := .Items}}
-    <div class="pl-item" data-idx="{{$i}}" onclick="startPlaylistItem({{$i}}, 0, true)">
-      <span class="pl-item-name">{{$it.Name}}</span>
-      <span class="badge badge-{{$it.FileType}}" style="flex-shrink:0">{{upper $it.FileType}}</span>
+    <div class="fav-item" draggable="true" data-idx="{{$i}}" onclick="startPlaylistItem({{$it.StartIdx}}, 0, true)">
+      <span class="pl-drag" onclick="event.stopPropagation()">&#8942;&#8942;</span>
+      <span class="fav-item-icon">{{if $it.IsFolder}}&#128193;{{else}}&#9834;{{end}}</span>
+      <div class="fav-item-info">
+        <span class="fav-item-name">{{if $it.IsFolder}}{{$it.Dir}}{{else}}{{$it.Name}}{{end}}</span>
+        {{if not $it.IsFolder}}<span class="fav-item-path">{{$it.Dir}}</span>{{end}}
+      </div>
+      {{if $it.IsFolder}}<span class="fav-item-count">{{$it.TrackCount}}</span>{{end}}
+      <button class="pl-unstar-btn" onclick="event.stopPropagation();plUnstarFavItem(this,{{$i}})" title="Remove from favorites">&#9733;</button>
     </div>
     {{end}}
     </div>
@@ -2388,8 +2429,124 @@ function getPlMedia() {
 }
 function savePlState() {}
 ` + plSharedJS + `
+var _origSPI = startPlaylistItem;
+startPlaylistItem = function(idx, seekTo, autoplay) {
+  _origSPI(idx, seekTo, autoplay);
+  updateFavSidebar(idx);
+};
+function updateFavSidebar(trackIdx) {
+  var activeEl = null;
+  document.querySelectorAll('#pl-item-list .fav-item').forEach(function(el, i) {
+    var it = FAVORITE_ITEMS[i];
+    var active = it && trackIdx >= it.StartIdx && trackIdx < it.EndIdx;
+    el.classList.toggle('active', active);
+    if (active) activeEl = el;
+  });
+  if (activeEl) activeEl.scrollIntoView({block: 'nearest'});
+}
+var _favDragIdx = null;
+function bindFavDrag() {
+  var list = document.getElementById('pl-item-list');
+  list.querySelectorAll('.fav-item').forEach(function(el) {
+    el.addEventListener('dragstart', function(e) {
+      _favDragIdx = parseInt(el.dataset.idx);
+      setTimeout(function(){ el.classList.add('dragging'); }, 0);
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    el.addEventListener('dragend', function() {
+      el.classList.remove('dragging');
+      list.querySelectorAll('.fav-item').forEach(function(r){ r.classList.remove('drag-over'); });
+    });
+    el.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      list.querySelectorAll('.fav-item').forEach(function(r){ r.classList.remove('drag-over'); });
+      el.classList.add('drag-over');
+    });
+    el.addEventListener('dragleave', function(){ el.classList.remove('drag-over'); });
+    el.addEventListener('drop', function(e) {
+      e.preventDefault();
+      el.classList.remove('drag-over');
+      var toIdx = parseInt(el.dataset.idx);
+      if (_favDragIdx === null || _favDragIdx === toIdx) return;
+      var slices = FAVORITE_ITEMS.map(function(item) {
+        return PLAYLIST_ITEMS.slice(item.StartIdx, item.EndIdx);
+      });
+      var currentPath = PLAYLIST_ITEMS[plCurrentIdx] ? PLAYLIST_ITEMS[plCurrentIdx].Path : null;
+      var movedItem = FAVORITE_ITEMS.splice(_favDragIdx, 1)[0];
+      FAVORITE_ITEMS.splice(toIdx, 0, movedItem);
+      var movedSlice = slices.splice(_favDragIdx, 1)[0];
+      slices.splice(toIdx, 0, movedSlice);
+      var pos = 0;
+      PLAYLIST_ITEMS.length = 0;
+      FAVORITE_ITEMS.forEach(function(item, i) {
+        slices[i].forEach(function(t){ PLAYLIST_ITEMS.push(t); });
+        item.StartIdx = pos;
+        item.EndIdx = pos + slices[i].length;
+        pos = item.EndIdx;
+      });
+      if (currentPath) {
+        for (var i = 0; i < PLAYLIST_ITEMS.length; i++) {
+          if (PLAYLIST_ITEMS[i].Path === currentPath) { plCurrentIdx = i; break; }
+        }
+      }
+      var all = Array.from(list.querySelectorAll('.fav-item'));
+      var movedEl = all.splice(_favDragIdx, 1)[0];
+      all.splice(toIdx, 0, movedEl);
+      all.forEach(function(n, i) {
+        n.dataset.idx = i;
+        (function(ii, si){ n.onclick = function(){ startPlaylistItem(si, 0, true); }; })(i, FAVORITE_ITEMS[i].StartIdx);
+        var ub = n.querySelector('.pl-unstar-btn');
+        if (ub) (function(ii,b){ b.onclick = function(ev){ ev.stopPropagation(); plUnstarFavItem(b,ii); }; })(i,ub);
+        list.appendChild(n);
+      });
+      updateFavSidebar(plCurrentIdx);
+      saveFavOrder();
+    });
+  });
+}
+function saveFavOrder() {
+  fetch('/favorites/reorder', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({paths: FAVORITE_ITEMS.map(function(it){ return it.Path; })})
+  });
+}
+function plUnstarFavItem(btn, itemIdx) {
+  var item = FAVORITE_ITEMS[itemIdx];
+  if (!item) return;
+  fetch('/favorites/toggle', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({path: item.Path, is_folder: item.IsFolder})
+  }).then(function(r){ return r.json(); }).then(function(res) {
+    if (res.favorited) return;
+    var start = item.StartIdx, end = item.EndIdx, count = end - start;
+    PLAYLIST_ITEMS.splice(start, count);
+    FAVORITE_ITEMS.splice(itemIdx, 1);
+    for (var i = itemIdx; i < FAVORITE_ITEMS.length; i++) {
+      FAVORITE_ITEMS[i].StartIdx -= count;
+      FAVORITE_ITEMS[i].EndIdx -= count;
+    }
+    btn.closest('.fav-item').remove();
+    if (FAVORITE_ITEMS.length === 0) {
+      var a = document.getElementById('pl-audio');
+      if (a) { a.pause(); a.src = ''; }
+      document.getElementById('pl-layout').outerHTML = '<p class="muted" style="padding:24px">No favorites yet. In Browse, click &#9734; on a folder or audio file to add it here.</p>';
+      return;
+    }
+    if (plCurrentIdx >= end) {
+      plCurrentIdx -= count;
+    } else if (plCurrentIdx >= start) {
+      plCurrentIdx = Math.max(0, start - 1);
+    }
+    updateFavSidebar(plCurrentIdx);
+    var hdr = document.getElementById('fav-track-count');
+    if (hdr) hdr.textContent = PLAYLIST_ITEMS.length + ' tracks';
+  }).catch(function(){});
+}
 document.addEventListener('DOMContentLoaded', function() {
   plInitAudioUI();
+  bindFavDrag();
   if (PLAYLIST_ITEMS && PLAYLIST_ITEMS.length > 0) {
     startPlaylistItem(0, 0);
   }
@@ -2561,7 +2718,7 @@ const settingsTmpl = `{{define "content"}}
         {{if .Enabled}}checked{{end}} title="Enable or disable this path in Browse" style="cursor:pointer;width:16px;height:16px">
     </td>
     <td><a href="{{browseURL .Path}}">{{.Path}}</a></td>
-    <td style="text-align:right;color:#8b949e;font-size:13px">{{printf "%.1f" .SizeGB}}</td>
+    <td class="path-size-cell" data-path="{{.Path}}" style="text-align:right;color:#8b949e;font-size:13px">…</td>
     <td class="actions-cell">
       <form class="inline" action="/paths/{{.ID}}/delete" method="post">
         <button class="btn btn-danger btn-sm" type="submit">Remove</button>
@@ -2599,7 +2756,7 @@ const settingsTmpl = `{{define "content"}}
   {{range .Paths}}
   <tr>
     <td><a href="{{browseURL .Path}}">{{.Path}}</a></td>
-    <td style="text-align:right;color:#8b949e;font-size:13px">{{printf "%.1f" .SizeGB}}</td>
+    <td class="path-size-cell" data-path="{{.Path}}" style="text-align:right;color:#8b949e;font-size:13px">…</td>
   </tr>
   {{end}}
   </tbody>
@@ -2616,41 +2773,41 @@ const settingsTmpl = `{{define "content"}}
     <div class="settings-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:0 24px">
       <div class="form-group">
         <label>Quality (CRF) <span class="muted" style="font-weight:normal">— lower = better, 18–28 typical</span></label>
-        <input type="number" value="{{.Settings.CRF}}" min="0" max="51"
+        <input type="number" id="tc-crf" value="23" min="0" max="51"
                onchange="saveTranscodeSetting('crf', this.value)">
       </div>
       <div class="form-group">
         <label>Encode preset <span class="muted" style="font-weight:normal">— slower = smaller file</span></label>
-        <select onchange="saveTranscodeSetting('preset', this.value)">
-          <option value="ultrafast"{{if eq .Settings.Preset "ultrafast"}} selected{{end}}>ultrafast</option>
-          <option value="superfast"{{if eq .Settings.Preset "superfast"}} selected{{end}}>superfast</option>
-          <option value="veryfast"{{if eq .Settings.Preset "veryfast"}} selected{{end}}>veryfast</option>
-          <option value="faster"{{if eq .Settings.Preset "faster"}} selected{{end}}>faster</option>
-          <option value="fast"{{if eq .Settings.Preset "fast"}} selected{{end}}>fast</option>
-          <option value="medium"{{if eq .Settings.Preset "medium"}} selected{{end}}>medium</option>
-          <option value="slow"{{if eq .Settings.Preset "slow"}} selected{{end}}>slow</option>
-          <option value="slower"{{if eq .Settings.Preset "slower"}} selected{{end}}>slower</option>
-          <option value="veryslow"{{if eq .Settings.Preset "veryslow"}} selected{{end}}>veryslow</option>
+        <select id="tc-preset" onchange="saveTranscodeSetting('preset', this.value)">
+          <option value="ultrafast">ultrafast</option>
+          <option value="superfast">superfast</option>
+          <option value="veryfast">veryfast</option>
+          <option value="faster">faster</option>
+          <option value="fast">fast</option>
+          <option value="medium">medium</option>
+          <option value="slow">slow</option>
+          <option value="slower">slower</option>
+          <option value="veryslow">veryslow</option>
         </select>
       </div>
       <div class="form-group">
         <label>Max width (px) <span class="muted" style="font-weight:normal">— 0 = no limit</span></label>
-        <input type="number" value="{{.Settings.MaxWidth}}" min="0" step="2"
+        <input type="number" id="tc-max-width" value="1280" min="0" step="2"
                onchange="saveTranscodeSetting('max_width', this.value)">
       </div>
       <div class="form-group">
         <label>Segment duration (s)</label>
-        <input type="number" value="{{.Settings.SegmentSec}}" min="2" max="60"
+        <input type="number" id="tc-segment-sec" value="6" min="2" max="60"
                onchange="saveTranscodeSetting('segment_sec', this.value)">
       </div>
       <div class="form-group">
         <label>Video bitrate (kbps)</label>
-        <input type="number" value="{{.Settings.VideoKbps}}" min="100"
+        <input type="number" id="tc-video-kbps" value="3000" min="100"
                onchange="saveTranscodeSetting('video_kbps', this.value)">
       </div>
       <div class="form-group">
         <label>Audio bitrate (kbps)</label>
-        <input type="number" value="{{.Settings.AudioKbps}}" min="32"
+        <input type="number" id="tc-audio-kbps" value="128" min="32"
                onchange="saveTranscodeSetting('audio_kbps', this.value)">
       </div>
     </div>
@@ -2667,7 +2824,7 @@ const settingsTmpl = `{{define "content"}}
     </div>
     <div class="form-group" style="margin-top:14px">
       <label>Lossless threshold (kbps) <span class="muted" style="font-weight:normal">— files above this bitrate get transcoded</span></label>
-      <input type="number" id="audio-hls-threshold" value="{{.Settings.AudioHLSThreshold}}" min="64" max="9999" style="max-width:120px"
+      <input type="number" id="audio-hls-threshold" value="320" min="64" max="9999" style="max-width:120px"
              onchange="saveAudioHLSSettings()">
     </div>
     <p class="muted" style="font-size:12px;margin-top:4px">FLAC/WAV are typically 600–3000 kbps. Default threshold of 320 kbps catches all lossless formats.</p>
@@ -2688,18 +2845,29 @@ const settingsTmpl = `{{define "content"}}
              onchange="savePlaybackSettings()">
       <input type="hidden" id="vol-val" value="1.0">
     </div>
-    <p class="muted" style="font-size:12px;margin:10px 0 0">Playback settings are saved to your account and synced across devices when you visit this page.</p>
+    <p class="muted" style="font-size:12px;margin:10px 0 0">Settings are stored locally in your browser.</p>
   </div>
 </div>
 <script>
 (function(){
   try {
-    var fo = {{if .Settings.ForceOriginal}}true{{else}}false{{end}};
-    var dv = {{printf "%.4f" .Settings.DefaultVolume}};
-    fo ? localStorage.setItem('fb_force_original','1') : localStorage.removeItem('fb_force_original');
-    localStorage.setItem('fb_default_volume', String(dv));
+    var ls = localStorage;
+    document.getElementById('tc-crf').value = ls.getItem('fb_transcode_crf') || '23';
+    var sel = document.getElementById('tc-preset');
+    if (sel) sel.value = ls.getItem('fb_transcode_preset') || 'fast';
+    document.getElementById('tc-max-width').value = ls.getItem('fb_transcode_max_width') || '1280';
+    document.getElementById('tc-segment-sec').value = ls.getItem('fb_transcode_segment_sec') || '6';
+    document.getElementById('tc-video-kbps').value = ls.getItem('fb_transcode_video_kbps') || '3000';
+    document.getElementById('tc-audio-kbps').value = ls.getItem('fb_transcode_audio_kbps') || '128';
+    var ahlsCb = document.getElementById('cb-audio-hls');
+    if (ahlsCb) ahlsCb.checked = ls.getItem('fb_audio_hls_enabled') !== '0';
+    document.getElementById('audio-hls-threshold').value = ls.getItem('fb_audio_hls_threshold_kbps') || '320';
+    var fo = !!ls.getItem('fb_force_original');
     var cb = document.getElementById('cb-force-original');
     if (cb) cb.checked = fo;
+    var dv = parseFloat(ls.getItem('fb_default_volume'));
+    if (isNaN(dv)) dv = 1;
+    dv = Math.max(0, Math.min(1, dv));
     var sl = document.getElementById('vol-slider');
     if (sl) {
       var pct = Math.round(dv * 100);
@@ -2707,8 +2875,6 @@ const settingsTmpl = `{{define "content"}}
       document.getElementById('vol-display').textContent = pct;
       document.getElementById('vol-val').value = dv;
     }
-    var ahlsCb = document.getElementById('cb-audio-hls');
-    if (ahlsCb) ahlsCb.checked = {{if .Settings.AudioHLS}}true{{else}}false{{end}};
   } catch(e) {}
 })();
 function reindexFiles(btn) {
@@ -2749,19 +2915,17 @@ function showSavedToast() {
 }
 function saveTranscodeSetting(key, value) {
   if (value === '') return;
-  var fd = new URLSearchParams();
-  fd.append(key, value);
-  fetch('/settings', {method: 'POST', body: fd})
-    .then(function(r) { if (r.ok) showSavedToast(); });
+  try { localStorage.setItem('fb_transcode_' + key, value); } catch(e) {}
+  showSavedToast();
 }
 function saveAudioHLSSettings() {
   var enabled = document.getElementById('cb-audio-hls').checked;
   var threshold = document.getElementById('audio-hls-threshold').value;
-  var fd = new URLSearchParams();
-  fd.append('audio_hls_enabled', enabled ? '1' : '');
-  fd.append('audio_hls_threshold_kbps', threshold);
-  fetch('/settings', {method: 'POST', body: fd})
-    .then(function(r) { if (r.ok) showSavedToast(); });
+  try {
+    localStorage.setItem('fb_audio_hls_enabled', enabled ? '1' : '0');
+    if (threshold) localStorage.setItem('fb_audio_hls_threshold_kbps', threshold);
+  } catch(e) {}
+  showSavedToast();
 }
 function savePlaybackSettings() {
   var fo = document.getElementById('cb-force-original').checked;
@@ -2771,12 +2935,14 @@ function savePlaybackSettings() {
     fo ? localStorage.setItem('fb_force_original', '1') : localStorage.removeItem('fb_force_original');
     localStorage.setItem('fb_default_volume', String(dv));
   } catch(e) {}
-  var fd = new URLSearchParams();
-  fd.append('save_playback', '1');
-  fd.append('force_original', fo ? '1' : '');
-  fd.append('default_volume', String(dv));
-  fetch('/settings', {method: 'POST', body: fd})
-    .then(function(r) { if (r.ok) showSavedToast(); });
+  showSavedToast();
 }
+document.querySelectorAll('.path-size-cell').forEach(function(cell) {
+  var p = cell.dataset.path;
+  fetch('/api/path-size?path=' + encodeURIComponent(p))
+    .then(function(r) { return r.json(); })
+    .then(function(d) { cell.textContent = d.gb.toFixed(1); })
+    .catch(function() { cell.textContent = '—'; });
+});
 </script>
 {{end}}`
