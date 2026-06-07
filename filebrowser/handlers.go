@@ -1721,28 +1721,34 @@ func (a *App) handleFavoritesPage(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	userID := uid(r)
 
-	// Fetch indexed path prefixes for display trimming.
-	var indexedPrefixes []string
+	// Fetch indexed roots for display trimming.
+	// Strategy: find the longest matching indexed root, then strip its parent.
+	// E.g. indexed root /blue2t/music/Classical → strip /blue2t/music/ → show Classical/Bach/...
+	var indexedRoots []string
 	if ipRows, err := a.db.Query(ctx, `SELECT path FROM indexed_paths WHERE user_id = $1 AND enabled = TRUE`, userID); err == nil {
 		for ipRows.Next() {
 			var p string
 			if ipRows.Scan(&p) == nil {
-				indexedPrefixes = append(indexedPrefixes, strings.TrimRight(p, "/")+"/")
+				indexedRoots = append(indexedRoots, strings.TrimRight(p, "/"))
 			}
 		}
 		ipRows.Close()
 	}
 	trimPath := func(p string) string {
 		best := ""
-		for _, prefix := range indexedPrefixes {
-			if strings.HasPrefix(p, prefix) && (best == "" || len(prefix) < len(best)) {
-				best = prefix
+		for _, root := range indexedRoots {
+			if (strings.HasPrefix(p, root+"/") || p == root) && len(root) > len(best) {
+				best = root
 			}
 		}
 		if best == "" {
 			return p
 		}
-		rel := strings.TrimRight(strings.TrimPrefix(p, best), "/")
+		parent := filepath.Dir(best)
+		if parent == "." || parent == "/" {
+			return p
+		}
+		rel := strings.TrimRight(strings.TrimPrefix(p, parent+"/"), "/")
 		if rel == "" {
 			return p
 		}
