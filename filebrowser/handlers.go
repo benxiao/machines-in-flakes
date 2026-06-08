@@ -1687,6 +1687,47 @@ func (a *App) handleHLSSegment(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (a *App) handleTranscodeStream(w http.ResponseWriter, r *http.Request) {
+	if a.ffmpegPath == "" {
+		http.Error(w, "transcoding not configured", http.StatusServiceUnavailable)
+		return
+	}
+	rawPath := r.URL.Query().Get("path")
+	if rawPath == "" {
+		http.NotFound(w, r)
+		return
+	}
+	absPath := filepath.Clean(rawPath)
+	if !a.isAllowedPath(r, absPath) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	info, err := os.Stat(absPath)
+	if err != nil || info.IsDir() {
+		http.NotFound(w, r)
+		return
+	}
+	audioKbps := 128
+	if n, err := strconv.Atoi(r.URL.Query().Get("audio_kbps")); err == nil && n > 0 && n <= 1024 {
+		audioKbps = n
+	}
+	args := []string{
+		"-y", "-i", absPath,
+		"-vn",
+		"-c:a", "aac", "-b:a", fmt.Sprintf("%dk", audioKbps),
+		"-f", "adts", "pipe:1",
+	}
+	cmd := exec.CommandContext(r.Context(), a.ffmpegPath, args...)
+	var stderr bytes.Buffer
+	cmd.Stdout = w
+	cmd.Stderr = &stderr
+	w.Header().Set("Content-Type", "audio/aac")
+	w.Header().Set("Cache-Control", "private, max-age=3600")
+	if err := cmd.Run(); err != nil {
+		log.Printf("transcode stream %s: %v\n%s", absPath, err, stderr.String())
+	}
+}
+
 func (a *App) handleTopPlayed(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.Query(r.Context(), `
 		SELECT fi.path, fi.filename, fi.file_type, vp.watch_count

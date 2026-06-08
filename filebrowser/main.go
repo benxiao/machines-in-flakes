@@ -179,6 +179,7 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /thumbnail", a.handleThumbnail)
 	mux.HandleFunc("GET /hls/playlist", a.handleHLSPlaylist)
 	mux.HandleFunc("GET /hls/segment", a.handleHLSSegment)
+	mux.HandleFunc("GET /transcode/stream", a.handleTranscodeStream)
 	mux.HandleFunc("GET /video/position", a.handleGetVideoPosition)
 	mux.HandleFunc("POST /video/position", a.handleSaveVideoPosition)
 	mux.HandleFunc("GET /play/stats", a.handlePlayStats)

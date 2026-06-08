@@ -1908,7 +1908,15 @@ function plStartPreload(idx) {
   if (!PLAYLIST_ITEMS || idx < 0 || idx >= PLAYLIST_ITEMS.length) return;
   var item = PLAYLIST_ITEMS[idx];
   if (item.FileType !== 'audio') return;
-  var url = '/file?path=' + encodeURIComponent(item.Path);
+  var _losslessP = {'.flac':1,'.wav':1,'.aiff':1,'.alac':1,'.ape':1};
+  var _extP = item.Path.slice(item.Path.lastIndexOf('.')).toLowerCase();
+  var url;
+  if (MOBILE && !!_losslessP[_extP]) {
+    var _kbps = '128'; try { _kbps = localStorage.getItem('fb_transcode_audio_kbps') || '128'; } catch(e) {}
+    url = '/transcode/stream?path=' + encodeURIComponent(item.Path) + '&audio_kbps=' + _kbps;
+  } else {
+    url = '/file?path=' + encodeURIComponent(item.Path);
+  }
   if (_plPreload.path === url) return;
   if (_plPreload.ctrl) _plPreload.ctrl.abort();
   if (_plPreload.blobUrl) URL.revokeObjectURL(_plPreload.blobUrl);
@@ -1976,7 +1984,8 @@ function startPlaylistItem(idx, seekTo, autoplay) {
   var _needsHlsExts = {'.wmv':1,'.avi':1,'.mkv':1,'.flv':1,'.mov':1};
   var _ext = item.Path.slice(item.Path.lastIndexOf('.')).toLowerCase();
   var _forceHLS = !!_needsHlsExts[_ext];
-  var usesHLS = (MOBILE || _forceHLS) && item.FileType === 'video' || (MOBILE && !!_losslessExts[_ext]);
+  var usesHLS = (MOBILE || _forceHLS) && item.FileType === 'video';
+  var usesTranscode = MOBILE && item.FileType === 'audio' && !!_losslessExts[_ext];
   if (item.FileType === 'video' || usesHLS) {
     if (a.hlsInstance) { a.hlsInstance.destroy(); a.hlsInstance = null; }
     if (item.FileType !== 'video') { a.pause(); }
@@ -1989,11 +1998,31 @@ function startPlaylistItem(idx, seekTo, autoplay) {
         v.preload = 'auto'; v.src = fileUrl; v.load();
         v.addEventListener('loadedmetadata', function() { startPlayback(v); }, {once: true});
       }
-    } else {
-      if (_plActiveBlobUrl) { URL.revokeObjectURL(_plActiveBlobUrl); _plActiveBlobUrl = null; }
-      media = a; a.style.display = 'block'; a.volume = DEFAULT_VOL; _plUpdateAudioUI();
-      attachVideo(a, '/hls/playlist?path=' + encodeURIComponent(item.Path) + hlsParams(), fileUrl, startPlayback);
     }
+  } else if (usesTranscode) {
+    var _tkbps; try { _tkbps = localStorage.getItem('fb_transcode_audio_kbps') || '128'; } catch(e) { _tkbps = '128'; }
+    var transcodeUrl = '/transcode/stream?path=' + encodeURIComponent(item.Path) + '&audio_kbps=' + _tkbps;
+    media = a; a.style.display = 'block'; a.volume = DEFAULT_VOL; _plUpdateAudioUI();
+    if (a.hlsInstance) { a.hlsInstance.destroy(); a.hlsInstance = null; }
+    if (_plActiveBlobUrl) { URL.revokeObjectURL(_plActiveBlobUrl); _plActiveBlobUrl = null; }
+    plStartPreload(idx);
+    document.getElementById('pl-badge').textContent = 'Loading…';
+    var _loadIdx = idx;
+    var _loadPoll = setInterval(function() {
+      if (plCurrentIdx !== _loadIdx) { clearInterval(_loadPoll); return; }
+      if (_plPreload.path === transcodeUrl && _plPreload.blobUrl) {
+        clearInterval(_loadPoll);
+        document.getElementById('pl-badge').textContent = '';
+        var b = _plPreload.blobUrl;
+        _plActiveBlobUrl = b; _plPreload = {path: null, blobUrl: null, ctrl: null};
+        a.src = b;
+        if (seekTo > 1) {
+          a.addEventListener('loadedmetadata', function() { startPlayback(a); }, {once: true});
+        } else { plPlay(a); }
+        var _pIdx = idx + 1;
+        setTimeout(function() { if (plCurrentIdx === idx) plStartPreload(_pIdx); }, 2000);
+      }
+    }, 50);
   } else {
     media = a;
     a.style.display = 'block'; a.volume = DEFAULT_VOL; _plUpdateAudioUI();
