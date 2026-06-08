@@ -2840,23 +2840,7 @@ const settingsTmpl = `{{define "content"}}
                onchange="saveTranscodeSetting('audio_kbps', this.value)">
       </div>
     </div>
-    <p class="muted" style="font-size:12px;margin-top:8px">Changes apply to new HLS segments immediately.</p>
-  </div>
-</div>
-<div class="section">
-  <div class="section-header"><h3>Audio HLS</h3></div>
-  <div class="form-page">
-    <div class="form-group" style="flex-direction:row;align-items:center;gap:10px;border:none;padding:0">
-      <input type="checkbox" id="cb-audio-hls" style="width:auto;cursor:pointer;margin:0"
-             onchange="saveAudioHLSSettings()">
-      <label for="cb-audio-hls" style="cursor:pointer;margin:0;font-weight:normal">Enable audio HLS transcoding (lossless files on mobile)</label>
-    </div>
-    <div class="form-group" style="margin-top:14px">
-      <label>Lossless threshold (kbps) <span class="muted" style="font-weight:normal">— files above this bitrate get transcoded</span></label>
-      <input type="number" id="audio-hls-threshold" value="320" min="64" max="9999" style="max-width:120px"
-             onchange="saveAudioHLSSettings()">
-    </div>
-    <p class="muted" style="font-size:12px;margin-top:4px">FLAC/WAV are typically 600–3000 kbps. Default threshold of 320 kbps catches all lossless formats.</p>
+    <p class="muted" style="font-size:12px;margin-top:8px">Changes apply to new HLS sessions immediately. On mobile, lossless audio (FLAC/WAV/AIFF) is transcoded to AAC using the Audio bitrate setting above — audio is fully buffered before playback for gapless transitions.</p>
   </div>
 </div>
 <div class="section">
@@ -2888,9 +2872,6 @@ const settingsTmpl = `{{define "content"}}
     document.getElementById('tc-segment-sec').value = ls.getItem('fb_transcode_segment_sec') || '6';
     document.getElementById('tc-video-kbps').value = ls.getItem('fb_transcode_video_kbps') || '3000';
     document.getElementById('tc-audio-kbps').value = ls.getItem('fb_transcode_audio_kbps') || '128';
-    var ahlsCb = document.getElementById('cb-audio-hls');
-    if (ahlsCb) ahlsCb.checked = ls.getItem('fb_audio_hls_enabled') !== '0';
-    document.getElementById('audio-hls-threshold').value = ls.getItem('fb_audio_hls_threshold_kbps') || '320';
     var fo = !!ls.getItem('fb_force_original');
     var cb = document.getElementById('cb-force-original');
     if (cb) cb.checked = fo;
@@ -2945,15 +2926,6 @@ function showSavedToast() {
 function saveTranscodeSetting(key, value) {
   if (value === '') return;
   try { localStorage.setItem('fb_transcode_' + key, value); } catch(e) {}
-  showSavedToast();
-}
-function saveAudioHLSSettings() {
-  var enabled = document.getElementById('cb-audio-hls').checked;
-  var threshold = document.getElementById('audio-hls-threshold').value;
-  try {
-    localStorage.setItem('fb_audio_hls_enabled', enabled ? '1' : '0');
-    if (threshold) localStorage.setItem('fb_audio_hls_threshold_kbps', threshold);
-  } catch(e) {}
   showSavedToast();
 }
 function savePlaybackSettings() {
