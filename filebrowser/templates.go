@@ -1910,9 +1910,10 @@ function plStartPreload(idx) {
   if (item.FileType !== 'audio') return;
   var _losslessP = {'.flac':1,'.wav':1,'.aiff':1,'.alac':1,'.ape':1};
   var _extP = item.Path.slice(item.Path.lastIndexOf('.')).toLowerCase();
+  var _ltEnabled = true; try { _ltEnabled = localStorage.getItem('fb_lossless_transcode_enabled') !== '0'; } catch(e) {}
   var url;
-  if (MOBILE && !!_losslessP[_extP]) {
-    var _kbps = '128'; try { _kbps = localStorage.getItem('fb_transcode_audio_kbps') || '128'; } catch(e) {}
+  if (MOBILE && !!_losslessP[_extP] && _ltEnabled) {
+    var _kbps = '256'; try { _kbps = localStorage.getItem('fb_lossless_audio_kbps') || '256'; } catch(e) {}
     url = '/transcode/stream?path=' + encodeURIComponent(item.Path) + '&audio_kbps=' + _kbps;
   } else {
     url = '/file?path=' + encodeURIComponent(item.Path);
@@ -1985,7 +1986,8 @@ function startPlaylistItem(idx, seekTo, autoplay) {
   var _ext = item.Path.slice(item.Path.lastIndexOf('.')).toLowerCase();
   var _forceHLS = !!_needsHlsExts[_ext];
   var usesHLS = (MOBILE || _forceHLS) && item.FileType === 'video';
-  var usesTranscode = MOBILE && item.FileType === 'audio' && !!_losslessExts[_ext];
+  var _ltOn = true; try { _ltOn = localStorage.getItem('fb_lossless_transcode_enabled') !== '0'; } catch(e) {}
+  var usesTranscode = MOBILE && item.FileType === 'audio' && !!_losslessExts[_ext] && _ltOn;
   if (item.FileType === 'video' || usesHLS) {
     if (a.hlsInstance) { a.hlsInstance.destroy(); a.hlsInstance = null; }
     if (item.FileType !== 'video') { a.pause(); }
@@ -2000,7 +2002,7 @@ function startPlaylistItem(idx, seekTo, autoplay) {
       }
     }
   } else if (usesTranscode) {
-    var _tkbps; try { _tkbps = localStorage.getItem('fb_transcode_audio_kbps') || '128'; } catch(e) { _tkbps = '128'; }
+    var _tkbps; try { _tkbps = localStorage.getItem('fb_lossless_audio_kbps') || '256'; } catch(e) { _tkbps = '256'; }
     var transcodeUrl = '/transcode/stream?path=' + encodeURIComponent(item.Path) + '&audio_kbps=' + _tkbps;
     media = a; a.style.display = 'block'; a.volume = DEFAULT_VOL; _plUpdateAudioUI();
     if (a.hlsInstance) { a.hlsInstance.destroy(); a.hlsInstance = null; }
@@ -2840,7 +2842,23 @@ const settingsTmpl = `{{define "content"}}
                onchange="saveTranscodeSetting('audio_kbps', this.value)">
       </div>
     </div>
-    <p class="muted" style="font-size:12px;margin-top:8px">Changes apply to new HLS sessions immediately. On mobile, lossless audio (FLAC/WAV/AIFF) is transcoded to AAC using the Audio bitrate setting above — audio is fully buffered before playback for gapless transitions.</p>
+    <p class="muted" style="font-size:12px;margin-top:8px">Changes apply to new HLS sessions immediately.</p>
+  </div>
+</div>
+<div class="section">
+  <div class="section-header"><h3>Lossless Audio (Mobile)</h3></div>
+  <div class="form-page">
+    <div class="form-group" style="flex-direction:row;align-items:center;gap:10px;border:none;padding:0">
+      <input type="checkbox" id="cb-lossless-transcode" style="width:auto;cursor:pointer;margin:0"
+             onchange="saveLosslessSettings()">
+      <label for="cb-lossless-transcode" style="cursor:pointer;margin:0;font-weight:normal">Transcode lossless audio to AAC on mobile</label>
+    </div>
+    <div class="form-group" style="margin-top:14px" id="lossless-kbps-row">
+      <label>Bitrate (kbps)</label>
+      <input type="number" id="lossless-audio-kbps" value="256" min="64" max="512" style="max-width:120px"
+             onchange="saveLosslessSettings()">
+    </div>
+    <p class="muted" style="font-size:12px;margin-top:4px">When enabled, FLAC/WAV/AIFF/ALAC/APE are transcoded to AAC and fully buffered before playback — gapless transitions, full seeking, lower bandwidth. When disabled, the original file is served directly.</p>
   </div>
 </div>
 <div class="section">
@@ -2872,6 +2890,12 @@ const settingsTmpl = `{{define "content"}}
     document.getElementById('tc-segment-sec').value = ls.getItem('fb_transcode_segment_sec') || '6';
     document.getElementById('tc-video-kbps').value = ls.getItem('fb_transcode_video_kbps') || '3000';
     document.getElementById('tc-audio-kbps').value = ls.getItem('fb_transcode_audio_kbps') || '128';
+    var ltCb = document.getElementById('cb-lossless-transcode');
+    if (ltCb) {
+      ltCb.checked = ls.getItem('fb_lossless_transcode_enabled') !== '0';
+      document.getElementById('lossless-kbps-row').style.display = ltCb.checked ? '' : 'none';
+    }
+    document.getElementById('lossless-audio-kbps').value = ls.getItem('fb_lossless_audio_kbps') || '256';
     var fo = !!ls.getItem('fb_force_original');
     var cb = document.getElementById('cb-force-original');
     if (cb) cb.checked = fo;
@@ -2926,6 +2950,16 @@ function showSavedToast() {
 function saveTranscodeSetting(key, value) {
   if (value === '') return;
   try { localStorage.setItem('fb_transcode_' + key, value); } catch(e) {}
+  showSavedToast();
+}
+function saveLosslessSettings() {
+  var enabled = document.getElementById('cb-lossless-transcode').checked;
+  var kbps = document.getElementById('lossless-audio-kbps').value;
+  try {
+    localStorage.setItem('fb_lossless_transcode_enabled', enabled ? '1' : '0');
+    if (kbps) localStorage.setItem('fb_lossless_audio_kbps', kbps);
+  } catch(e) {}
+  document.getElementById('lossless-kbps-row').style.display = enabled ? '' : 'none';
   showSavedToast();
 }
 function savePlaybackSettings() {
