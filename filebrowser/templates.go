@@ -2799,8 +2799,13 @@ const settingsTmpl = `{{define "content"}}
 </div>
 {{end}}
 <div class="section">
-  <div class="section-header"><h3>Video Transcoding</h3></div>
+  <div class="section-header"><h3>Video Transcoding (Mobile)</h3></div>
   <div class="form-page" style="max-width:680px">
+    <div class="form-group" style="flex-direction:row;align-items:center;gap:10px;border:none;padding:0;margin-bottom:16px">
+      <input type="checkbox" id="cb-force-original" style="width:auto;cursor:pointer;margin:0"
+             onchange="savePlaybackSettings()">
+      <label for="cb-force-original" style="cursor:pointer;margin:0;font-weight:normal">Enable video transcoding on mobile</label>
+    </div>
     <div class="settings-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:0 24px">
       <div class="form-group">
         <label>Quality (CRF) <span class="muted" style="font-weight:normal">— lower = better, 18–28 typical</span></label>
@@ -2846,7 +2851,7 @@ const settingsTmpl = `{{define "content"}}
   </div>
 </div>
 <div class="section">
-  <div class="section-header"><h3>Lossless Audio (Mobile)</h3></div>
+  <div class="section-header"><h3>Lossless Audio Transcoding (Mobile)</h3></div>
   <div class="form-page">
     <div class="form-group" style="flex-direction:row;align-items:center;gap:10px;border:none;padding:0">
       <input type="checkbox" id="cb-lossless-transcode" style="width:auto;cursor:pointer;margin:0"
@@ -2865,11 +2870,6 @@ const settingsTmpl = `{{define "content"}}
   <div class="section-header"><h3>Playback</h3></div>
   <div class="form-page">
     <div class="form-group" style="flex-direction:row;align-items:center;gap:10px;border:none;padding:0">
-      <input type="checkbox" id="cb-force-original" style="width:auto;cursor:pointer;margin:0"
-             onchange="savePlaybackSettings()">
-      <label for="cb-force-original" style="cursor:pointer;margin:0;font-weight:normal">Force original video on all devices</label>
-    </div>
-    <div class="form-group" style="flex-direction:row;align-items:center;gap:10px;border:none;padding:0;margin-top:12px">
       <label for="vol-slider" style="margin:0;white-space:nowrap">Default volume: <span id="vol-display">100</span>%</label>
       <input type="range" id="vol-slider" min="0" max="100" value="100" style="width:180px;cursor:pointer;accent-color:#58a6ff"
              oninput="document.getElementById('vol-display').textContent=this.value;document.getElementById('vol-val').value=this.value/100"
@@ -2896,9 +2896,8 @@ const settingsTmpl = `{{define "content"}}
       document.getElementById('lossless-kbps-row').style.display = ltCb.checked ? '' : 'none';
     }
     document.getElementById('lossless-audio-kbps').value = ls.getItem('fb_lossless_audio_kbps') || '256';
-    var fo = !!ls.getItem('fb_force_original');
     var cb = document.getElementById('cb-force-original');
-    if (cb) cb.checked = fo;
+    if (cb) cb.checked = !ls.getItem('fb_force_original');
     var dv = parseFloat(ls.getItem('fb_default_volume'));
     if (isNaN(dv)) dv = 1;
     dv = Math.max(0, Math.min(1, dv));
@@ -2963,11 +2962,11 @@ function saveLosslessSettings() {
   showSavedToast();
 }
 function savePlaybackSettings() {
-  var fo = document.getElementById('cb-force-original').checked;
+  var enableTranscode = document.getElementById('cb-force-original').checked;
   var dv = parseFloat(document.getElementById('vol-val').value);
   if (isNaN(dv)) dv = 1;
   try {
-    fo ? localStorage.setItem('fb_force_original', '1') : localStorage.removeItem('fb_force_original');
+    enableTranscode ? localStorage.removeItem('fb_force_original') : localStorage.setItem('fb_force_original', '1');
     localStorage.setItem('fb_default_volume', String(dv));
   } catch(e) {}
   showSavedToast();
