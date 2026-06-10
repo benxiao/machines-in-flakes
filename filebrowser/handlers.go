@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -1711,11 +1712,30 @@ func (a *App) handleTranscodeStream(w http.ResponseWriter, r *http.Request) {
 	if n, err := strconv.Atoi(r.URL.Query().Get("audio_kbps")); err == nil && n > 0 && n <= 1024 {
 		audioKbps = n
 	}
-	args := []string{
-		"-y", "-i", absPath,
-		"-vn",
-		"-c:a", "aac", "-b:a", fmt.Sprintf("%dk", audioKbps),
-		"-f", "adts", "pipe:1",
+	// Sources that are already AAC (m4a/aac) remux losslessly to ADTS instead
+	// of re-encoding, so this endpoint is safe as the universal audio path.
+	codec := ""
+	ffprobePath := filepath.Join(filepath.Dir(a.ffmpegPath), "ffprobe")
+	if out, err := exec.CommandContext(r.Context(), ffprobePath,
+		"-v", "error", "-select_streams", "a:0",
+		"-show_entries", "stream=codec_name", "-of", "csv=p=0", absPath).Output(); err == nil {
+		codec = strings.TrimSpace(string(out))
+	}
+	var args []string
+	if codec == "aac" {
+		args = []string{
+			"-y", "-i", absPath,
+			"-vn",
+			"-c:a", "copy",
+			"-f", "adts", "pipe:1",
+		}
+	} else {
+		args = []string{
+			"-y", "-i", absPath,
+			"-vn",
+			"-c:a", "aac", "-b:a", fmt.Sprintf("%dk", audioKbps),
+			"-f", "adts", "pipe:1",
+		}
 	}
 	cmd := exec.CommandContext(r.Context(), a.ffmpegPath, args...)
 	var stderr bytes.Buffer
@@ -1726,6 +1746,21 @@ func (a *App) handleTranscodeStream(w http.ResponseWriter, r *http.Request) {
 	if err := cmd.Run(); err != nil {
 		log.Printf("transcode stream %s: %v\n%s", absPath, err, stderr.String())
 	}
+}
+
+// handleClientLog lets the mobile player beacon diagnostic events into the
+// server journal, since background playback failures on the phone are
+// otherwise unobservable (no devtools with the screen off).
+func (a *App) handleClientLog(w http.ResponseWriter, r *http.Request) {
+	b, _ := io.ReadAll(io.LimitReader(r.Body, 2048))
+	msg := strings.Map(func(c rune) rune {
+		if c == '\n' || c == '\r' {
+			return ' '
+		}
+		return c
+	}, string(b))
+	log.Printf("[client u=%d] %s", uid(r), msg)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *App) handleTopPlayed(w http.ResponseWriter, r *http.Request) {
@@ -1756,6 +1791,47 @@ func (a *App) handleTopPlayed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	render(w, "top-played", TopPlayedPage{ActiveTab: "top-played", IsAdmin: isAdmin(r), Items: items})
+}
+
+// handleFolderPlay renders the playlist player for a folder's audio files, so
+// mobile album playback runs on the gapless MSE engine instead of the preview
+// modal (whose per-track src swap lets Android freeze the page in background).
+func (a *App) handleFolderPlay(w http.ResponseWriter, r *http.Request) {
+	file := r.URL.Query().Get("file")
+	dir := r.URL.Query().Get("dir")
+	if dir == "" && file != "" {
+		dir = filepath.Dir(file)
+	}
+	if dir == "" {
+		http.NotFound(w, r)
+		return
+	}
+	dir = filepath.Clean(dir)
+	if !a.isAllowedPath(r, dir) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	var items []PlaylistItem
+	startIdx := 0
+	for _, e := range entries {
+		if e.IsDir() || classifyExt(filepath.Ext(e.Name())) != "audio" {
+			continue
+		}
+		p := filepath.Join(dir, e.Name())
+		if file != "" && p == filepath.Clean(file) {
+			startIdx = len(items)
+		}
+		items = append(items, PlaylistItem{Path: p, Name: e.Name(), FileType: "audio"})
+	}
+	render(w, "folder-play", FolderPlayPage{
+		ActiveTab: "browse", IsAdmin: isAdmin(r),
+		Folder: filepath.Base(dir), Dir: dir, StartIdx: startIdx, Items: items,
+	})
 }
 
 func (a *App) handleFavoritesPage(w http.ResponseWriter, r *http.Request) {
