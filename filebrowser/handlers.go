@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io"
@@ -19,6 +20,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -550,10 +552,35 @@ func (a *App) handlePathToggle(w http.ResponseWriter, r *http.Request) {
 // ---- Search ----
 
 type SearchResult struct {
-	DirPath    string `json:"dir_path"`
-	MatchCount int64  `json:"match_count"`
-	SamplePath string `json:"sample_path"`
-	SampleType string `json:"sample_type"`
+	DirPath    string       `json:"dir_path"`
+	MatchCount int64        `json:"match_count"`
+	SamplePath string       `json:"sample_path"`
+	SampleType string       `json:"sample_type"`
+	Files      []SearchFile `json:"files"`
+}
+
+type SearchFile struct {
+	Path string `json:"path"`
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+// searchTermConds builds one (filename OR folder-name) LIKE condition per
+// whitespace-separated query term, so word order doesn't matter and a folder
+// named "Pink Floyd" is found by its name even when its files aren't.
+func searchTermConds(q string, args *[]any) []string {
+	terms := strings.Fields(strings.ToLower(q))
+	if len(terms) > 5 {
+		terms = terms[:5]
+	}
+	var conds []string
+	for _, t := range terms {
+		*args = append(*args, "%"+t+"%")
+		n := len(*args)
+		conds = append(conds, fmt.Sprintf(
+			"(lower(fi.filename) LIKE $%d OR lower(substring(fi.dir_path from '[^/]+$')) LIKE $%d)", n, n))
+	}
+	return conds
 }
 
 func (a *App) handleSearchStatus(w http.ResponseWriter, r *http.Request) {
@@ -642,6 +669,58 @@ func (a *App) reindexUser(ctx context.Context, userID int64) {
 	}
 
 	log.Printf("reindex: user %d indexed %d files", userID, len(entries))
+
+	if a.ffmpegPath != "" {
+		var thumbable []string
+		for _, e := range entries {
+			if e.fileType == "video" || e.fileType == "photo" {
+				thumbable = append(thumbable, e.path)
+			}
+		}
+		go a.pregenThumbs(thumbable)
+	}
+}
+
+// pregenThumbs fills the thumbnail cache in the background after a reindex,
+// so grid views don't generate on demand. One pass at a time process-wide;
+// interactive requests share thumbSem and compete fairly.
+func (a *App) pregenThumbs(paths []string) {
+	if !a.pregenBusy.CompareAndSwap(false, true) {
+		return
+	}
+	defer a.pregenBusy.Store(false)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+	var made, failed int
+	for _, p := range paths {
+		if ctx.Err() != nil {
+			break
+		}
+		cacheFile := thumbCachePath(p)
+		if _, err := os.Stat(cacheFile); err == nil {
+			continue
+		}
+		acquired := false
+		select {
+		case thumbSem <- struct{}{}:
+			acquired = true
+		case <-ctx.Done():
+		}
+		if !acquired {
+			break
+		}
+		err := a.generateThumb(ctx, p, cacheFile, classifyExt(filepath.Ext(p)))
+		<-thumbSem
+		if err != nil {
+			failed++
+		} else {
+			made++
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if made > 0 || failed > 0 {
+		log.Printf("thumb pregen: generated %d, failed %d (of %d candidates)", made, failed, len(paths))
+	}
 }
 
 func (a *App) handleSearchReindex(w http.ResponseWriter, r *http.Request) {
@@ -669,19 +748,28 @@ func (a *App) handleSearch(w http.ResponseWriter, r *http.Request) {
 	if offset < 0 {
 		offset = 0
 	}
+	// $3 is the full lowered query, used only for prefix-match ranking:
+	// folders whose name starts with the query outrank filename prefix
+	// matches, which outrank plain substring matches; ties break on size.
+	args := []any{uid(r), typ, strings.ToLower(q)}
+	conds := searchTermConds(q, &args)
+	args = append(args, offset)
 	rows, err := a.db.Query(r.Context(), `
 		SELECT fi.dir_path,
 		       COUNT(*) AS match_count,
-		       MIN(fi.path) AS sample_path,
-		       MIN(fi.file_type) AS sample_type
+		       (array_agg(fi.path ORDER BY fi.filename))[1:3] AS sample_paths,
+		       (array_agg(fi.filename ORDER BY fi.filename))[1:3] AS sample_names,
+		       (array_agg(fi.file_type ORDER BY fi.filename))[1:3] AS sample_types,
+		       MAX(CASE WHEN lower(substring(fi.dir_path from '[^/]+$')) LIKE $3 || '%' THEN 3
+		                WHEN lower(fi.filename) LIKE $3 || '%' THEN 2
+		                ELSE 1 END) AS rank
 		FROM file_index fi
 		WHERE fi.user_id = $1
-		  AND lower(fi.filename) LIKE '%' || lower($2) || '%'
-		  AND ($3 = 'all' OR fi.file_type = $3)
+		  AND ($2 = 'all' OR fi.file_type = $2)
+		  AND `+strings.Join(conds, "\n		  AND ")+`
 		GROUP BY fi.dir_path
-		ORDER BY COUNT(*) DESC, fi.dir_path
-		LIMIT 20 OFFSET $4
-	`, uid(r), q, typ, offset)
+		ORDER BY rank DESC, COUNT(*) DESC, fi.dir_path
+		LIMIT 20 OFFSET $`+strconv.Itoa(len(args)), args...)
 	if err != nil {
 		httpErr(w, err, 500)
 		return
@@ -690,14 +778,69 @@ func (a *App) handleSearch(w http.ResponseWriter, r *http.Request) {
 	var results []SearchResult
 	for rows.Next() {
 		var sr SearchResult
-		if rows.Scan(&sr.DirPath, &sr.MatchCount, &sr.SamplePath, &sr.SampleType) == nil {
-			results = append(results, sr)
+		var paths, names, types []string
+		var rank int
+		if rows.Scan(&sr.DirPath, &sr.MatchCount, &paths, &names, &types, &rank) != nil {
+			continue
 		}
+		for i := range paths {
+			if i < len(names) && i < len(types) {
+				sr.Files = append(sr.Files, SearchFile{Path: paths[i], Name: names[i], Type: types[i]})
+			}
+		}
+		if len(sr.Files) > 0 {
+			sr.SamplePath = sr.Files[0].Path
+			sr.SampleType = sr.Files[0].Type
+		}
+		results = append(results, sr)
 	}
 	if results == nil {
 		results = []SearchResult{}
 	}
 	json.NewEncoder(w).Encode(results)
+}
+
+// handleSearchFiles lists the matching files inside one folder, for expanding
+// a grouped search result in place. Same term semantics as handleSearch.
+func (a *App) handleSearchFiles(w http.ResponseWriter, r *http.Request) {
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	dir := r.URL.Query().Get("dir")
+	typ := r.URL.Query().Get("type")
+	if typ == "" {
+		typ = "all"
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if len(q) < 2 || dir == "" {
+		w.Write([]byte("[]"))
+		return
+	}
+	args := []any{uid(r), typ, dir}
+	conds := searchTermConds(q, &args)
+	rows, err := a.db.Query(r.Context(), `
+		SELECT fi.path, fi.filename, fi.file_type
+		FROM file_index fi
+		WHERE fi.user_id = $1
+		  AND ($2 = 'all' OR fi.file_type = $2)
+		  AND fi.dir_path = $3
+		  AND `+strings.Join(conds, "\n		  AND ")+`
+		ORDER BY fi.filename
+		LIMIT 50`, args...)
+	if err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	defer rows.Close()
+	var files []SearchFile
+	for rows.Next() {
+		var f SearchFile
+		if rows.Scan(&f.Path, &f.Name, &f.Type) == nil {
+			files = append(files, f)
+		}
+	}
+	if files == nil {
+		files = []SearchFile{}
+	}
+	json.NewEncoder(w).Encode(files)
 }
 
 // ---- Auth ----
@@ -1263,6 +1406,45 @@ func (a *App) handleSavePlaylistState(w http.ResponseWriter, r *http.Request) {
 
 const thumbCacheDir = "/var/lib/filebrowser/thumbs"
 
+// A grid view of a large folder can request dozens of thumbnails at once;
+// cap concurrent ffmpeg spawns.
+var thumbSem = make(chan struct{}, 3)
+
+func thumbCachePath(absPath string) string {
+	h := sha256.Sum256([]byte(absPath))
+	return filepath.Join(thumbCacheDir, hex.EncodeToString(h[:])+".jpg")
+}
+
+func (a *App) generateThumb(ctx context.Context, absPath, cacheFile, fileType string) error {
+	tmp := cacheFile + ".tmp"
+	var args []string
+	switch fileType {
+	case "video":
+		args = []string{"-y", "-ss", "10", "-i", absPath, "-vframes", "1", "-vf", "scale=320:-2", "-q:v", "5", "-f", "image2", tmp}
+	case "photo":
+		args = []string{"-y", "-i", absPath, "-vf", "scale=320:-2", "-q:v", "5", "-f", "image2", tmp}
+	default:
+		return fmt.Errorf("unsupported file type %q", fileType)
+	}
+	if err := os.MkdirAll(thumbCacheDir, 0755); err != nil {
+		return err
+	}
+	cmd := exec.CommandContext(ctx, a.ffmpegPath, args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("%v %s", err, stderr.String())
+	}
+	return os.Rename(tmp, cacheFile)
+}
+
+func serveThumb(w http.ResponseWriter, r *http.Request, cacheFile string) {
+	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("Cache-Control", "max-age=86400")
+	http.ServeFile(w, r, cacheFile)
+}
+
 func (a *App) handleThumbnail(w http.ResponseWriter, r *http.Request) {
 	rawPath := r.URL.Query().Get("path")
 	if rawPath == "" {
@@ -1275,13 +1457,9 @@ func (a *App) handleThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h := sha256.Sum256([]byte(absPath))
-	cacheFile := filepath.Join(thumbCacheDir, hex.EncodeToString(h[:])+".jpg")
-
+	cacheFile := thumbCachePath(absPath)
 	if _, err := os.Stat(cacheFile); err == nil {
-		w.Header().Set("Content-Type", "image/jpeg")
-		w.Header().Set("Cache-Control", "max-age=86400")
-		http.ServeFile(w, r, cacheFile)
+		serveThumb(w, r, cacheFile)
 		return
 	}
 
@@ -1291,34 +1469,27 @@ func (a *App) handleThumbnail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fileType := classifyExt(filepath.Ext(absPath))
-	var args []string
-	switch fileType {
-	case "video":
-		args = []string{"-y", "-ss", "10", "-i", absPath, "-vframes", "1", "-vf", "scale=320:-2", "-q:v", "5", "-f", "image2", cacheFile}
-	case "photo":
-		args = []string{"-y", "-i", absPath, "-vf", "scale=320:-2", "-q:v", "5", "-f", "image2", cacheFile}
-	default:
+	if fileType != "video" && fileType != "photo" {
 		http.NotFound(w, r)
 		return
 	}
 
-	if err := os.MkdirAll(thumbCacheDir, 0755); err != nil {
-		httpErr(w, err, 500)
+	select {
+	case thumbSem <- struct{}{}:
+	case <-r.Context().Done():
 		return
 	}
+	defer func() { <-thumbSem }()
 
-	cmd := exec.CommandContext(r.Context(), a.ffmpegPath, args...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		log.Printf("thumbnail %s: %v %s", absPath, err, stderr.String())
-		http.Error(w, "thumbnail generation failed", http.StatusInternalServerError)
-		return
+	// Another request may have generated it while we waited on the semaphore.
+	if _, err := os.Stat(cacheFile); err != nil {
+		if err := a.generateThumb(r.Context(), absPath, cacheFile, fileType); err != nil {
+			log.Printf("thumbnail %s: %v", absPath, err)
+			http.Error(w, "thumbnail generation failed", http.StatusInternalServerError)
+			return
+		}
 	}
-
-	w.Header().Set("Content-Type", "image/jpeg")
-	w.Header().Set("Cache-Control", "max-age=86400")
-	http.ServeFile(w, r, cacheFile)
+	serveThumb(w, r, cacheFile)
 }
 
 // ---- Transcoding settings ----
@@ -1639,53 +1810,139 @@ func (a *App) handleHLSSegment(w http.ResponseWriter, r *http.Request) {
 	}
 	ts := transcodeParamsFromRequest(r)
 	startSec := n * ts.SegmentSec
-	abr := fmt.Sprintf("%dk", ts.AudioKbps)
-	var args []string
+	w.Header().Set("Content-Type", "video/mp2t")
+
 	if classifyExt(filepath.Ext(absPath)) == "audio" {
-		args = []string{
+		args := []string{
 			"-y",
 			"-ss", strconv.Itoa(startSec),
 			"-i", absPath,
 			"-t", strconv.Itoa(ts.SegmentSec),
 			"-vn",
-			"-c:a", "aac", "-b:a", abr,
+			"-c:a", "aac", "-b:a", fmt.Sprintf("%dk", ts.AudioKbps),
 			"-output_ts_offset", strconv.Itoa(startSec),
 			"-muxdelay", "0", "-muxpreload", "0",
 			"-f", "mpegts", "pipe:1",
 		}
-	} else {
-		vbr := fmt.Sprintf("%dk", ts.VideoKbps)
-		args = []string{
-			"-y",
-			"-ss", strconv.Itoa(startSec),
-			"-i", absPath,
-			"-t", strconv.Itoa(ts.SegmentSec),
-			"-c:v", "libx264",
-			"-crf", strconv.Itoa(ts.CRF),
-			"-preset", ts.Preset,
+		cmd := exec.CommandContext(r.Context(), a.ffmpegPath, args...)
+		var stderr bytes.Buffer
+		cmd.Stdout = w
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			log.Printf("transcode segment %s/%d: %v\n%s", absPath, n, err, stderr.String())
+		}
+		return
+	}
+
+	useNvenc := a.nvencOK.Load()
+	cw := &countingWriter{w: w}
+	cmd := exec.CommandContext(r.Context(), a.ffmpegPath, videoSegmentArgs(ts, absPath, startSec, useNvenc)...)
+	var stderr bytes.Buffer
+	cmd.Stdout = cw
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		// nvenc init failures happen before any output; if nothing was written
+		// yet and the client is still there, retry the segment on the CPU.
+		if useNvenc && cw.n == 0 && r.Context().Err() == nil {
+			es := stderr.String()
+			// Hitting the consumer-card concurrent-session limit is transient;
+			// anything else (missing driver libs etc.) disables nvenc until restart.
+			if !strings.Contains(es, "OpenEncodeSessionEx") && !strings.Contains(es, "out of memory") {
+				a.nvencOK.Store(false)
+				log.Printf("nvenc disabled after failure")
+			}
+			log.Printf("nvenc segment %s/%d failed, retrying with libx264: %v\n%s", absPath, n, err, es)
+			stderr.Reset()
+			cmd = exec.CommandContext(r.Context(), a.ffmpegPath, videoSegmentArgs(ts, absPath, startSec, false)...)
+			cmd.Stdout = cw
+			cmd.Stderr = &stderr
+			if err := cmd.Run(); err != nil {
+				log.Printf("transcode segment %s/%d: %v\n%s", absPath, n, err, stderr.String())
+			}
+			return
+		}
+		log.Printf("transcode segment %s/%d: %v\n%s", absPath, n, err, stderr.String())
+	}
+}
+
+// nvenc presets run p1 (fastest) … p7 (slowest/best quality).
+var nvencPresetMap = map[string]string{
+	"ultrafast": "p1", "superfast": "p2", "veryfast": "p3", "faster": "p4",
+	"fast": "p4", "medium": "p5", "slow": "p6", "slower": "p7", "veryslow": "p7",
+}
+
+func videoEncoderArgs(ts TranscodeSettings, useNvenc bool) []string {
+	if useNvenc {
+		preset := nvencPresetMap[ts.Preset]
+		if preset == "" {
+			preset = "p4"
+		}
+		// CQ uses the same 0-51 scale as x264 CRF and tracks it closely
+		// under the bitrate caps applied below.
+		return []string{
+			"-c:v", "h264_nvenc",
+			"-rc", "vbr", "-cq", strconv.Itoa(ts.CRF),
+			"-preset", preset,
 			"-profile:v", "main", "-level", "4.0",
 			"-pix_fmt", "yuv420p",
 			"-bf", "0",
+			"-spatial-aq", "1",
 		}
-		if ts.MaxWidth > 0 {
-			args = append(args, "-vf", fmt.Sprintf("scale='min(%d,iw)':-2", ts.MaxWidth))
-		}
-		args = append(args,
-			"-b:v", vbr, "-maxrate", vbr, "-bufsize", fmt.Sprintf("%dk", ts.VideoKbps*2),
-			"-c:a", "aac", "-b:a", abr,
-			"-output_ts_offset", strconv.Itoa(startSec),
-			"-muxdelay", "0", "-muxpreload", "0",
-			"-f", "mpegts", "pipe:1",
-		)
 	}
-	cmd := exec.CommandContext(r.Context(), a.ffmpegPath, args...)
-	var stderr bytes.Buffer
-	cmd.Stdout = w
-	cmd.Stderr = &stderr
-	w.Header().Set("Content-Type", "video/mp2t")
-	if err := cmd.Run(); err != nil {
-		log.Printf("transcode segment %s/%d: %v\n%s", absPath, n, err, stderr.String())
+	return []string{
+		"-c:v", "libx264",
+		"-crf", strconv.Itoa(ts.CRF),
+		"-preset", ts.Preset,
+		"-profile:v", "main", "-level", "4.0",
+		"-pix_fmt", "yuv420p",
+		"-bf", "0",
 	}
+}
+
+func videoSegmentArgs(ts TranscodeSettings, absPath string, startSec int, useNvenc bool) []string {
+	vbr := fmt.Sprintf("%dk", ts.VideoKbps)
+	args := []string{
+		"-y",
+		"-ss", strconv.Itoa(startSec),
+		"-i", absPath,
+		"-t", strconv.Itoa(ts.SegmentSec),
+	}
+	args = append(args, videoEncoderArgs(ts, useNvenc)...)
+	// Decode and scale stay on the CPU; the GPU is encode-only. scale_cuda
+	// would need hwupload plumbing and complicates the -ss input seek.
+	if ts.MaxWidth > 0 {
+		args = append(args, "-vf", fmt.Sprintf("scale='min(%d,iw)':-2", ts.MaxWidth))
+	}
+	args = append(args,
+		"-b:v", vbr, "-maxrate", vbr, "-bufsize", fmt.Sprintf("%dk", ts.VideoKbps*2),
+		"-c:a", "aac", "-b:a", fmt.Sprintf("%dk", ts.AudioKbps),
+		"-output_ts_offset", strconv.Itoa(startSec),
+		"-muxdelay", "0", "-muxpreload", "0",
+		"-f", "mpegts", "pipe:1",
+	)
+	return args
+}
+
+type countingWriter struct {
+	w io.Writer
+	n int64
+}
+
+func (cw *countingWriter) Write(p []byte) (int, error) {
+	n, err := cw.w.Write(p)
+	cw.n += int64(n)
+	return n, err
+}
+
+// detectNVENC probes whether ffmpeg can open an h264_nvenc encode session
+// (needs libnvidia-encode/libcuda visible at runtime).
+func detectNVENC(ffmpegPath string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, ffmpegPath,
+		"-hide_banner", "-f", "lavfi", "-i", "color=black:s=256x256:d=0.2",
+		"-c:v", "h264_nvenc", "-f", "null", "-")
+	return cmd.Run() == nil
 }
 
 func (a *App) handleTranscodeStream(w http.ResponseWriter, r *http.Request) {
@@ -2041,4 +2298,388 @@ func (a *App) handleFavoriteReorder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ---- File operations (admin only) ----
+
+// fileOpCheck validates one source path for a file operation. It does not
+// write to the response so bulk handlers can report partial failures.
+func (a *App) fileOpCheck(r *http.Request, rawPath string) (string, error) {
+	if rawPath == "" {
+		return "", errors.New("empty path")
+	}
+	absPath := filepath.Clean(rawPath)
+	if !a.isAllowedPath(r, absPath) {
+		return "", errors.New("forbidden")
+	}
+	info, err := os.Lstat(absPath)
+	if err != nil {
+		return "", errors.New("not found")
+	}
+	if info.IsDir() {
+		return "", errors.New("files only")
+	}
+	return absPath, nil
+}
+
+// purgeFileRows removes all DB state for deleted files. Paths are global
+// identity, so rows for every user are removed.
+func (a *App) purgeFileRows(ctx context.Context, paths []string) error {
+	tx, err := a.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	for _, q := range []string{
+		`DELETE FROM file_index WHERE path = ANY($1)`,
+		`DELETE FROM video_positions WHERE path = ANY($1)`,
+		`DELETE FROM playlist_items WHERE path = ANY($1)`,
+		`DELETE FROM favorites WHERE path = ANY($1) AND is_folder = FALSE`,
+	} {
+		if _, err := tx.Exec(ctx, q, paths); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// repathFileRows points all DB state at a file's new path. Stale rows already
+// at the new path (leftovers from a previously deleted file) are removed
+// first so the unique constraints can't fail the UPDATEs.
+func (a *App) repathFileRows(ctx context.Context, oldPath, newPath string) error {
+	tx, err := a.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	steps := []struct {
+		q    string
+		args []any
+	}{
+		{`DELETE FROM file_index WHERE path = $1`, []any{newPath}},
+		{`UPDATE file_index SET path = $1, filename = $2, dir_path = $3 WHERE path = $4`,
+			[]any{newPath, filepath.Base(newPath), filepath.Dir(newPath), oldPath}},
+		{`DELETE FROM video_positions WHERE path = $1`, []any{newPath}},
+		{`UPDATE video_positions SET path = $1 WHERE path = $2`, []any{newPath, oldPath}},
+		{`DELETE FROM playlist_items WHERE path = $1`, []any{newPath}},
+		{`UPDATE playlist_items SET path = $1 WHERE path = $2`, []any{newPath, oldPath}},
+		{`DELETE FROM favorites WHERE path = $1 AND is_folder = FALSE`, []any{newPath}},
+		{`UPDATE favorites SET path = $1 WHERE path = $2 AND is_folder = FALSE`, []any{newPath, oldPath}},
+	}
+	for _, s := range steps {
+		if _, err := tx.Exec(ctx, s.q, s.args...); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// moveFile renames, falling back to copy+remove when source and destination
+// are on different filesystems (indexed roots span multiple ZFS pools).
+func moveFile(src, dst string) error {
+	err := os.Rename(src, dst)
+	if err == nil {
+		return nil
+	}
+	var lerr *os.LinkError
+	if !errors.As(err, &lerr) || !errors.Is(lerr.Err, syscall.EXDEV) {
+		return err
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	info, err := in.Stat()
+	if err != nil {
+		return err
+	}
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_EXCL, info.Mode().Perm())
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		os.Remove(dst)
+		return err
+	}
+	if err := out.Sync(); err != nil {
+		out.Close()
+		os.Remove(dst)
+		return err
+	}
+	if err := out.Close(); err != nil {
+		os.Remove(dst)
+		return err
+	}
+	return os.Remove(src)
+}
+
+func (a *App) handleFileDelete(w http.ResponseWriter, r *http.Request) {
+	if !isAdmin(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	var req struct {
+		Paths []string `json:"paths"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Paths) == 0 {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	var deleted []string
+	var errs []string
+	for _, p := range req.Paths {
+		absPath, err := a.fileOpCheck(r, p)
+		if err != nil {
+			errs = append(errs, p+": "+err.Error())
+			continue
+		}
+		if err := os.Remove(absPath); err != nil {
+			errs = append(errs, p+": "+err.Error())
+			continue
+		}
+		os.Remove(thumbCachePath(absPath))
+		deleted = append(deleted, absPath)
+	}
+	if len(deleted) > 0 {
+		if err := a.purgeFileRows(r.Context(), deleted); err != nil {
+			log.Printf("file delete db cleanup: %v", err)
+		}
+		log.Printf("file delete u=%d: %d file(s), e.g. %s", uid(r), len(deleted), deleted[0])
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"deleted": len(deleted), "errors": errs})
+}
+
+func (a *App) handleFileRename(w http.ResponseWriter, r *http.Request) {
+	if !isAdmin(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	var req struct {
+		Path    string `json:"path"`
+		NewName string `json:"new_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	absPath, err := a.fileOpCheck(r, req.Path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	name := strings.TrimSpace(req.NewName)
+	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, "/\x00") {
+		http.Error(w, "invalid name", http.StatusBadRequest)
+		return
+	}
+	newPath := filepath.Join(filepath.Dir(absPath), name)
+	if newPath == absPath {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if _, err := os.Lstat(newPath); err == nil {
+		http.Error(w, "target exists", http.StatusConflict)
+		return
+	}
+	if err := os.Rename(absPath, newPath); err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	os.Rename(thumbCachePath(absPath), thumbCachePath(newPath))
+	if err := a.repathFileRows(r.Context(), absPath, newPath); err != nil {
+		log.Printf("file rename db update: %v", err)
+	}
+	log.Printf("file rename u=%d: %s -> %s", uid(r), absPath, newPath)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleFileMove(w http.ResponseWriter, r *http.Request) {
+	if !isAdmin(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	var req struct {
+		Paths   []string `json:"paths"`
+		DestDir string   `json:"dest_dir"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Paths) == 0 || req.DestDir == "" {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	destDir := filepath.Clean(req.DestDir)
+	if !a.isAllowedPath(r, destDir) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if info, err := os.Stat(destDir); err != nil || !info.IsDir() {
+		http.Error(w, "destination is not a directory", http.StatusBadRequest)
+		return
+	}
+	var moved int
+	var errs []string
+	for _, p := range req.Paths {
+		absPath, err := a.fileOpCheck(r, p)
+		if err != nil {
+			errs = append(errs, p+": "+err.Error())
+			continue
+		}
+		newPath := filepath.Join(destDir, filepath.Base(absPath))
+		if newPath == absPath {
+			moved++
+			continue
+		}
+		if _, err := os.Lstat(newPath); err == nil {
+			errs = append(errs, p+": target exists")
+			continue
+		}
+		if err := moveFile(absPath, newPath); err != nil {
+			errs = append(errs, p+": "+err.Error())
+			continue
+		}
+		os.Rename(thumbCachePath(absPath), thumbCachePath(newPath))
+		if err := a.repathFileRows(r.Context(), absPath, newPath); err != nil {
+			log.Printf("file move db update: %v", err)
+		}
+		moved++
+	}
+	if moved > 0 {
+		log.Printf("file move u=%d: %d file(s) -> %s", uid(r), moved, destDir)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"moved": moved, "errors": errs})
+}
+
+// ---- Stats page ----
+
+func (a *App) handleStatsPage(w http.ResponseWriter, r *http.Request) {
+	userID := uid(r)
+	ctx := r.Context()
+
+	byDay := map[string]*StatDay{}
+	rows, err := a.db.Query(ctx, `
+		SELECT to_char(day, 'YYYY-MM-DD'), media_type, SUM(seconds)
+		FROM play_time
+		WHERE user_id = $1 AND day >= CURRENT_DATE - 29
+		GROUP BY day, media_type
+	`, userID)
+	if err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	for rows.Next() {
+		var day, mt string
+		var sec int64
+		if rows.Scan(&day, &mt, &sec) != nil {
+			continue
+		}
+		d := byDay[day]
+		if d == nil {
+			d = &StatDay{}
+			byDay[day] = d
+		}
+		if mt == "audio" {
+			d.AudioSec += sec
+		} else {
+			d.VideoSec += sec
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+
+	days := make([]StatDay, 30)
+	var maxSec int64
+	now := time.Now()
+	for i := range days {
+		d := now.AddDate(0, 0, i-29)
+		sd := StatDay{Label: d.Format("2 Jan")}
+		if v := byDay[d.Format("2006-01-02")]; v != nil {
+			sd.VideoSec, sd.AudioSec = v.VideoSec, v.AudioSec
+		}
+		if i%5 == 4 {
+			sd.Tick = sd.Label
+		}
+		if t := sd.VideoSec + sd.AudioSec; t > maxSec {
+			maxSec = t
+		}
+		days[i] = sd
+	}
+	if maxSec > 0 {
+		for i := range days {
+			days[i].VideoPct = int(days[i].VideoSec * 100 / maxSec)
+			days[i].AudioPct = int(days[i].AudioSec * 100 / maxSec)
+			if days[i].VideoSec > 0 && days[i].VideoPct == 0 {
+				days[i].VideoPct = 1
+			}
+			if days[i].AudioSec > 0 && days[i].AudioPct == 0 {
+				days[i].AudioPct = 1
+			}
+		}
+	}
+
+	var t StatsTotals
+	a.db.QueryRow(ctx, `
+		SELECT
+			COALESCE(SUM(seconds) FILTER (WHERE day = CURRENT_DATE AND media_type = 'video'), 0),
+			COALESCE(SUM(seconds) FILTER (WHERE day = CURRENT_DATE AND media_type = 'audio'), 0),
+			COALESCE(SUM(seconds) FILTER (WHERE day >= CURRENT_DATE - 6 AND media_type = 'video'), 0),
+			COALESCE(SUM(seconds) FILTER (WHERE day >= CURRENT_DATE - 6 AND media_type = 'audio'), 0),
+			COALESCE(SUM(seconds) FILTER (WHERE day >= CURRENT_DATE - 29 AND media_type = 'video'), 0),
+			COALESCE(SUM(seconds) FILTER (WHERE day >= CURRENT_DATE - 29 AND media_type = 'audio'), 0),
+			COALESCE(SUM(seconds) FILTER (WHERE media_type = 'video'), 0),
+			COALESCE(SUM(seconds) FILTER (WHERE media_type = 'audio'), 0)
+		FROM play_time WHERE user_id = $1
+	`, userID).Scan(
+		&t.TodayVideo, &t.TodayAudio, &t.WeekVideo, &t.WeekAudio,
+		&t.MonthVideo, &t.MonthAudio, &t.AllVideo, &t.AllAudio,
+	)
+
+	var top []PlaylistItem
+	if rows, err := a.db.Query(ctx, `
+		SELECT fi.path, fi.filename, fi.file_type, vp.watch_count
+		FROM file_index fi
+		JOIN video_positions vp ON vp.user_id = fi.user_id AND vp.path = fi.path
+		WHERE fi.user_id = $1 AND vp.watch_count > 0
+		ORDER BY vp.watch_count DESC
+		LIMIT 20
+	`, userID); err == nil {
+		for rows.Next() {
+			var it PlaylistItem
+			if rows.Scan(&it.Path, &it.Name, &it.FileType, &it.WatchCount) == nil {
+				top = append(top, it)
+			}
+		}
+		rows.Close()
+	}
+
+	var done []RecentItem
+	if rows, err := a.db.Query(ctx, `
+		SELECT vp.path, fi.filename, fi.file_type, fi.dir_path, vp.watch_count, vp.updated_at
+		FROM video_positions vp
+		JOIN file_index fi ON fi.user_id = vp.user_id AND fi.path = vp.path
+		WHERE vp.user_id = $1 AND vp.watch_count > 0
+		ORDER BY vp.updated_at DESC
+		LIMIT 15
+	`, userID); err == nil {
+		for rows.Next() {
+			var it RecentItem
+			var at time.Time
+			if rows.Scan(&it.Path, &it.Filename, &it.FileType, &it.Dir, &it.WatchCount, &at) == nil {
+				it.UpdatedAt = at.Local().Format("2006-01-02 15:04")
+				done = append(done, it)
+			}
+		}
+		rows.Close()
+	}
+
+	render(w, "stats", StatsPage{
+		ActiveTab: "stats", IsAdmin: isAdmin(r),
+		Days: days, HasPlay: maxSec > 0, Totals: t,
+		TopItems: top, RecentDone: done,
+	})
 }

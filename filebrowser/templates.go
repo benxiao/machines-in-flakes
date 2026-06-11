@@ -2,10 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"log"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -156,6 +158,32 @@ type RecentPage struct {
 	Items     []RecentItem
 }
 
+type StatDay struct {
+	Label    string // e.g. "02 Jan", used in hover title
+	Tick     string // axis label, set on every 5th day only
+	VideoSec int64
+	AudioSec int64
+	VideoPct int // bar segment height as % of the tallest day
+	AudioPct int
+}
+
+type StatsTotals struct {
+	TodayVideo, TodayAudio int64
+	WeekVideo, WeekAudio   int64
+	MonthVideo, MonthAudio int64
+	AllVideo, AllAudio     int64
+}
+
+type StatsPage struct {
+	ActiveTab  string
+	IsAdmin    bool
+	Days       []StatDay
+	HasPlay    bool // any nonzero day in the chart window
+	Totals     StatsTotals
+	TopItems   []PlaylistItem
+	RecentDone []RecentItem
+}
+
 type UnplayedItem struct {
 	Path     string
 	Filename string
@@ -241,6 +269,21 @@ func initTemplates() {
 			}
 			return p
 		},
+		"dirOf": filepath.Dir,
+		"playURL": func(path string) template.URL {
+			return template.URL("/folder/play?file=" + url.QueryEscape(path))
+		},
+		"fmtDur": func(sec int64) string {
+			h := sec / 3600
+			m := (sec % 3600) / 60
+			if h > 0 {
+				return fmt.Sprintf("%dh %dm", h, m)
+			}
+			if m > 0 {
+				return fmt.Sprintf("%dm", m)
+			}
+			return fmt.Sprintf("%ds", sec)
+		},
 	}
 	base := template.Must(template.New("base").Funcs(funcMap).Parse(baseTmpl))
 	add := func(name, content string) {
@@ -255,6 +298,7 @@ func initTemplates() {
 	add("recent", recentTmpl)
 	add("unplayed", unplayedTmpl)
 	add("top-played", topPlayedTmpl)
+	add("stats", statsTmpl)
 	add("folder-play", folderPlayTmpl)
 	add("favorites", favoritesTmpl)
 	add("paths", pathsTmpl)
@@ -374,13 +418,21 @@ tr:hover td { background: #161b22; }
 .search-filters { display:flex; gap:6px; padding:10px 12px; border-bottom:1px solid #21262d; flex-wrap:wrap; }
 .sf-chip { background:transparent; border:1px solid #30363d; color:#8b949e; border-radius:12px; padding:3px 10px; font-size:12px; cursor:pointer; }
 .sf-chip.active { background:#1c2128; border-color:#58a6ff; color:#f0f6fc; }
-.search-result { display:flex; gap:10px; padding:10px 12px; cursor:pointer; border-bottom:1px solid #21262d; align-items:center; }
-.search-result:last-child { border-bottom:none; }
+.search-result-group { border-bottom:1px solid #21262d; }
+.search-result-group:last-child { border-bottom:none; }
+.search-result { display:flex; gap:10px; padding:10px 12px; cursor:pointer; align-items:center; }
 .search-result:hover { background:#1c2128; }
 .search-result-thumb { width:56px; height:42px; flex-shrink:0; border-radius:4px; overflow:hidden; background:#0d1117; display:flex; align-items:center; justify-content:center; }
 .search-result-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
 .search-result-name { font-size:13px; color:#c9d1d9; margin-bottom:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .search-result-dir { font-size:11px; font-family:monospace; color:#8b949e; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sr-expand { background:transparent; border:none; color:#8b949e; cursor:pointer; font-size:14px; padding:6px 8px; flex-shrink:0; border-radius:6px; }
+.sr-expand:hover { background:#21262d; color:#c9d1d9; }
+.sr-file { display:flex; gap:8px; align-items:center; padding:6px 12px 6px 32px; cursor:pointer; font-size:12px; color:#c9d1d9; }
+.sr-file:hover { background:#1c2128; }
+.sr-file-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+.sr-more { padding:6px 12px 8px 32px; font-size:11px; color:#8b949e; cursor:pointer; }
+.sr-more:hover { color:#58a6ff; }
 .sel-spacer { height: 60px; }
 .view-toggle { display:flex; gap:4px; }
 .btn-view { background:transparent; border:1px solid #30363d; color:#8b949e; border-radius:6px; padding:4px 10px; font-size:13px; cursor:pointer; line-height:1.4; }
@@ -576,6 +628,9 @@ input.pl-seek::-moz-range-thumb { width:14px; height:14px; border-radius:50%; ba
 .pl-transport-btns { display:flex; align-items:center; justify-content:center; gap:16px; }
 .pl-nav-btn { background:#21262d; border:1px solid #30363d; border-radius:50%; width:36px; height:36px; cursor:pointer; color:#8b949e; font-size:11px; display:flex; align-items:center; justify-content:center; padding:0; line-height:1; }
 .pl-nav-btn:hover { background:#30363d; color:#c9d1d9; }
+.pl-mode-btn { background:transparent; border:none; border-radius:6px; width:32px; height:32px; cursor:pointer; font-size:15px; opacity:0.35; padding:0; line-height:1; }
+.pl-mode-btn:hover { background:#21262d; }
+.pl-mode-btn.active { opacity:1; background:rgba(188,96,255,0.15); }
 #pl-play-btn { background:#21262d; border:1px solid #30363d; border-radius:50%; width:44px; height:44px; cursor:pointer; color:#c9d1d9; font-size:16px; display:flex; align-items:center; justify-content:center; padding:0; line-height:1; }
 #pl-play-btn:hover { background:#30363d; border-color:#bc60ff; }
 .pl-vol-wrap { display:flex; align-items:center; gap:5px; justify-self:end; }
@@ -677,6 +732,7 @@ const baseTmpl = `<!DOCTYPE html>
   <a href="/recent"     {{if eq .ActiveTab "recent"}}class="active"{{end}}>Recent</a>
   <a href="/unplayed"   {{if eq .ActiveTab "unplayed"}}class="active"{{end}}>Unplayed</a>
   <a href="/top-played" {{if eq .ActiveTab "top-played"}}class="active"{{end}}>Top Played</a>
+  <a href="/stats"      {{if eq .ActiveTab "stats"}}class="active"{{end}}>Stats</a>
   <a href="/favorites"  {{if eq .ActiveTab "favorites"}}class="active"{{end}}>Favorites</a>
   <a href="/playlists"  {{if eq .ActiveTab "playlists"}}class="active"{{end}}>Playlists</a>
   {{if .IsAdmin}}<a href="/users" {{if eq .ActiveTab "users"}}class="active"{{end}}>Users</a>{{end}}
@@ -1221,13 +1277,22 @@ function runSearch(offset) {
           ? '<img src="/thumbnail?path=' + encodeURIComponent(item.sample_path) + '" loading="lazy" onerror="this.style.display=\'none\'">'
           : '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>';
         var matchLabel = item.match_count + ' file' + (item.match_count === 1 ? '' : 's');
-        return '<div class="search-result" data-dir="' + escAttr(item.dir_path) + '" onclick="openSearchResult(this)">' +
-          '<div class="search-result-thumb">' + thumb + '</div>' +
-          '<div style="min-width:0;flex:1">' +
-            '<div class="search-result-name">' + escHtml(folderName) + '</div>' +
-            '<div class="search-result-dir">' + escHtml(item.dir_path) + '</div>' +
-            '<span class="badge badge-dir" style="font-size:10px">' + escHtml(matchLabel) + '</span>' +
-          '</div></div>';
+        var inline = item.match_count <= 3 && item.files && item.files.length;
+        var chevron = !inline
+          ? '<button class="sr-expand" data-dir="' + escAttr(item.dir_path) + '" data-count="' + item.match_count + '" onclick="toggleSearchFiles(event,this)" title="Show matching files">&#9656;</button>'
+          : '';
+        var filesHtml = inline ? item.files.map(renderSearchFile).join('') : '';
+        return '<div class="search-result-group">' +
+          '<div class="search-result" data-dir="' + escAttr(item.dir_path) + '" onclick="openSearchResult(this)">' +
+            '<div class="search-result-thumb">' + thumb + '</div>' +
+            '<div style="min-width:0;flex:1">' +
+              '<div class="search-result-name">' + escHtml(folderName) + '</div>' +
+              '<div class="search-result-dir">' + escHtml(item.dir_path) + '</div>' +
+              '<span class="badge badge-dir" style="font-size:10px">' + escHtml(matchLabel) + '</span>' +
+            '</div>' + chevron +
+          '</div>' +
+          '<div class="sr-files">' + filesHtml + '</div>' +
+        '</div>';
       }).join('');
       list.insertAdjacentHTML('beforeend', html);
     }).catch(function(){ _searchLoading = false; status.textContent = 'Search failed.'; status.style.display = 'block'; });
@@ -1246,6 +1311,46 @@ function openSearchResult(el) {
   if (panel) panel.style.display = 'none';
   document.getElementById('search-q').value = '';
   window.location = '/browse?dir=' + encodeURIComponent(el.dataset.dir);
+}
+function renderSearchFile(f) {
+  return '<div class="sr-file" data-path="' + escAttr(f.path) + '" data-type="' + escAttr(f.type) + '" onclick="openSearchFile(event,this)">' +
+    '<span class="badge badge-' + escAttr(f.type) + '" style="flex-shrink:0">' + escHtml(f.type.toUpperCase()) + '</span>' +
+    '<span class="sr-file-name">' + escHtml(f.name) + '</span></div>';
+}
+function openSearchFile(e, el) {
+  e.stopPropagation();
+  var panel = document.getElementById('search-panel');
+  if (panel) panel.style.display = 'none';
+  document.getElementById('search-q').value = '';
+  var p = el.dataset.path;
+  if (el.dataset.type === 'audio') {
+    window.location = '/folder/play?file=' + encodeURIComponent(p);
+  } else {
+    window.location = '/browse?dir=' + encodeURIComponent(p.slice(0, p.lastIndexOf('/')));
+  }
+}
+function toggleSearchFiles(e, btn) {
+  e.stopPropagation();
+  var group = btn.closest('.search-result-group');
+  var wrap = group ? group.querySelector('.sr-files') : null;
+  if (!wrap) return;
+  if (wrap.innerHTML && wrap.style.display !== 'none') { wrap.style.display = 'none'; btn.innerHTML = '&#9656;'; return; }
+  if (wrap.innerHTML) { wrap.style.display = ''; btn.innerHTML = '&#9662;'; return; }
+  btn.innerHTML = '&#8943;';
+  var q = document.getElementById('search-q').value.trim();
+  var count = parseInt(btn.dataset.count || '0', 10);
+  fetch('/search/files?q=' + encodeURIComponent(q) + '&type=' + _searchType + '&dir=' + encodeURIComponent(btn.dataset.dir))
+    .then(function(r){ return r.json(); })
+    .then(function(files){
+      var html = files.map(renderSearchFile).join('');
+      if (count > files.length) {
+        html += '<div class="sr-more" data-dir="' + escAttr(btn.dataset.dir) + '" onclick="openSearchResult(this)">+ ' + (count - files.length) + ' more — open folder</div>';
+      }
+      wrap.innerHTML = html;
+      wrap.style.display = '';
+      btn.innerHTML = '&#9662;';
+    })
+    .catch(function(){ btn.innerHTML = '&#9656;'; });
 }
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -1347,7 +1452,7 @@ const browseTmpl = `{{define "content"}}
     </tr>
     {{else}}
     <tr class="file-row" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="{{.FileType}}" onclick="openPreview(this, true)">
-      <td>{{if or (eq .FileType "video") (eq .FileType "audio")}}<input type="checkbox" class="row-check" value="{{.AbsPath}}" onchange="updateSelBar()" onclick="event.stopPropagation()" style="cursor:pointer">{{end}}</td>
+      <td>{{if or (eq .FileType "video") (eq .FileType "audio") (and $.IsAdmin (ne .FileType "other"))}}<input type="checkbox" class="row-check" value="{{.AbsPath}}" data-type="{{.FileType}}" onchange="updateSelBar()" onclick="event.stopPropagation()" style="cursor:pointer">{{end}}</td>
       <td>{{.Filename}}</td>
       <td><span class="badge badge-{{.FileType}}">{{upper .FileType}}</span></td>
       <td class="muted">{{.Size}}</td>
@@ -1385,7 +1490,7 @@ const browseTmpl = `{{define "content"}}
     {{range .Files}}
     {{if eq .FileType "photo"}}
     <div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="photo" onclick="gridClick(event,this)">
-      <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
+      <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" data-type="photo" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
       <div class="grid-thumb">
         <img src="{{thumbURL .AbsPath}}" loading="lazy" alt="{{.Filename}}" style="width:100%;height:100%;object-fit:cover;display:block"
              onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
@@ -1398,7 +1503,7 @@ const browseTmpl = `{{define "content"}}
     {{else if eq .FileType "video"}}
     <div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="video" onclick="gridClick(event,this)">
       {{if gt .WatchCount 0}}<span class="grid-plays">{{.WatchCount}}×</span>{{end}}
-      <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
+      <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" data-type="video" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
       <div class="grid-thumb">
         <img src="{{thumbURL .AbsPath}}" loading="lazy" alt="" style="width:100%;height:100%;object-fit:cover;display:block"
              onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
@@ -1411,7 +1516,7 @@ const browseTmpl = `{{define "content"}}
     {{else if eq .FileType "audio"}}
     <div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="audio" onclick="gridClick(event,this)">
       {{if gt .WatchCount 0}}<span class="grid-plays">{{.WatchCount}}×</span>{{end}}
-      <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
+      <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" data-type="audio" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
       {{if $.DirAlbumArt}}
       <div class="grid-thumb">
         <img src="{{thumbURL $.DirAlbumArt}}" loading="lazy" alt="" style="width:100%;height:100%;object-fit:cover;display:block"
@@ -1457,6 +1562,11 @@ const browseTmpl = `{{define "content"}}
   </select>
   <button class="btn btn-primary btn-sm" onclick="addSelectedToPlaylist()">Add to Playlist</button>
   <button class="btn btn-edit btn-sm" onclick="downloadSelected()">⬇ Download</button>
+  {{if .IsAdmin}}
+  <button id="sel-rename" class="btn btn-edit btn-sm" style="display:none" onclick="renameSelected()">&#x270E; Rename</button>
+  <button class="btn btn-edit btn-sm" onclick="moveSelected()">&#128193; Move</button>
+  <button class="btn btn-danger btn-sm" onclick="deleteSelected()">&#128465; Delete</button>
+  {{end}}
   <button class="btn btn-edit btn-sm" onclick="clearSelection()">&#x2715; Clear</button>
   <span id="sel-ok" style="display:none;color:#3fb950;font-size:13px"></span>
 </div>
@@ -1467,6 +1577,8 @@ function updateSelBar() {
   var count = document.getElementById('sel-count');
   bar.style.display = checks.length > 0 ? 'flex' : 'none';
   count.textContent = checks.length + ' item' + (checks.length === 1 ? '' : 's') + ' selected';
+  var ren = document.getElementById('sel-rename');
+  if (ren) ren.style.display = checks.length === 1 ? '' : 'none';
   var all = document.querySelectorAll('.row-check');
   var selAll = document.getElementById('sel-all');
   if (selAll) {
@@ -1511,7 +1623,10 @@ function gridCheck(event, chk) {
 function addSelectedToPlaylist() {
   var plId = document.getElementById('sel-pl').value;
   if (!plId) { document.getElementById('sel-pl').focus(); return; }
-  var paths = Array.from(document.querySelectorAll('.row-check:checked')).map(function(c) { return c.value; });
+  var paths = Array.from(document.querySelectorAll('.row-check:checked')).filter(function(c) {
+    var t = c.dataset.type;
+    return !t || t === 'audio' || t === 'video';
+  }).map(function(c) { return c.value; });
   if (paths.length === 0) return;
   Promise.all(paths.map(function(path) {
     return fetch('/playlists/' + plId + '/items', {
@@ -1538,6 +1653,46 @@ function downloadSelected() {
       document.body.removeChild(a);
     }, i * 300);
   });
+}
+function selPaths() {
+  return Array.from(document.querySelectorAll('.row-check:checked')).map(function(c) { return c.value; });
+}
+function deleteSelected() {
+  var paths = selPaths();
+  if (paths.length === 0) return;
+  if (!confirm('Permanently delete ' + paths.length + ' file' + (paths.length === 1 ? '' : 's') + '? This cannot be undone.')) return;
+  fetch('/api/file/delete', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({paths: paths})})
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+      if (res.errors && res.errors.length) alert('Some files failed:\n' + res.errors.join('\n'));
+      location.reload();
+    })
+    .catch(function(e) { alert('Delete failed: ' + e); });
+}
+function renameSelected() {
+  var paths = selPaths();
+  if (paths.length !== 1) return;
+  var base = paths[0].split('/').pop();
+  var name = prompt('New name:', base);
+  if (!name || name === base) return;
+  fetch('/api/file/rename', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({path: paths[0], new_name: name})})
+    .then(function(r) {
+      if (!r.ok) return r.text().then(function(t) { alert('Rename failed: ' + t); });
+      location.reload();
+    });
+}
+function moveSelected() {
+  var paths = selPaths();
+  if (paths.length === 0) return;
+  var dest = prompt('Move ' + paths.length + ' file' + (paths.length === 1 ? '' : 's') + ' to directory:', {{.Dir}});
+  if (!dest) return;
+  fetch('/api/file/move', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({paths: paths, dest_dir: dest})})
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+      if (res.errors && res.errors.length) alert('Some files failed:\n' + res.errors.join('\n'));
+      location.reload();
+    })
+    .catch(function(e) { alert('Move failed: ' + e); });
 }
 // Build sorted media file list for dir auto-advance
 var _folderLoop = false;
@@ -1936,8 +2091,97 @@ function hideNewPl() { document.getElementById('new-pl-form').style.display='non
 // plSharedJS contains playlist player functions shared between the playlist
 // detail page and the favorites page. Callers must define PLAYLIST_ITEMS,
 // plCurrentIdx, getPlMedia, plLastSave, and savePlState before including this.
+// Shared player transport bar, spliced into the four playlist-engine
+// templates (playlist detail, top played, folder play, favorites).
+const plTransportHTML = `<div class="pl-transport-btns">
+          <button id="pl-shuffle-btn" class="pl-mode-btn" onclick="plToggleShuffle()" title="Shuffle">&#128256;</button>
+          <button class="pl-nav-btn" onclick="plPrev()" title="Previous">&#9664;&#9664;</button>
+          <button id="pl-play-btn" onclick="plTogglePlay()" title="Play / Pause">&#9654;</button>
+          <button class="pl-nav-btn" onclick="plNext()" title="Next">&#9654;&#9654;</button>
+          <button id="pl-repeat-btn" class="pl-mode-btn" onclick="plCycleRepeat()" title="Repeat">&#128257;</button>
+        </div>`
+
 const plSharedJS = `
 function plPlay(el) { var p = el.play(); if (p && p.catch) p.catch(function(e){ plLog('play rejected: ' + e.name); }); }
+// --- Shuffle & repeat ---
+var plShuffle = false; try { plShuffle = localStorage.getItem('fb_pl_shuffle') === '1'; } catch(e) {}
+var plRepeat = 'all'; try { plRepeat = localStorage.getItem('fb_pl_repeat') || 'all'; } catch(e) {}
+var _shufOrder = [];
+function plShufRegen(first) {
+  var n = PLAYLIST_ITEMS ? PLAYLIST_ITEMS.length : 0;
+  _shufOrder = [];
+  for (var i = 0; i < n; i++) _shufOrder.push(i);
+  for (var i = n - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var t = _shufOrder[i]; _shufOrder[i] = _shufOrder[j]; _shufOrder[j] = t;
+  }
+  // Anchor the current track first so playback continues from it.
+  if (typeof first === 'number' && first >= 0 && n > 1) {
+    var p = _shufOrder.indexOf(first);
+    if (p > 0) { _shufOrder[p] = _shufOrder[0]; _shufOrder[0] = first; }
+  }
+}
+// Next queue index after "from", or -1 to stop. The order array self-heals on
+// queue mutations (length change or unknown index). Manual skips ignore
+// repeat-one and wrap even when repeat is off.
+function plNextIdx(from, manual) {
+  var n = PLAYLIST_ITEMS ? PLAYLIST_ITEMS.length : 0;
+  if (!n) return -1;
+  if (plRepeat === 'one' && !manual) return from;
+  if (!plShuffle) {
+    var nx = from + 1;
+    if (nx < n) return nx;
+    return (plRepeat === 'off' && !manual) ? -1 : 0;
+  }
+  if (_shufOrder.length !== n || _shufOrder.indexOf(from) < 0) plShufRegen(from);
+  var p = _shufOrder.indexOf(from);
+  if (p + 1 < n) return _shufOrder[p + 1];
+  if (plRepeat === 'off' && !manual) return -1;
+  plShufRegen();
+  // Don't let the new cycle open with the track that just finished.
+  if (n > 1 && _shufOrder[0] === from) {
+    var k = 1 + Math.floor(Math.random() * (n - 1));
+    _shufOrder[0] = _shufOrder[k]; _shufOrder[k] = from;
+  }
+  return _shufOrder[0];
+}
+function plPrevIdx(from) {
+  var n = PLAYLIST_ITEMS ? PLAYLIST_ITEMS.length : 0;
+  if (!n) return -1;
+  if (!plShuffle) return (from - 1 + n) % n;
+  if (_shufOrder.length !== n || _shufOrder.indexOf(from) < 0) plShufRegen(from);
+  var p = _shufOrder.indexOf(from);
+  return _shufOrder[(p - 1 + n) % n];
+}
+function plModeBtns() {
+  var s = document.getElementById('pl-shuffle-btn');
+  if (s) s.classList.toggle('active', plShuffle);
+  var r = document.getElementById('pl-repeat-btn');
+  if (r) {
+    r.classList.toggle('active', plRepeat !== 'off');
+    r.innerHTML = plRepeat === 'one' ? '&#128258;' : '&#128257;';
+    r.title = 'Repeat: ' + plRepeat;
+  }
+}
+function _plModeChanged() {
+  // Repeat-off may have marked the MSE stream finished; allow it to resume
+  // scheduling if the stream is still open.
+  if (_mse && _mse.noMore && _mse.ms && _mse.ms.readyState === 'open') _mse.noMore = false;
+  plModeBtns();
+}
+function plToggleShuffle() {
+  plShuffle = !plShuffle;
+  try { localStorage.setItem('fb_pl_shuffle', plShuffle ? '1' : '0'); } catch(e) {}
+  if (plShuffle) plShufRegen(plCurrentIdx);
+  _plModeChanged();
+  plLog('shuffle ' + plShuffle);
+}
+function plCycleRepeat() {
+  plRepeat = plRepeat === 'off' ? 'all' : (plRepeat === 'all' ? 'one' : 'off');
+  try { localStorage.setItem('fb_pl_repeat', plRepeat); } catch(e) {}
+  _plModeChanged();
+  plLog('repeat ' + plRepeat);
+}
 var _PL_MSE = null;
 function plMseOk() {
   if (!MOBILE) return false;
@@ -2176,10 +2420,18 @@ function plMseTick() {
   } catch(e) {}
   if (st.appendedIdx >= 0 && st.fetchingIdx < 0 && !st.q.length && !st.noMore && Date.now() >= (st.nextTryAt || 0)) {
     var remain = st.end - cur;
-    if (remain < 180) plStartPreload(st.appendedIdx + 1);
-    if (remain < 60) {
-      plLog('mse sched append idx=' + (st.appendedIdx + 1) + ' remain=' + remain.toFixed(1) + _mseInfo());
-      plMseAppendTrack(st, st.appendedIdx + 1);
+    if (remain < 180) {
+      var ni = plNextIdx(st.appendedIdx);
+      if (ni < 0) {
+        st.noMore = true;
+        plLog('mse no next (repeat off), ending stream after idx=' + st.appendedIdx);
+      } else {
+        plStartPreload(ni);
+        if (remain < 60) {
+          plLog('mse sched append idx=' + ni + ' remain=' + remain.toFixed(1) + _mseInfo());
+          plMseAppendTrack(st, ni);
+        }
+      }
     }
   }
   if (st.noMore && st.ms.readyState === 'open' && !st.q.length && st.fetchingIdx < 0 && !st.sb.updating && st.end > 0) {
@@ -2197,10 +2449,15 @@ function plMseBindEl(a) {
   a.addEventListener('timeupdate', plMseTick);
   a.addEventListener('ended', function() {
     if (!_mse) return;
-    plLog('mse ended, handing off');
-    var n = (plCurrentIdx + 1) % PLAYLIST_ITEMS.length;
+    var n = plNextIdx(plCurrentIdx);
+    plLog('mse ended, next=' + n);
     plMseTeardown();
-    startPlaylistItem(n, 0, true);
+    if (n >= 0) {
+      startPlaylistItem(n, 0, true);
+    } else {
+      savePlState();
+      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+    }
   });
   ['waiting','stalled','error','playing','pause','seeking'].forEach(function(ev) {
     a.addEventListener(ev, function() { if (_mse) plLog('mse el ' + ev + _mseInfo()); });
@@ -2333,8 +2590,8 @@ function startPlaylistItem(idx, seekTo, autoplay) {
       } else {
         plPlay(a);
       }
-      var _pIdx = idx + 1;
-      setTimeout(function() { if (plCurrentIdx === idx) plStartPreload(_pIdx); }, 2000);
+      var _pIdx = plNextIdx(idx);
+      if (_pIdx >= 0) setTimeout(function() { if (plCurrentIdx === idx) plStartPreload(_pIdx); }, 2000);
     });
   } else {
     media = a;
@@ -2349,8 +2606,8 @@ function startPlaylistItem(idx, seekTo, autoplay) {
       } else {
         plPlay(a);
       }
-      var _pIdx = idx + 1;
-      setTimeout(function() { if (plCurrentIdx === idx) plStartPreload(_pIdx); }, 2000);
+      var _pIdx = plNextIdx(idx);
+      if (_pIdx >= 0) setTimeout(function() { if (plCurrentIdx === idx) plStartPreload(_pIdx); }, 2000);
     });
   }
   setMediaSession(item.Name, {
@@ -2368,16 +2625,22 @@ function startPlaylistItem(idx, seekTo, autoplay) {
   var plAdvance = function() {
     if (advanced || plCurrentIdx !== idx) return;
     advanced = true;
-    plLog('plAdvance(old path) from idx=' + idx);
+    var n = plNextIdx(idx);
+    plLog('plAdvance(old path) from idx=' + idx + ' next=' + n);
+    if (n < 0) {
+      savePlState();
+      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+      return;
+    }
     if ('mediaSession' in navigator) {
       navigator.mediaSession.playbackState = 'playing';
-      var _nextItem = PLAYLIST_ITEMS[plCurrentIdx + 1];
+      var _nextItem = PLAYLIST_ITEMS[n];
       if (_nextItem) {
         try { navigator.mediaSession.metadata = new MediaMetadata({ title: _nextItem.Name, album: 'filebrowser' }); } catch(e) {}
       }
     }
     savePlState();
-    startPlaylistItem((plCurrentIdx + 1) % PLAYLIST_ITEMS.length, 0, true);
+    startPlaylistItem(n, 0, true);
   };
   // Audio→audio reuses the same element, so listeners from the previous track
   // must be removed here or stale plAdvance closures fire a double advance.
@@ -2390,15 +2653,15 @@ function startPlaylistItem(idx, seekTo, autoplay) {
     var now = Date.now();
     if (now - plLastSave > 5000 && media.currentTime > 1) { plLastSave = now; savePlState(); }
     if (media.duration && isFinite(media.duration)) {
-      if (!lateKicked && media.duration - media.currentTime < 30) { lateKicked = true; plStartPreload(idx + 1); }
+      if (!lateKicked && media.duration - media.currentTime < 30) { lateKicked = true; var ni = plNextIdx(idx); if (ni >= 0) plStartPreload(ni); }
       if (media.currentTime >= media.duration - 0.3) plAdvance();
     }
   };
   media._plOnTU = onTU;
   media.addEventListener('timeupdate', onTU);
 }
-function plPrev() { savePlState(); startPlaylistItem((plCurrentIdx - 1 + PLAYLIST_ITEMS.length) % PLAYLIST_ITEMS.length, 0, true); }
-function plNext() { savePlState(); startPlaylistItem((plCurrentIdx + 1) % PLAYLIST_ITEMS.length, 0, true); }
+function plPrev() { savePlState(); var n = plPrevIdx(plCurrentIdx); if (n >= 0) startPlaylistItem(n, 0, true); }
+function plNext() { savePlState(); var n = plNextIdx(plCurrentIdx, true); if (n >= 0) startPlaylistItem(n, 0, true); }
 function plTogglePlay() {
   var a = document.getElementById('pl-audio');
   if (!a) return;
@@ -2437,6 +2700,7 @@ function plInitAudioUI() {
   var a = document.getElementById('pl-audio');
   var seek = document.getElementById('pl-seek');
   if (!a) return;
+  plModeBtns();
   ['timeupdate','play','pause','loadedmetadata','durationchange'].forEach(function(ev) {
     a.addEventListener(ev, _plUpdateAudioUI);
   });
@@ -2502,11 +2766,7 @@ var PLAYLIST_STATE = {{toJSON .State}};
       </div>
       <div class="pl-transport">
         <div></div>
-        <div class="pl-transport-btns">
-          <button class="pl-nav-btn" onclick="plPrev()" title="Previous">&#9664;&#9664;</button>
-          <button id="pl-play-btn" onclick="plTogglePlay()" title="Play / Pause">&#9654;</button>
-          <button class="pl-nav-btn" onclick="plNext()" title="Next">&#9654;&#9654;</button>
-        </div>
+        ` + plTransportHTML + `
         <div class="pl-vol-wrap">
           <span class="pl-vol-icon">&#128266;</span>
           <input type="range" class="pl-vol" id="pl-vol" value="100" min="0" max="100" step="1">
@@ -2673,11 +2933,7 @@ var PLAYLIST_STATE = null;
       </div>
       <div class="pl-transport">
         <div></div>
-        <div class="pl-transport-btns">
-          <button class="pl-nav-btn" onclick="plPrev()" title="Previous">&#9664;&#9664;</button>
-          <button id="pl-play-btn" onclick="plTogglePlay()" title="Play / Pause">&#9654;</button>
-          <button class="pl-nav-btn" onclick="plNext()" title="Next">&#9654;&#9654;</button>
-        </div>
+        ` + plTransportHTML + `
         <div class="pl-vol-wrap">
           <span class="pl-vol-icon">&#128266;</span>
           <input type="range" class="pl-vol" id="pl-vol" value="100" min="0" max="100" step="1">
@@ -2751,11 +3007,7 @@ var START_IDX = {{.StartIdx}};
       </div>
       <div class="pl-transport">
         <div></div>
-        <div class="pl-transport-btns">
-          <button class="pl-nav-btn" onclick="plPrev()" title="Previous">&#9664;&#9664;</button>
-          <button id="pl-play-btn" onclick="plTogglePlay()" title="Play / Pause">&#9654;</button>
-          <button class="pl-nav-btn" onclick="plNext()" title="Next">&#9654;&#9654;</button>
-        </div>
+        ` + plTransportHTML + `
         <div class="pl-vol-wrap">
           <span class="pl-vol-icon">&#128266;</span>
           <input type="range" class="pl-vol" id="pl-vol" value="100" min="0" max="100" step="1">
@@ -2828,11 +3080,7 @@ var PLAYLIST_STATE = null;
       </div>
       <div class="pl-transport">
         <div></div>
-        <div class="pl-transport-btns">
-          <button class="pl-nav-btn" onclick="plPrev()" title="Previous">&#9664;&#9664;</button>
-          <button id="pl-play-btn" onclick="plTogglePlay()" title="Play / Pause">&#9654;</button>
-          <button class="pl-nav-btn" onclick="plNext()" title="Next">&#9654;&#9654;</button>
-        </div>
+        ` + plTransportHTML + `
         <div class="pl-vol-wrap">
           <span class="pl-vol-icon">&#128266;</span>
           <input type="range" class="pl-vol" id="pl-vol" value="100" min="0" max="100" step="1">
@@ -3394,4 +3642,101 @@ document.querySelectorAll('.path-size-cell').forEach(function(cell) {
     .catch(function() { cell.textContent = '—'; });
 });
 </script>
+{{end}}`
+
+const statsTmpl = `{{define "content"}}
+<h2 style="margin:0 0 2px">Stats</h2>
+<div class="summary" style="margin-bottom:16px">Play time and most played, last 30 days</div>
+
+<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px">
+  <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:12px 16px;min-width:120px">
+    <div class="muted" style="font-size:12px;margin-bottom:6px">Today</div>
+    <div style="color:#58a6ff;font-size:14px">&#9654; {{fmtDur .Totals.TodayVideo}}</div>
+    <div style="color:#bc60ff;font-size:14px">&#9834; {{fmtDur .Totals.TodayAudio}}</div>
+  </div>
+  <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:12px 16px;min-width:120px">
+    <div class="muted" style="font-size:12px;margin-bottom:6px">Last 7 days</div>
+    <div style="color:#58a6ff;font-size:14px">&#9654; {{fmtDur .Totals.WeekVideo}}</div>
+    <div style="color:#bc60ff;font-size:14px">&#9834; {{fmtDur .Totals.WeekAudio}}</div>
+  </div>
+  <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:12px 16px;min-width:120px">
+    <div class="muted" style="font-size:12px;margin-bottom:6px">Last 30 days</div>
+    <div style="color:#58a6ff;font-size:14px">&#9654; {{fmtDur .Totals.MonthVideo}}</div>
+    <div style="color:#bc60ff;font-size:14px">&#9834; {{fmtDur .Totals.MonthAudio}}</div>
+  </div>
+  <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:12px 16px;min-width:120px">
+    <div class="muted" style="font-size:12px;margin-bottom:6px">All time</div>
+    <div style="color:#58a6ff;font-size:14px">&#9654; {{fmtDur .Totals.AllVideo}}</div>
+    <div style="color:#bc60ff;font-size:14px">&#9834; {{fmtDur .Totals.AllAudio}}</div>
+  </div>
+</div>
+
+{{if .HasPlay}}
+<div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:16px;margin-bottom:20px">
+  <div style="display:flex;align-items:flex-end;height:180px;gap:3px">
+    {{range .Days}}
+    <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%;min-width:0" title="{{.Label}} — video: {{fmtDur .VideoSec}}, audio: {{fmtDur .AudioSec}}">
+      <div style="height:{{.AudioPct}}%;background:#bc60ff;border-radius:2px 2px 0 0"></div>
+      <div style="height:{{.VideoPct}}%;background:#58a6ff"></div>
+    </div>
+    {{end}}
+  </div>
+  <div style="display:flex;gap:3px;margin-top:6px">
+    {{range .Days}}
+    <div style="flex:1;text-align:center;font-size:9px;color:#8b949e;white-space:nowrap;min-width:0">{{.Tick}}</div>
+    {{end}}
+  </div>
+  <div style="display:flex;gap:16px;margin-top:10px;font-size:12px">
+    <span style="color:#58a6ff">&#9632; Video</span>
+    <span style="color:#bc60ff">&#9632; Audio</span>
+  </div>
+</div>
+{{else}}
+<p class="muted">No play time recorded in the last 30 days.</p>
+{{end}}
+
+<div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start">
+  <div style="flex:1;min-width:300px">
+    <h3 style="margin:0 0 8px">Most played</h3>
+    {{if not .TopItems}}
+    <p class="muted">Nothing played yet.</p>
+    {{else}}
+    <div class="table-wrap">
+    <table>
+    <thead><tr><th>Name</th><th>Type</th><th>Plays</th></tr></thead>
+    <tbody>
+    {{range .TopItems}}
+    <tr>
+      <td>{{if eq .FileType "audio"}}<a href="{{playURL .Path}}">{{.Name}}</a>{{else}}<a href="{{browseURL (dirOf .Path)}}">{{.Name}}</a>{{end}}</td>
+      <td><span class="badge badge-{{.FileType}}">{{upper .FileType}}</span></td>
+      <td><span class="badge badge-{{.FileType}}">{{.WatchCount}}&#215;</span></td>
+    </tr>
+    {{end}}
+    </tbody>
+    </table>
+    </div>
+    {{end}}
+  </div>
+  <div style="flex:1;min-width:300px">
+    <h3 style="margin:0 0 8px">Recently completed</h3>
+    {{if not .RecentDone}}
+    <p class="muted">Nothing completed yet.</p>
+    {{else}}
+    <div class="table-wrap">
+    <table>
+    <thead><tr><th>Name</th><th>Type</th><th>When</th></tr></thead>
+    <tbody>
+    {{range .RecentDone}}
+    <tr class="file-row" data-dir="{{.Dir}}" style="cursor:pointer" onclick="browseDir(this)">
+      <td>{{.Filename}}</td>
+      <td><span class="badge badge-{{.FileType}}">{{upper .FileType}}</span></td>
+      <td class="muted">{{.UpdatedAt}}</td>
+    </tr>
+    {{end}}
+    </tbody>
+    </table>
+    </div>
+    {{end}}
+  </div>
+</div>
 {{end}}`

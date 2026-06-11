@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -15,9 +16,11 @@ import (
 var appVersion = "dev"
 
 type App struct {
-	db         *pgxpool.Pool
-	ffmpegPath string
-	reindexing sync.Map // key: int64 userID → bool
+	db          *pgxpool.Pool
+	ffmpegPath  string
+	reindexing  sync.Map    // key: int64 userID → bool
+	nvencOK     atomic.Bool // h264_nvenc usable (probed at startup)
+	pregenBusy  atomic.Bool // thumbnail pre-generation pass running
 }
 
 func systemTimezone() string {
@@ -181,6 +184,9 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /hls/segment", a.handleHLSSegment)
 	mux.HandleFunc("GET /transcode/stream", a.handleTranscodeStream)
 	mux.HandleFunc("POST /api/client-log", a.handleClientLog)
+	mux.HandleFunc("POST /api/file/rename", a.handleFileRename)
+	mux.HandleFunc("POST /api/file/delete", a.handleFileDelete)
+	mux.HandleFunc("POST /api/file/move", a.handleFileMove)
 	mux.HandleFunc("GET /video/position", a.handleGetVideoPosition)
 	mux.HandleFunc("POST /video/position", a.handleSaveVideoPosition)
 	mux.HandleFunc("GET /play/stats", a.handlePlayStats)
@@ -190,9 +196,11 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /paths/{id}/delete", a.handlePathDelete)
 	mux.HandleFunc("POST /paths/{id}/toggle", a.handlePathToggle)
 	mux.HandleFunc("GET /search", a.handleSearch)
+	mux.HandleFunc("GET /search/files", a.handleSearchFiles)
 	mux.HandleFunc("GET /search/status", a.handleSearchStatus)
 	mux.HandleFunc("POST /search/reindex", a.handleSearchReindex)
 	mux.HandleFunc("GET /top-played",        a.handleTopPlayed)
+	mux.HandleFunc("GET /stats",             a.handleStatsPage)
 	mux.HandleFunc("GET /folder/play",       a.handleFolderPlay)
 	mux.HandleFunc("GET /favorites",           a.handleFavoritesPage)
 	mux.HandleFunc("GET /favorites/list",      a.handleFavoriteList)
@@ -244,6 +252,11 @@ func main() {
 	app.bootstrapAdmin(ctx, os.Getenv("FB_ADMIN_USERNAME"), os.Getenv("FB_ADMIN_PASSWORD"))
 	initTemplates()
 
+	if app.ffmpegPath != "" {
+		app.nvencOK.Store(detectNVENC(app.ffmpegPath))
+		log.Printf("nvenc: %v", app.nvencOK.Load())
+	}
+
 	// Reindex all users every 6 hours so the search index stays fresh.
 	go func() {
 		for {
@@ -268,6 +281,16 @@ func main() {
 					app.reindexUser(c, uid)
 				}()
 			}
+		}
+	}()
+
+	// Purge expired sessions hourly (run once at startup too).
+	go func() {
+		for {
+			if ct, err := pool.Exec(ctx, `DELETE FROM sessions WHERE expires_at < now()`); err == nil && ct.RowsAffected() > 0 {
+				log.Printf("sessions: purged %d expired", ct.RowsAffected())
+			}
+			time.Sleep(time.Hour)
 		}
 	}()
 
