@@ -692,6 +692,26 @@ input.pl-vol::-moz-range-thumb { width:11px; height:11px; border-radius:50%; bac
   .settings-grid { grid-template-columns:1fr !important; }
   /* Taller rows for tap targets */
   td { padding:11px 8px; }
+  /* Touch has no hover: grid checkboxes must always be visible */
+  .grid-chk { opacity:0.85; width:18px; height:18px; }
+  .row-check { width:20px; height:20px; }
+  /* Bigger tap targets */
+  .fav-btn { font-size:20px; padding:8px; }
+  .modal-close { padding:8px 12px; font-size:24px; }
+  .sf-chip { padding:8px 14px; }
+  .sr-file { min-height:40px; }
+  .sr-expand { width:44px; min-height:44px; font-size:16px; }
+  .sr-more { padding:10px 12px 12px 32px; }
+  .pl-item { padding:11px 12px; }
+  .pl-item.active { padding-left:9px; }
+  /* HTML5 drag doesn't work on touch; reclaim the row space */
+  .pl-drag { display:none; }
+  .pl-mode-btn { width:40px; height:40px; font-size:17px; }
+  .pl-transport-btns { gap:10px; }
+  /* Selection bar wraps to multiple rows with admin buttons */
+  .sel-spacer { height:130px; }
+  /* Stats chart: 30 tick labels overlap on narrow screens; keep every 10th */
+  .stats-ticks > div:not(:nth-child(10n)) { visibility:hidden; }
 }
 `
 
@@ -778,6 +798,12 @@ function plLog(msg) {
 }
 document.addEventListener('DOMContentLoaded', function() {
   plLog('env mobile=' + MOBILE + ' forceOriginal=' + _fo + ' mse=' + (typeof plMseOk === 'function' ? plMseOk() : 'n/a') + ' ua=' + navigator.userAgent.slice(0, 90));
+  // The nav scrolls horizontally on mobile; keep the active tab in view.
+  var act = document.querySelector('nav a.active');
+  var nav = act && act.parentElement;
+  if (act && nav && nav.scrollWidth > nav.clientWidth) {
+    nav.scrollLeft = act.offsetLeft - nav.clientWidth / 2 + act.clientWidth / 2;
+  }
 });
 var DEFAULT_VOL = 1; try { var _dv = parseFloat(localStorage.getItem('fb_default_volume')); if (!isNaN(_dv)) DEFAULT_VOL = Math.max(0, Math.min(1, _dv)); } catch(e) {}
 function hlsParams() {
@@ -3681,7 +3707,7 @@ const statsTmpl = `{{define "content"}}
     </div>
     {{end}}
   </div>
-  <div style="display:flex;gap:3px;margin-top:6px">
+  <div class="stats-ticks" style="display:flex;gap:3px;margin-top:6px">
     {{range .Days}}
     <div style="flex:1;text-align:center;font-size:9px;color:#8b949e;white-space:nowrap;min-width:0">{{.Tick}}</div>
     {{end}}
