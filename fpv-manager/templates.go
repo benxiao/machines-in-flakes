@@ -21,6 +21,56 @@ type FrameOption struct {
 	SizeID int
 }
 
+type PartOption struct {
+	Value string // "type:id", e.g. "prop:3"
+	Label string
+}
+
+type StatsPage struct {
+	ActiveTab    string
+	TotalFlights int
+	FlightDays   int
+	TotalMinutes int
+	Crashes      int
+	TotalDrones  int
+	FlyingDrones int
+	DroneStats   []DroneStat
+	BatteryStats []BatteryStat
+	Weeks        []HeatWeek
+}
+
+type DroneStat struct {
+	ID         int
+	Name       string
+	Status     string
+	Flights    int
+	LastFlight string
+	DaysSince  int // -1 = never flown
+	BarPct     int
+}
+
+type BatteryStat struct {
+	ID        int
+	Label     string
+	Sessions  int
+	Cycles    int
+	LastUsed  string
+	DaysSince int // -1 = never used
+	BarPct    int
+}
+
+type HeatWeek struct {
+	MonthLabel string
+	Days       []HeatDay
+}
+
+type HeatDay struct {
+	Date  string
+	Count int
+	Level int
+	Blank bool
+}
+
 type DroneListPage struct {
 	ActiveTab string
 	Drones    []DroneRow
@@ -36,6 +86,7 @@ type DroneRow struct {
 	FlightCount    int
 	FirstPhotoID   int
 	HasFlightToday bool
+	DaysInStatus   int
 }
 
 type DronePhotoRow struct {
@@ -52,7 +103,7 @@ type DroneLogEntry struct {
 }
 
 type DroneTimelineEntry struct {
-	Kind string // "log" or "session"
+	Kind    string // "log" or "session"
 	SortKey string
 
 	// log fields
@@ -62,12 +113,12 @@ type DroneTimelineEntry struct {
 	Body          string
 
 	// session fields
-	SessionID   int
+	SessionID    int
 	SessionTitle string
 	SessionType  string
-	Date        string
-	DurationMin int
-	Location    string
+	Date         string
+	DurationMin  int
+	Location     string
 }
 
 type DronePage struct {
@@ -91,6 +142,8 @@ type DronePage struct {
 	Notes        string
 	BatteryNames string
 	PropNames    string
+	DaysInStatus int
+	Parts        []PartOption
 	Batteries    []BatteryCheck
 	Photos       []DronePhotoRow
 	Timeline     []DroneTimelineEntry
@@ -106,37 +159,37 @@ type DronePage struct {
 }
 
 type DroneFormPage struct {
-	ActiveTab    string
-	Error        string
-	ID           int
-	Name         string
-	FrameID      int
-	FCID         int
-	ESCID        int
-	VTXID        int
-	MotorID      int
-	MotorCount   string
-	GPSID        int
-	RXID         int
-	Status       string
-	BuildDate    string
-	SizeID       int
-	CellID       int
-	WeightG      string
-	Sub250g      bool
-	Notes        string
-	Sizes        []OptionItem
-	Cells        []OptionItem
-	Frames       []FrameOption
-	FCs          []OptionItem
-	ESCs         []OptionItem
-	VTXs         []OptionItem
-	Motors       []OptionItem
-	GPSs         []OptionItem
-	RXs          []OptionItem
-	Batteries    []BatteryCheck
-	Props        []PropCheck
-	Photos       []DronePhotoRow
+	ActiveTab  string
+	Error      string
+	ID         int
+	Name       string
+	FrameID    int
+	FCID       int
+	ESCID      int
+	VTXID      int
+	MotorID    int
+	MotorCount string
+	GPSID      int
+	RXID       int
+	Status     string
+	BuildDate  string
+	SizeID     int
+	CellID     int
+	WeightG    string
+	Sub250g    bool
+	Notes      string
+	Sizes      []OptionItem
+	Cells      []OptionItem
+	Frames     []FrameOption
+	FCs        []OptionItem
+	ESCs       []OptionItem
+	VTXs       []OptionItem
+	Motors     []OptionItem
+	GPSs       []OptionItem
+	RXs        []OptionItem
+	Batteries  []BatteryCheck
+	Props      []PropCheck
+	Photos     []DronePhotoRow
 }
 
 type InventoryPage struct {
@@ -322,16 +375,16 @@ type MotorFormPage struct {
 }
 
 type VTXFormPage struct {
-	ActiveTab  string
-	Error      string
-	ID         int
-	BrandID int
-	Name    string
-	WeightG string
-	Notes      string
-	Quantity   string
-	Photos     []DronePhotoRow
-	Brands     []OptionItem
+	ActiveTab string
+	Error     string
+	ID        int
+	BrandID   int
+	Name      string
+	WeightG   string
+	Notes     string
+	Quantity  string
+	Photos    []DronePhotoRow
+	Brands    []OptionItem
 }
 
 type BatteryListPage struct {
@@ -350,6 +403,10 @@ type BatteryRow struct {
 	AssignedTo   string
 	Count        int
 	FirstPhotoID int
+	Cycles       int
+	LastUsed     string
+	DaysSince    int
+	Stale        bool
 }
 
 type BatteryFormPage struct {
@@ -487,9 +544,9 @@ type SessionFormPage struct {
 	DurationMin string
 	Location    string
 	Notes       string
-	Drones    []DroneCheck
-	Batteries []BatteryCheck
-	Places    []OptionItem
+	Drones      []DroneCheck
+	Batteries   []BatteryCheck
+	Places      []OptionItem
 }
 
 type SessionDetailPage struct {
@@ -751,6 +808,7 @@ func initTemplates() {
 	add("mcu-form", mcuFormTmpl)
 	add("checklist-item-form", checklistItemFormTmpl)
 	add("weather", weatherTmpl)
+	add("stats", statsTmpl)
 }
 
 func render(w http.ResponseWriter, name string, data any) {
@@ -967,6 +1025,7 @@ const baseTmpl = `<!DOCTYPE html>
   <a href="/props"     {{if eq .ActiveTab "props"}}class="active"{{end}}>Props</a>
   <a href="/batteries" {{if eq .ActiveTab "batteries"}}class="active"{{end}}>Batteries</a>
   <a href="/log"       {{if eq .ActiveTab "log"}}class="active"{{end}}>Log</a>
+  <a href="/stats"     {{if eq .ActiveTab "stats"}}class="active"{{end}}>Stats</a>
   <a href="/places"    {{if eq .ActiveTab "places"}}class="active"{{end}}>Places</a>
   <a href="/settings"  {{if eq .ActiveTab "settings"}}class="active"{{end}}>Settings</a>
   <a href="/weather"   {{if eq .ActiveTab "weather"}}class="active"{{end}}>Weather</a>
@@ -1061,6 +1120,7 @@ const droneListTmpl = `{{define "content"}}
     <div class="drone-card-name" title="{{.Name}}">{{.Name}}</div>
     <div class="drone-card-meta">
       <span class="badge {{badgeClass .Status}}">{{.Status}}</span>
+      {{if eq .Status "repairing"}}<span style="color:#d29922" title="In repair since status change">{{.DaysInStatus}}d</span>{{end}}
       {{if .SizeInch}}<span>{{.SizeInch}}"</span>{{end}}
       {{if .CellLabel}}<span>{{.CellLabel}}</span>{{end}}
       {{if gt .FlightCount 0}}<span>{{.FlightCount}} flights</span>{{end}}
@@ -1261,6 +1321,7 @@ const droneTmpl = `{{define "content"}}
   <div class="page-header-left" style="gap:12px;align-items:center">
     <h2 style="margin:0">{{.Name}}</h2>
     <span class="badge {{badgeClass .Status}}">{{.Status}}</span>
+    {{if eq .Status "repairing"}}<span style="color:#d29922;font-size:13px">for {{.DaysInStatus}} day{{if ne .DaysInStatus 1}}s{{end}}</span>{{end}}
   </div>
   <div style="display:flex;gap:8px;align-items:center">
     <a href="/drones/{{.ID}}/edit" class="btn btn-cancel">← Edit</a>
@@ -1301,6 +1362,21 @@ const droneTmpl = `{{define "content"}}
         <textarea name="body" rows="3" placeholder="e.g. replaced motor, adjusted PID, tuned rates…" style="resize:vertical"></textarea>
       </div>
     </div>
+    {{if .Parts}}
+    <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+      <div class="form-group" style="flex:1 1 300px;max-width:420px">
+        <label>Part used (optional — decrements stock)</label>
+        <select name="part">
+          <option value="">— none —</option>
+          {{range .Parts}}<option value="{{.Value}}">{{.Label}}</option>{{end}}
+        </select>
+      </div>
+      <div class="form-group" style="max-width:80px">
+        <label>Qty</label>
+        <input type="number" name="part_qty" value="1" min="1">
+      </div>
+    </div>
+    {{end}}
     <div><button class="btn btn-primary" type="submit">Add</button></div>
   </form>
   <script>
@@ -2332,7 +2408,7 @@ const batteryListTmpl = `{{define "content"}}
 <div class="table-wrap">
 <table>
 <thead><tr>
-  <th></th><th class="hide-mobile">Brand</th><th>Name</th><th class="hide-mobile">Cell</th><th>mAh</th><th class="hide-mobile">Weight</th><th>Owned</th><th>Assigned To</th><th></th>
+  <th></th><th class="hide-mobile">Brand</th><th>Name</th><th class="hide-mobile">Cell</th><th>mAh</th><th class="hide-mobile">Weight</th><th>Owned</th><th title="Total packs used across sessions">Cycles</th><th class="hide-mobile">Last Used</th><th>Assigned To</th><th></th>
 </tr></thead>
 <tbody>
 {{range .Batteries}}
@@ -2344,6 +2420,8 @@ const batteryListTmpl = `{{define "content"}}
   <td class="muted">{{.CapacityMAh}}</td>
   <td class="muted hide-mobile">{{if .WeightG}}{{.WeightG}}g{{else}}—{{end}}</td>
   <td class="muted">{{.Total}}</td>
+  <td class="muted">{{if .Cycles}}{{.Cycles}}{{else}}—{{end}}</td>
+  <td class="hide-mobile">{{if lt .DaysSince 0}}<span class="muted">never</span>{{else if .Stale}}<span style="color:#d29922" title="Not used in over 30 days — check storage charge">{{.DaysSince}}d ago ⚠</span>{{else}}<span class="muted">{{.DaysSince}}d ago</span>{{end}}</td>
   <td>{{if .AssignedTo}}<span class="installed-badge">{{.AssignedTo}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
   <td class="actions-cell" onclick="event.stopPropagation()">
     <form class="inline" method="POST" action="/batteries/{{.ID}}/adjust">
@@ -3536,4 +3614,93 @@ const weatherTmpl = `{{define "content"}}
 </div>
 
 {{end}}
+{{end}}`
+
+const statsTmpl = `{{define "content"}}
+<style>
+.stat-cards { display:flex;gap:12px;flex-wrap:wrap;margin-bottom:24px; }
+.stat-card {
+  background:#161b22;border:1px solid #30363d;border-radius:10px;
+  padding:14px 20px;min-width:120px;flex:0 1 auto;
+}
+.stat-card .num { font-size:26px;font-weight:600;color:#58a6ff;line-height:1.2; }
+.stat-card .lbl { font-size:12px;color:#8b949e;margin-top:2px; }
+.heatmap-wrap { overflow-x:auto;padding-bottom:6px; }
+.heatmap { display:flex;gap:3px; }
+.heat-col { display:flex;flex-direction:column;gap:3px; }
+.heat-month { font-size:10px;color:#8b949e;height:14px;white-space:nowrap; }
+.heat-cell { width:12px;height:12px;border-radius:2px;background:#21262d; }
+.heat-cell.l1 { background:#0e4429; }
+.heat-cell.l2 { background:#26a641; }
+.heat-cell.l3 { background:#39d353; }
+.heat-cell.blank { background:transparent; }
+.bar-row { display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #21262d; }
+.bar-name { flex:0 0 200px;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.bar-track { flex:1;height:14px;background:#21262d;border-radius:3px;overflow:hidden; }
+.bar-fill { height:100%;background:#58a6ff;border-radius:3px; }
+.bar-fill.green { background:#3fb950; }
+.bar-val { flex:0 0 auto;font-size:13px;color:#c9d1d9;min-width:24px;text-align:right; }
+.bar-last { flex:0 0 110px;font-size:12px;color:#8b949e;text-align:right;white-space:nowrap; }
+.bar-last.warn { color:#d29922; }
+@media (max-width:640px){ .bar-name{flex-basis:120px} .bar-last{flex-basis:80px} }
+</style>
+<div class="page-header">
+  <div class="page-header-left"><h2>Stats</h2></div>
+</div>
+
+<div class="stat-cards">
+  <div class="stat-card"><div class="num">{{.TotalFlights}}</div><div class="lbl">flight sessions</div></div>
+  <div class="stat-card"><div class="num">{{.FlightDays}}</div><div class="lbl">days flown</div></div>
+  <div class="stat-card"><div class="num">{{.FlyingDrones}}<span style="font-size:15px;color:#8b949e">/{{.TotalDrones}}</span></div><div class="lbl">drones flying</div></div>
+  {{if .TotalMinutes}}<div class="stat-card"><div class="num">{{.TotalMinutes}}</div><div class="lbl">minutes logged</div></div>{{end}}
+  {{if .Crashes}}<div class="stat-card"><div class="num" style="color:#f85149">{{.Crashes}}</div><div class="lbl">crashes</div></div>{{end}}
+</div>
+
+<div class="section">
+<h3 style="margin-bottom:12px">Activity <span class="muted" style="font-weight:400;font-size:12px">(sessions per day, last 6 months)</span></h3>
+<div class="heatmap-wrap">
+<div class="heatmap">
+{{range .Weeks}}
+  <div class="heat-col">
+    <div class="heat-month">{{.MonthLabel}}</div>
+    {{range .Days}}
+    <div class="heat-cell{{if .Blank}} blank{{else if .Level}} l{{.Level}}{{end}}" {{if not .Blank}}title="{{.Date}}: {{.Count}} session{{if ne .Count 1}}s{{end}}"{{end}}></div>
+    {{end}}
+  </div>
+{{end}}
+</div>
+</div>
+</div>
+
+<div class="section">
+<h3 style="margin-bottom:8px">Flights per drone</h3>
+{{if .DroneStats}}
+<div style="max-width:760px">
+{{range .DroneStats}}
+<div class="bar-row">
+  <div class="bar-name"><a href="/drones/{{.ID}}" style="color:#c9d1d9">{{.Name}}</a> {{if ne .Status "flying"}}<span class="badge {{badgeClass .Status}}" style="font-size:10px">{{.Status}}</span>{{end}}</div>
+  <div class="bar-track"><div class="bar-fill" style="width:{{.BarPct}}%"></div></div>
+  <div class="bar-val">{{.Flights}}</div>
+  <div class="bar-last{{if gt .DaysSince 30}} warn{{end}}">{{if lt .DaysSince 0}}never flown{{else if eq .DaysSince 0}}today{{else}}{{.DaysSince}}d ago{{end}}</div>
+</div>
+{{end}}
+</div>
+{{else}}<p class="muted">No drones yet.</p>{{end}}
+</div>
+
+<div class="section">
+<h3 style="margin-bottom:8px">Battery usage <span class="muted" style="font-weight:400;font-size:12px">(packs used across sessions)</span></h3>
+{{if .BatteryStats}}
+<div style="max-width:760px">
+{{range .BatteryStats}}
+<div class="bar-row">
+  <div class="bar-name"><a href="/batteries/{{.ID}}/edit" style="color:#c9d1d9">{{.Label}}</a></div>
+  <div class="bar-track"><div class="bar-fill green" style="width:{{.BarPct}}%"></div></div>
+  <div class="bar-val">{{.Cycles}}</div>
+  <div class="bar-last{{if gt .DaysSince 30}} warn{{end}}">{{if lt .DaysSince 0}}never used{{else if eq .DaysSince 0}}today{{else}}{{.DaysSince}}d ago{{end}}</div>
+</div>
+{{end}}
+</div>
+{{else}}<p class="muted">No batteries yet.</p>{{end}}
+</div>
 {{end}}`

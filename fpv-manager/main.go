@@ -525,6 +525,7 @@ DO $$ BEGIN ALTER TABLE flight_controllers DROP COLUMN mcu; EXCEPTION WHEN undef
 DO $$ BEGIN ALTER TABLE drones ADD COLUMN sub_250g BOOLEAN NOT NULL DEFAULT FALSE; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE session_videos ADD COLUMN drone_id INTEGER REFERENCES drones(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE vtx_units DROP COLUMN system; EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE drones ADD COLUMN status_changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(); EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE vtx_units DROP COLUMN max_power_mw; EXCEPTION WHEN undefined_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE vtx_units DROP COLUMN resolution; EXCEPTION WHEN undefined_column THEN NULL; END $$;
 
@@ -741,6 +742,8 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/checklist-items/new", a.handleChecklistItemNew)
 	mux.HandleFunc("/checklist-items/{id}/edit", a.handleChecklistItemEdit)
 	mux.HandleFunc("POST /checklist-items/{id}/delete", a.handleChecklistItemDelete)
+
+	mux.HandleFunc("/stats", a.handleStats)
 
 	mux.HandleFunc("/weather", a.handleWeather)
 }

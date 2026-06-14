@@ -23,11 +23,11 @@ import (
 const quickFlightLabel = "Quick flight"
 
 type AppConfig struct {
-	FFmpegCRF      int
-	FFmpegPreset   string
-	VideoMaxWidth  int
-	VideoBitrateK  int
-	HLSSegmentSec  int
+	FFmpegCRF     int
+	FFmpegPreset  string
+	VideoMaxWidth int
+	VideoBitrateK int
+	HLSSegmentSec int
 }
 
 func (a *App) loadConfig(ctx context.Context) AppConfig {
@@ -222,7 +222,8 @@ func (a *App) handleDrones(w http.ResponseWriter, r *http.Request) {
         SELECT d.id, d.name, d.status,
                COALESCE(sz.label,''), COALESCE(c.label,''),
                d.sub_250g,
-               fl.flight_count, COALESCE(dp.id,0), fl.has_today
+               fl.flight_count, COALESCE(dp.id,0), fl.has_today,
+               GREATEST(CURRENT_DATE - d.status_changed_at::date, 0)::int
         FROM drones d
         LEFT JOIN sizes sz ON sz.id=d.size_id
         LEFT JOIN cells c ON c.id=d.cell_id
@@ -246,7 +247,7 @@ func (a *App) handleDrones(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var d DroneRow
 		if err := rows.Scan(&d.ID, &d.Name, &d.Status,
-			&d.SizeInch, &d.CellLabel, &d.Sub250g, &d.FlightCount, &d.FirstPhotoID, &d.HasFlightToday); err != nil {
+			&d.SizeInch, &d.CellLabel, &d.Sub250g, &d.FlightCount, &d.FirstPhotoID, &d.HasFlightToday, &d.DaysInStatus); err != nil {
 			httpErr(w, err)
 			return
 		}
@@ -262,7 +263,6 @@ func (a *App) handleDrones(w http.ResponseWriter, r *http.Request) {
 func (a *App) motorOptions(r *http.Request) ([]OptionItem, error) {
 	return a.queryOptions(r, `SELECT m.id, COALESCE(b.name||' ','')|| m.name FROM motors m LEFT JOIN brands b ON b.id=m.brand_id ORDER BY b.name,m.name`)
 }
-
 
 func (a *App) placeOptions(r *http.Request) ([]OptionItem, error) {
 	return a.queryOptions(r, `SELECT id, name FROM places ORDER BY name`)
@@ -476,7 +476,9 @@ func (a *App) handleDroneEdit(w http.ResponseWriter, r *http.Request) {
 		_, err := a.db.Exec(ctx, `
             UPDATE drones SET name=$1,frame_id=$2,fc_id=$3,esc_id=$4,vtx_id=$5,
             motor_id=$6,motor_count=$7,size_id=$8,cell_id=$9,
-            gps_id=$10,rx_id=$11,status=$12,build_date=$13,weight_g=$14,sub_250g=$15,notes=$16 WHERE id=$17`,
+            gps_id=$10,rx_id=$11,status=$12,build_date=$13,weight_g=$14,sub_250g=$15,notes=$16,
+            status_changed_at=CASE WHEN status IS DISTINCT FROM $12 THEN NOW() ELSE status_changed_at END
+            WHERE id=$17`,
 			name,
 			nullIntPtr(r.FormValue("frame_id")),
 			nullIntPtr(r.FormValue("fc_id")),
@@ -662,13 +664,16 @@ func (a *App) handleDroneDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	var page DronePage
-	err := a.db.QueryRow(ctx, `SELECT id, name, status FROM drones WHERE id=$1`, id).Scan(
-		&page.ID, &page.Name, &page.Status)
+	err := a.db.QueryRow(ctx, `
+        SELECT id, name, status, GREATEST(CURRENT_DATE - status_changed_at::date, 0)::int
+        FROM drones WHERE id=$1`, id).Scan(
+		&page.ID, &page.Name, &page.Status, &page.DaysInStatus)
 	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
 	page.Photos = a.fetchItemPhotos(ctx, "drone_photos", "drone_id", id)
+	page.Parts = a.partOptions(ctx)
 
 	logRows, err := a.db.Query(ctx,
 		`SELECT id, logged_at, body FROM drone_log_entries WHERE drone_id=$1`, id)
@@ -768,7 +773,8 @@ func (a *App) handleDroneSave(w http.ResponseWriter, r *http.Request) {
 	if _, err := a.db.Exec(r.Context(), `
         UPDATE drones SET name=$1,frame_id=$2,fc_id=$3,esc_id=$4,vtx_id=$5,
         motor_id=$6,motor_count=$7,size_id=$8,cell_id=$9,
-        gps_id=$10,rx_id=$11,status=$12,build_date=$13,weight_g=$14,sub_250g=$15,notes=$16
+        gps_id=$10,rx_id=$11,status=$12,build_date=$13,weight_g=$14,sub_250g=$15,notes=$16,
+        status_changed_at=CASE WHEN status IS DISTINCT FROM $12 THEN NOW() ELSE status_changed_at END
         WHERE id=$17`,
 		name,
 		nullIntPtr(r.FormValue("frame_id")),
@@ -810,12 +816,113 @@ func (a *App) handleDroneLogAdd(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	body := strings.TrimSpace(r.FormValue("body"))
+	if note := a.consumePart(r.Context(), r.FormValue("part"), r.FormValue("part_qty")); note != "" {
+		if body == "" {
+			body = note
+		} else {
+			body += "\n" + note
+		}
+	}
 	if body != "" {
 		a.db.Exec(r.Context(),
 			`INSERT INTO drone_log_entries (drone_id, logged_at, body) VALUES ($1, $2, $3)`,
 			id, loggedAt, body)
 	}
 	http.Redirect(w, r, fmt.Sprintf("/drones/%d", id), http.StatusSeeOther)
+}
+
+// partTables maps part option types to their inventory tables (all have name + brand_id).
+var partTables = map[string]string{
+	"frame": "frames", "fc": "flight_controllers", "esc": "escs",
+	"motor": "motors", "vtx": "vtx_units", "gps": "gps_modules", "rx": "radio_receivers",
+}
+
+// partOptions lists in-stock props and components for the repair-log "part used" dropdown.
+// Values are encoded as "type:id", e.g. "prop:3" or "motor:7".
+func (a *App) partOptions(ctx context.Context) []PartOption {
+	sql := `
+        SELECT 'prop:'||p.id,
+               'Prop: '||COALESCE(b.name||' ','')||p.name||COALESCE(' '||s.label||'"','')||' — have '||p.quantity
+        FROM propellers p
+        LEFT JOIN brands b ON b.id=p.brand_id
+        LEFT JOIN sizes s ON s.id=p.size_id
+        WHERE p.quantity > 0`
+	labels := map[string]string{
+		"frame": "Frame", "fc": "FC", "esc": "ESC",
+		"motor": "Motor", "vtx": "VTX", "gps": "GPS", "rx": "RX",
+	}
+	for _, typ := range []string{"frame", "fc", "esc", "motor", "vtx", "gps", "rx"} {
+		sql += `
+        UNION ALL
+        SELECT '` + typ + `:'||t.id,
+               '` + labels[typ] + `: '||COALESCE(b.name||' ','')||t.name||' — have '||ic.count
+        FROM ` + partTables[typ] + ` t
+        JOIN item_counts ic ON ic.item_type='` + typ + `' AND ic.item_id=t.id
+        LEFT JOIN brands b ON b.id=t.brand_id
+        WHERE ic.count > 0`
+	}
+	sql += `
+        ORDER BY 2`
+	rows, err := a.db.Query(ctx, sql)
+	if err != nil {
+		log.Printf("part options: %v", err)
+		return nil
+	}
+	defer rows.Close()
+	var opts []PartOption
+	for rows.Next() {
+		var o PartOption
+		if rows.Scan(&o.Value, &o.Label) == nil {
+			opts = append(opts, o)
+		}
+	}
+	return opts
+}
+
+// consumePart decrements stock for a "type:id" part value and returns a log note like
+// "Used 2× HQProp 3.5"; empty input or unknown parts return "".
+func (a *App) consumePart(ctx context.Context, part, qtyStr string) string {
+	part = strings.TrimSpace(part)
+	if part == "" {
+		return ""
+	}
+	typ, idStr, ok := strings.Cut(part, ":")
+	if !ok {
+		return ""
+	}
+	pid, _ := strconv.Atoi(idStr)
+	if pid <= 0 {
+		return ""
+	}
+	qty, _ := strconv.Atoi(qtyStr)
+	if qty <= 0 {
+		qty = 1
+	}
+	var name string
+	var err error
+	switch {
+	case typ == "prop":
+		err = a.db.QueryRow(ctx, `
+            UPDATE propellers SET quantity=GREATEST(quantity-$2,0) WHERE id=$1
+            RETURNING COALESCE((SELECT b.name||' ' FROM brands b WHERE b.id=propellers.brand_id),'')||propellers.name||' props'`,
+			pid, qty).Scan(&name)
+	case partTables[typ] != "":
+		table := partTables[typ]
+		if _, err = a.db.Exec(ctx, `
+            UPDATE item_counts SET count=GREATEST(count-$3,0) WHERE item_type=$1 AND item_id=$2`,
+			typ, pid, qty); err == nil {
+			err = a.db.QueryRow(ctx, `
+                SELECT COALESCE(b.name||' ','')||t.name FROM `+table+` t
+                LEFT JOIN brands b ON b.id=t.brand_id WHERE t.id=$1`, pid).Scan(&name)
+		}
+	default:
+		return ""
+	}
+	if err != nil {
+		log.Printf("consume part %s: %v", part, err)
+		return ""
+	}
+	return fmt.Sprintf("Used %d× %s", qty, name)
 }
 
 func (a *App) handleDroneLogDelete(w http.ResponseWriter, r *http.Request) {
@@ -2111,14 +2218,22 @@ func (a *App) handleBatteries(w http.ResponseWriter, r *http.Request) {
         SELECT b.id, COALESCE(br.name,''), b.name, COALESCE(c.label,''), b.capacity_mah, b.weight_g,
                b.count,
                COALESCE(string_agg(d.name, ', ' ORDER BY d.name), ''),
-               COALESCE(bp.id,0)
+               COALESCE(bp.id,0),
+               u.cycles, COALESCE(TO_CHAR(u.last_used,'YYYY-MM-DD'),''),
+               COALESCE((CURRENT_DATE - u.last_used)::int, -1)
         FROM batteries b
         LEFT JOIN brands br ON br.id=b.brand_id
         LEFT JOIN cells c ON c.id=b.cell_id
         LEFT JOIN drone_batteries db ON db.battery_id=b.id
         LEFT JOIN drones d ON d.id=db.drone_id
         LEFT JOIN LATERAL (SELECT id FROM battery_photos WHERE battery_id=b.id ORDER BY created_at LIMIT 1) bp ON true
-        GROUP BY b.id, br.name, b.name, c.label, b.capacity_mah, b.weight_g, b.count, bp.id
+        LEFT JOIN LATERAL (
+            SELECT COALESCE(SUM(sb.count),0)::int AS cycles, MAX(s.session_date) AS last_used
+            FROM session_batteries sb
+            JOIN sessions s ON s.id=sb.session_id
+            WHERE sb.battery_id=b.id
+        ) u ON true
+        GROUP BY b.id, br.name, b.name, c.label, b.capacity_mah, b.weight_g, b.count, bp.id, u.cycles, u.last_used
         ORDER BY br.name, b.name, c.label, b.capacity_mah`)
 	if err != nil {
 		httpErr(w, err)
@@ -2129,10 +2244,11 @@ func (a *App) handleBatteries(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var b BatteryRow
 		if err := rows.Scan(&b.ID, &b.Brand, &b.Name, &b.CellLabel, &b.CapacityMAh, &b.WeightG,
-			&b.Total, &b.AssignedTo, &b.FirstPhotoID); err != nil {
+			&b.Total, &b.AssignedTo, &b.FirstPhotoID, &b.Cycles, &b.LastUsed, &b.DaysSince); err != nil {
 			httpErr(w, err)
 			return
 		}
+		b.Stale = b.DaysSince > 30
 		bats = append(bats, b)
 	}
 	if err := rows.Err(); err != nil {
@@ -4051,7 +4167,6 @@ func (a *App) handleWeather(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-
 	now := time.Now().In(aest)
 	todayKey := now.Format("2006-01-02")
 
@@ -4246,4 +4361,180 @@ func (a *App) handleChecklistItemDelete(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	http.Redirect(w, r, "/settings", http.StatusSeeOther)
+}
+
+// ---- Stats ----
+
+func (a *App) handleStats(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	page := StatsPage{ActiveTab: "stats"}
+
+	if err := a.db.QueryRow(ctx, `
+        SELECT COUNT(*) FILTER (WHERE type='flight'),
+               COUNT(DISTINCT session_date) FILTER (WHERE type='flight'),
+               COALESCE(SUM(duration_min) FILTER (WHERE type='flight'),0),
+               COUNT(*) FILTER (WHERE type='crash')
+        FROM sessions`).Scan(&page.TotalFlights, &page.FlightDays, &page.TotalMinutes, &page.Crashes); err != nil {
+		httpErr(w, err)
+		return
+	}
+	if err := a.db.QueryRow(ctx, `
+        SELECT COUNT(*), COUNT(*) FILTER (WHERE status='flying') FROM drones`).Scan(
+		&page.TotalDrones, &page.FlyingDrones); err != nil {
+		httpErr(w, err)
+		return
+	}
+
+	droneRows, err := a.db.Query(ctx, `
+        SELECT d.id, d.name, d.status,
+               COALESCE(f.cnt,0),
+               COALESCE(TO_CHAR(f.last,'YYYY-MM-DD'),''),
+               COALESCE((CURRENT_DATE - f.last)::int, -1)
+        FROM drones d
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*)::int AS cnt, MAX(s.session_date) AS last
+            FROM session_drones sd
+            JOIN sessions s ON s.id=sd.session_id
+            WHERE sd.drone_id=d.id AND s.type='flight'
+        ) f ON true
+        ORDER BY f.cnt DESC, d.name`)
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	maxFlights := 0
+	for droneRows.Next() {
+		var d DroneStat
+		if err := droneRows.Scan(&d.ID, &d.Name, &d.Status, &d.Flights, &d.LastFlight, &d.DaysSince); err != nil {
+			droneRows.Close()
+			httpErr(w, err)
+			return
+		}
+		if d.Flights > maxFlights {
+			maxFlights = d.Flights
+		}
+		page.DroneStats = append(page.DroneStats, d)
+	}
+	droneRows.Close()
+	for i := range page.DroneStats {
+		page.DroneStats[i].BarPct = barPct(page.DroneStats[i].Flights, maxFlights)
+	}
+
+	batRows, err := a.db.Query(ctx, `
+        SELECT b.id,
+               COALESCE(br.name||' ','')||b.name||' ('||COALESCE(c.label,'?')||' '||b.capacity_mah||'mAh)',
+               COALESCE(u.sessions,0), COALESCE(u.cycles,0),
+               COALESCE(TO_CHAR(u.last_used,'YYYY-MM-DD'),''),
+               COALESCE((CURRENT_DATE - u.last_used)::int, -1)
+        FROM batteries b
+        LEFT JOIN brands br ON br.id=b.brand_id
+        LEFT JOIN cells c ON c.id=b.cell_id
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*)::int AS sessions, COALESCE(SUM(sb.count),0)::int AS cycles, MAX(s.session_date) AS last_used
+            FROM session_batteries sb
+            JOIN sessions s ON s.id=sb.session_id
+            WHERE sb.battery_id=b.id
+        ) u ON true
+        ORDER BY u.cycles DESC, b.name`)
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	maxCycles := 0
+	for batRows.Next() {
+		var b BatteryStat
+		if err := batRows.Scan(&b.ID, &b.Label, &b.Sessions, &b.Cycles, &b.LastUsed, &b.DaysSince); err != nil {
+			batRows.Close()
+			httpErr(w, err)
+			return
+		}
+		if b.Cycles > maxCycles {
+			maxCycles = b.Cycles
+		}
+		page.BatteryStats = append(page.BatteryStats, b)
+	}
+	batRows.Close()
+	for i := range page.BatteryStats {
+		page.BatteryStats[i].BarPct = barPct(page.BatteryStats[i].Cycles, maxCycles)
+	}
+
+	weeks, err := a.sessionHeatmap(ctx)
+	if err != nil {
+		httpErr(w, err)
+		return
+	}
+	page.Weeks = weeks
+
+	render(w, "stats", page)
+}
+
+func barPct(v, max int) int {
+	if max == 0 || v == 0 {
+		return 0
+	}
+	pct := v * 100 / max
+	if pct < 3 {
+		pct = 3
+	}
+	return pct
+}
+
+const heatmapWeeks = 26
+
+// sessionHeatmap builds a GitHub-style activity grid: one column per week
+// (Mon-Sun rows) covering the last heatmapWeeks weeks up to today.
+func (a *App) sessionHeatmap(ctx context.Context) ([]HeatWeek, error) {
+	today := time.Now()
+	todayDate := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.Local)
+	// Monday of the current week, then back (heatmapWeeks-1) weeks.
+	wd := int(todayDate.Weekday()+6) % 7 // Mon=0 .. Sun=6
+	start := todayDate.AddDate(0, 0, -wd-(heatmapWeeks-1)*7)
+
+	rows, err := a.db.Query(ctx, `
+        SELECT TO_CHAR(session_date,'YYYY-MM-DD'), COUNT(*)::int
+        FROM sessions WHERE session_date >= $1
+        GROUP BY session_date`, start)
+	if err != nil {
+		return nil, err
+	}
+	counts := map[string]int{}
+	for rows.Next() {
+		var d string
+		var n int
+		if rows.Scan(&d, &n) == nil {
+			counts[d] = n
+		}
+	}
+	rows.Close()
+
+	var weeks []HeatWeek
+	prevMonth := time.Month(0)
+	for w := 0; w < heatmapWeeks; w++ {
+		monday := start.AddDate(0, 0, w*7)
+		week := HeatWeek{}
+		if monday.Month() != prevMonth {
+			week.MonthLabel = monday.Format("Jan")
+			prevMonth = monday.Month()
+		}
+		for d := 0; d < 7; d++ {
+			day := monday.AddDate(0, 0, d)
+			hd := HeatDay{Date: day.Format("2006-01-02")}
+			if day.After(todayDate) {
+				hd.Blank = true
+			} else {
+				hd.Count = counts[hd.Date]
+				switch {
+				case hd.Count >= 3:
+					hd.Level = 3
+				case hd.Count == 2:
+					hd.Level = 2
+				case hd.Count == 1:
+					hd.Level = 1
+				}
+			}
+			week.Days = append(week.Days, hd)
+		}
+		weeks = append(weeks, week)
+	}
+	return weeks, nil
 }

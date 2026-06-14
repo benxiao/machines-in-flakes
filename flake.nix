@@ -97,6 +97,7 @@
                 ipython
                 pandas
                 jupyter
+                markitdown
               ] ++ additionalPkgFun (p);
 
               python3env = unstable.python3.withPackages (defaultPkgFun);
@@ -505,7 +506,7 @@
                 })
               (makeGoService {
                 pname = "fpv-manager";
-                version = "0.6.3";
+                version = "0.7.0";
                 src = ./fpv-manager;
                 vendorHash = "sha256-Qs23BHgrlK0P5BREEzS5Y/2G7mL1pcSd1k3z8NUw/mM=";
                 description = "FPV Drone Inventory Manager";
@@ -535,7 +536,7 @@
               })
               (makeGoService {
                 pname = "filebrowser";
-                version = "1.12.1";
+                version = "1.13.0";
                 src = ./filebrowser;
                 vendorHash = "sha256-cCSZsNYMmjh48YiztNTpUrqmDdL1OehYBfZm3evU9l8=";
                 description = "File Browser";
