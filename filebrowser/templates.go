@@ -1427,6 +1427,7 @@ const browseTmpl = `{{define "content"}}
         {{end}}
       </div>
       <div style="display:flex;gap:8px;align-items:center">
+        {{if .IsAdmin}}<label class="btn btn-primary btn-sm" id="upload-btn" style="cursor:pointer;margin:0" title="Upload files to this folder">&#8679; Upload<input type="file" id="upload-input" multiple style="display:none" onchange="uploadFiles(this.files)"></label><span id="upload-status" style="display:none;color:#8b949e;font-size:13px;white-space:nowrap"></span>{{end}}
         <button id="btn-play-all" class="btn btn-primary btn-sm" onclick="playFolderAll()" style="display:none" title="Play all media in this folder in a loop">&#9654; Loop</button>
         <div class="view-toggle">
           <button class="btn-view {{if eq .SortBy "date"}}active{{end}}" onclick="setSort('date')" title="Sort by date">&#128197; Date</button>
@@ -1719,6 +1720,43 @@ function moveSelected() {
       location.reload();
     })
     .catch(function(e) { alert('Move failed: ' + e); });
+}
+function uploadFiles(files) {
+  if (!files || files.length === 0) return;
+  var btn = document.getElementById('upload-btn');
+  var status = document.getElementById('upload-status');
+  btn.style.pointerEvents = 'none';
+  btn.style.opacity = '0.6';
+  status.style.display = 'inline';
+  status.textContent = 'Uploading…';
+  var form = new FormData();
+  for (var i = 0; i < files.length; i++) form.append('files', files[i]);
+  var xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/file/upload?dir=' + encodeURIComponent({{.Dir}}));
+  xhr.upload.onprogress = function(e) {
+    if (e.lengthComputable) status.textContent = 'Uploading ' + Math.round(e.loaded / e.total * 100) + '%…';
+  };
+  xhr.onload = function() {
+    if (xhr.status !== 200) {
+      alert('Upload failed: ' + xhr.responseText);
+      btn.style.pointerEvents = '';
+      btn.style.opacity = '';
+      status.style.display = 'none';
+      document.getElementById('upload-input').value = '';
+      return;
+    }
+    var res = JSON.parse(xhr.responseText);
+    if (res.errors && res.errors.length) alert('Some files failed:\n' + res.errors.join('\n'));
+    location.reload();
+  };
+  xhr.onerror = function() {
+    alert('Upload failed');
+    btn.style.pointerEvents = '';
+    btn.style.opacity = '';
+    status.style.display = 'none';
+    document.getElementById('upload-input').value = '';
+  };
+  xhr.send(form);
 }
 // Build sorted media file list for dir auto-advance
 var _folderLoop = false;

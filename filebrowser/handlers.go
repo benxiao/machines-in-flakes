@@ -2552,6 +2552,67 @@ func (a *App) handleFileMove(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"moved": moved, "errors": errs})
 }
 
+func (a *App) handleFileUpload(w http.ResponseWriter, r *http.Request) {
+	if !isAdmin(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	dir := filepath.Clean(r.URL.Query().Get("dir"))
+	if !a.isAllowedPath(r, dir) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		http.Error(w, "not a directory", http.StatusBadRequest)
+		return
+	}
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	var uploaded []string
+	var errs []string
+	for _, fh := range r.MultipartForm.File["files"] {
+		name := filepath.Base(fh.Filename)
+		if name == "" || name == "." || name == ".." || strings.ContainsRune(name, 0) {
+			errs = append(errs, fh.Filename+": invalid name")
+			continue
+		}
+		dst := filepath.Join(dir, name)
+		if _, err := os.Lstat(dst); err == nil {
+			errs = append(errs, name+": already exists")
+			continue
+		}
+		f, err := fh.Open()
+		if err != nil {
+			errs = append(errs, name+": "+err.Error())
+			continue
+		}
+		out, err := os.Create(dst)
+		if err != nil {
+			f.Close()
+			errs = append(errs, name+": "+err.Error())
+			continue
+		}
+		if _, err := io.Copy(out, f); err != nil {
+			out.Close()
+			f.Close()
+			os.Remove(dst)
+			errs = append(errs, name+": "+err.Error())
+			continue
+		}
+		out.Close()
+		f.Close()
+		uploaded = append(uploaded, name)
+	}
+	if len(uploaded) > 0 {
+		log.Printf("file upload u=%d: %d file(s) to %s", uid(r), len(uploaded), dir)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"uploaded": len(uploaded), "errors": errs})
+}
+
 // ---- Stats page ----
 
 func (a *App) handleStatsPage(w http.ResponseWriter, r *http.Request) {

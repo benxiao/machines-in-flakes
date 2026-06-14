@@ -187,6 +187,7 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/file/rename", a.handleFileRename)
 	mux.HandleFunc("POST /api/file/delete", a.handleFileDelete)
 	mux.HandleFunc("POST /api/file/move", a.handleFileMove)
+	mux.HandleFunc("POST /api/file/upload", a.handleFileUpload)
 	mux.HandleFunc("GET /video/position", a.handleGetVideoPosition)
 	mux.HandleFunc("POST /video/position", a.handleSaveVideoPosition)
 	mux.HandleFunc("GET /play/stats", a.handlePlayStats)
