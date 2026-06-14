@@ -320,49 +320,6 @@ func (a *App) handleRecent(w http.ResponseWriter, r *http.Request) {
 	render(w, "recent", RecentPage{ActiveTab: "recent", IsAdmin: isAdmin(r), Items: items})
 }
 
-func (a *App) handleUnplayed(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(r.Context(), `
-		SELECT fi.path, fi.filename, fi.file_type, fi.dir_path
-		FROM file_index fi
-		WHERE fi.user_id = $1
-		  AND fi.file_type IN ('video', 'audio')
-		  AND NOT EXISTS (
-		    SELECT 1 FROM video_positions vp
-		    WHERE vp.user_id = fi.user_id AND vp.path = fi.path
-		      AND (vp.watch_count > 0 OR vp.position_sec > 0)
-		  )
-		ORDER BY lower(fi.filename)
-		LIMIT 500
-	`, uid(r))
-	if err != nil {
-		httpErr(w, err, 500)
-		return
-	}
-	defer rows.Close()
-	artCache := make(map[string]string)
-	var items []UnplayedItem
-	for rows.Next() {
-		var path, filename, fileType, dir string
-		if rows.Scan(&path, &filename, &fileType, &dir) != nil {
-			continue
-		}
-		var art string
-		if fileType == "audio" {
-			if cached, ok := artCache[dir]; ok {
-				art = cached
-			} else {
-				art = findAlbumArt(dir)
-				artCache[dir] = art
-			}
-		}
-		items = append(items, UnplayedItem{Path: path, Filename: filename, FileType: fileType, Dir: dir, AlbumArt: art})
-	}
-	if err := rows.Err(); err != nil {
-		httpErr(w, err, 500)
-		return
-	}
-	render(w, "unplayed", UnplayedPage{ActiveTab: "unplayed", IsAdmin: isAdmin(r), Items: items})
-}
 
 func findAlbumArt(dir string) string {
 	entries, err := os.ReadDir(dir)
@@ -2020,35 +1977,6 @@ func (a *App) handleClientLog(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (a *App) handleTopPlayed(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(r.Context(), `
-		SELECT fi.path, fi.filename, fi.file_type, vp.watch_count
-		FROM file_index fi
-		JOIN video_positions vp ON vp.user_id = fi.user_id AND vp.path = fi.path
-		WHERE fi.user_id = $1 AND fi.file_type = 'audio' AND vp.watch_count > 0
-		ORDER BY vp.watch_count DESC
-		LIMIT 50
-	`, uid(r))
-	if err != nil {
-		httpErr(w, err, 500)
-		return
-	}
-	defer rows.Close()
-	var items []PlaylistItem
-	for rows.Next() {
-		var path, filename, fileType string
-		var count int64
-		if rows.Scan(&path, &filename, &fileType, &count) != nil {
-			continue
-		}
-		items = append(items, PlaylistItem{Path: path, Name: filename, FileType: fileType, WatchCount: count})
-	}
-	if err := rows.Err(); err != nil {
-		httpErr(w, err, 500)
-		return
-	}
-	render(w, "top-played", TopPlayedPage{ActiveTab: "top-played", IsAdmin: isAdmin(r), Items: items})
-}
 
 // handleFolderPlay renders the playlist player for a folder's audio files, so
 // mobile album playback runs on the gapless MSE engine instead of the preview

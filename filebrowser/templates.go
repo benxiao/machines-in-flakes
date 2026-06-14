@@ -54,12 +54,6 @@ type FavoriteItem struct {
 	TrackCount int
 }
 
-type TopPlayedPage struct {
-	ActiveTab string
-	IsAdmin   bool
-	Items     []PlaylistItem
-}
-
 type FolderPlayPage struct {
 	ActiveTab string
 	IsAdmin   bool
@@ -184,20 +178,6 @@ type StatsPage struct {
 	RecentDone []RecentItem
 }
 
-type UnplayedItem struct {
-	Path     string
-	Filename string
-	FileType string
-	Dir      string
-	AlbumArt string
-}
-
-type UnplayedPage struct {
-	ActiveTab string
-	IsAdmin   bool
-	Items     []UnplayedItem
-}
-
 type FavoritesPage struct {
 	ActiveTab string
 	IsAdmin   bool
@@ -296,8 +276,7 @@ func initTemplates() {
 	}
 	add("browse", browseTmpl)
 	add("recent", recentTmpl)
-	add("unplayed", unplayedTmpl)
-	add("top-played", topPlayedTmpl)
+
 	add("stats", statsTmpl)
 	add("folder-play", folderPlayTmpl)
 	add("favorites", favoritesTmpl)
@@ -750,8 +729,7 @@ const baseTmpl = `<!DOCTYPE html>
 <nav>
   <a href="/browse"     {{if eq .ActiveTab "browse"}}class="active"{{end}}>Browse</a>
   <a href="/recent"     {{if eq .ActiveTab "recent"}}class="active"{{end}}>Recent</a>
-  <a href="/unplayed"   {{if eq .ActiveTab "unplayed"}}class="active"{{end}}>Unplayed</a>
-  <a href="/top-played" {{if eq .ActiveTab "top-played"}}class="active"{{end}}>Top Played</a>
+
   <a href="/stats"      {{if eq .ActiveTab "stats"}}class="active"{{end}}>Stats</a>
   <a href="/favorites"  {{if eq .ActiveTab "favorites"}}class="active"{{end}}>Favorites</a>
   <a href="/playlists"  {{if eq .ActiveTab "playlists"}}class="active"{{end}}>Playlists</a>
@@ -1959,104 +1937,6 @@ function setView(v) {
 </script>
 {{end}}`
 
-const unplayedTmpl = `{{define "content"}}
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
-  <div>
-    <h2 style="margin:0 0 2px">Unplayed</h2>
-    <div class="summary">{{len .Items}} file{{if ne (len .Items) 1}}s{{end}} never played</div>
-  </div>
-  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-    <div class="search-filters" style="margin:0">
-      <button class="sf-chip active" onclick="setTypeFilter(this,'all')">All</button>
-      <button class="sf-chip" onclick="setTypeFilter(this,'video')">Video</button>
-      <button class="sf-chip" onclick="setTypeFilter(this,'audio')">Audio</button>
-    </div>
-    <div class="view-toggle">
-      <button id="btn-list" class="btn-view" onclick="setView('list')" title="List view">&#9776; List</button>
-      <button id="btn-grid" class="btn-view" onclick="setView('grid')" title="Grid view">&#8859; Grid</button>
-    </div>
-  </div>
-</div>
-{{if not .Items}}
-<p class="muted">Everything has been played — nothing left to discover here.</p>
-{{else}}
-<div id="view-list">
-<div class="table-wrap">
-<table>
-<thead><tr>
-  <th>Name</th>
-  <th>Type</th>
-  <th>Directory</th>
-</tr></thead>
-<tbody>
-{{range .Items}}
-<tr class="file-row" data-type="{{.FileType}}" data-dir="{{.Dir}}" style="cursor:pointer" onclick="browseDir(this)">
-  <td>{{.Filename}}</td>
-  <td><span class="badge badge-{{.FileType}}">{{upper .FileType}}</span></td>
-  <td class="muted" style="font-size:12px;font-family:monospace">{{.Dir}}</td>
-</tr>
-{{end}}
-</tbody>
-</table>
-</div>
-</div>
-<div id="view-grid" class="view-grid" style="display:none">
-{{range .Items}}
-{{if eq .FileType "video"}}
-<div class="grid-card" data-type="video" data-dir="{{.Dir}}" onclick="browseDir(this)">
-  <div class="grid-thumb">
-    <img src="{{thumbURL .Path}}" loading="lazy" alt="" style="width:100%;height:100%;object-fit:cover;display:block"
-         onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-    <div style="display:none;width:100%;height:100%;align-items:center;justify-content:center">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="17" y1="7" x2="22" y2="7"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="2" y1="17" x2="7" y2="17"/></svg>
-    </div>
-  </div>
-  <div class="grid-name">{{.Filename}}</div>
-</div>
-{{else if eq .FileType "audio"}}
-<div class="grid-card" data-type="audio" data-dir="{{.Dir}}" onclick="browseDir(this)">
-  {{if .AlbumArt}}
-  <div class="grid-thumb">
-    <img src="{{thumbURL .AlbumArt}}" loading="lazy" alt="" style="width:100%;height:100%;object-fit:cover;display:block"
-         onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-    <div style="display:none;width:100%;height:100%;align-items:center;justify-content:center">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#bc60ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-    </div>
-  </div>
-  {{else}}
-  <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#bc60ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>
-  {{end}}
-  <div class="grid-name">{{.Filename}}</div>
-</div>
-{{end}}
-{{end}}
-</div>
-{{end}}
-<script>
-function setView(v) {
-  var list = document.getElementById('view-list');
-  var grid = document.getElementById('view-grid');
-  if (!list || !grid) return;
-  list.style.display = v === 'list' ? '' : 'none';
-  grid.style.display = v === 'grid' ? 'grid' : 'none';
-  document.getElementById('btn-list').classList.toggle('active', v === 'list');
-  document.getElementById('btn-grid').classList.toggle('active', v === 'grid');
-  try { localStorage.setItem('fb_view', v); } catch(e) {}
-}
-function setTypeFilter(btn, t) {
-  document.querySelectorAll('.sf-chip').forEach(function(b) { b.classList.remove('active'); });
-  btn.classList.add('active');
-  document.querySelectorAll('[data-type]').forEach(function(el) {
-    el.style.display = (t === 'all' || el.dataset.type === t) ? '' : 'none';
-  });
-}
-(function() {
-  var v = 'list'; try { v = localStorage.getItem('fb_view') || 'list'; } catch(e) {}
-  setView(v);
-})();
-</script>
-{{end}}`
-
 const pathsTmpl = `{{define "content"}}
 <div class="page-header">
   <div class="page-header-left">
@@ -2967,78 +2847,6 @@ document.addEventListener('DOMContentLoaded', function() {
   if (PLAYLIST_ITEMS && PLAYLIST_ITEMS.length > 0) {
     startPlaylistItem(Math.min((PLAYLIST_STATE && PLAYLIST_STATE.CurrentIndex) || 0, PLAYLIST_ITEMS.length - 1),
                      (PLAYLIST_STATE && PLAYLIST_STATE.PositionSec) || 0);
-  }
-});
-</script>
-{{end}}`
-
-const topPlayedTmpl = `{{define "content"}}
-<script>
-var PLAYLIST_ID = 0;
-var PLAYLIST_ITEMS = {{toJSON .Items}};
-var PLAYLIST_STATE = null;
-</script>
-<div class="page-header">
-  <div class="page-header-left">
-    <h2>Top Played</h2>
-  </div>
-</div>
-{{if not .Items}}
-<p class="muted">No plays yet. Start listening to build your top tracks.</p>
-{{else}}
-<div class="pl-layout" id="pl-layout">
-  <div class="pl-player">
-    <div class="pl-title" id="pl-title"></div>
-    <audio id="pl-audio" style="display:none"></audio>
-    <div class="pl-audio-ui" id="pl-audio-ui" style="display:none">
-      <div class="pl-seek-wrap">
-        <input type="range" class="pl-seek" id="pl-seek" value="0" min="0" max="100" step="0.1">
-        <div class="pl-time-row"><span id="pl-time-cur">0:00</span><span id="pl-time-dur">--:--</span></div>
-      </div>
-      <div class="pl-transport">
-        <div></div>
-        ` + plTransportHTML + `
-        <div class="pl-vol-wrap">
-          <span class="pl-vol-icon">&#128266;</span>
-          <input type="range" class="pl-vol" id="pl-vol" value="100" min="0" max="100" step="1">
-        </div>
-      </div>
-    </div>
-    <video id="pl-video" controls style="display:none"></video>
-    <div class="pl-controls">
-      <span class="pl-badge" id="pl-badge"></span>
-    </div>
-  </div>
-  <div class="pl-sidebar" id="pl-sidebar">
-    <div style="padding:8px 12px;border-bottom:1px solid #30363d">
-      <span style="font-size:12px;color:#8b949e;font-weight:500;text-transform:uppercase;letter-spacing:0.5px">{{len .Items}} tracks</span>
-    </div>
-    <div id="pl-item-list">
-    {{range $i, $it := .Items}}
-    <div class="pl-item" data-idx="{{$i}}" onclick="startPlaylistItem({{$i}}, 0, true)">
-      <span class="pl-item-name">{{$it.Name}}</span>
-      <span class="badge badge-audio" style="flex-shrink:0">{{$it.WatchCount}}&#xD7;</span>
-    </div>
-    {{end}}
-    </div>
-  </div>
-</div>
-{{end}}
-<script>
-var plLastSave = 0;
-var plCurrentIdx = 0;
-function getPlMedia() {
-  var v = document.getElementById('pl-video'), a = document.getElementById('pl-audio');
-  if (v && v.style.display !== 'none') return v;
-  if (a && a.style.display !== 'none') return a;
-  return null;
-}
-function savePlState() {}
-` + plSharedJS + `
-document.addEventListener('DOMContentLoaded', function() {
-  plInitAudioUI();
-  if (PLAYLIST_ITEMS && PLAYLIST_ITEMS.length > 0) {
-    startPlaylistItem(0, 0);
   }
 });
 </script>

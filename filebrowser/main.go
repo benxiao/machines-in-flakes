@@ -177,7 +177,7 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	})
 	mux.HandleFunc("GET /browse", a.handleBrowse)
 	mux.HandleFunc("GET /recent", a.handleRecent)
-	mux.HandleFunc("GET /unplayed", a.handleUnplayed)
+
 	mux.HandleFunc("GET /file", a.handleServeFile)
 	mux.HandleFunc("GET /thumbnail", a.handleThumbnail)
 	mux.HandleFunc("GET /hls/playlist", a.handleHLSPlaylist)
@@ -200,7 +200,7 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /search/files", a.handleSearchFiles)
 	mux.HandleFunc("GET /search/status", a.handleSearchStatus)
 	mux.HandleFunc("POST /search/reindex", a.handleSearchReindex)
-	mux.HandleFunc("GET /top-played",        a.handleTopPlayed)
+
 	mux.HandleFunc("GET /stats",             a.handleStatsPage)
 	mux.HandleFunc("GET /folder/play",       a.handleFolderPlay)
 	mux.HandleFunc("GET /favorites",           a.handleFavoritesPage)
