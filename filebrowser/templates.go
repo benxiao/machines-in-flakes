@@ -1447,17 +1447,18 @@ const browseTmpl = `{{define "content"}}
     {{end}}
     {{range .Files}}
     {{if eq .FileType "other"}}
-    <tr>
-      <td></td>
-      <td><a href="{{fileURL .AbsPath}}">{{.Filename}}</a></td>
+    <tr data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="other">
+      <td><input type="checkbox" class="row-check" value="{{.AbsPath}}" data-type="other" onchange="updateSelBar()" onclick="event.stopPropagation()" style="cursor:pointer"></td>
+      <td><a href="{{fileURL .AbsPath}}" onclick="event.stopPropagation()">{{.Filename}}</a></td>
       <td><span class="badge badge-{{.FileType}}">{{upper .FileType}}</span></td>
       <td class="muted">{{.Size}}</td>
       <td class="muted">{{.ModifiedAt}}</td>
       <td class="muted">—</td>
+      <td></td>
     </tr>
     {{else}}
     <tr class="file-row" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="{{.FileType}}" onclick="openPreview(this, true)">
-      <td>{{if or (eq .FileType "video") (eq .FileType "audio") (and $.IsAdmin (ne .FileType "other"))}}<input type="checkbox" class="row-check" value="{{.AbsPath}}" data-type="{{.FileType}}" onchange="updateSelBar()" onclick="event.stopPropagation()" style="cursor:pointer">{{end}}</td>
+      <td><input type="checkbox" class="row-check" value="{{.AbsPath}}" data-type="{{.FileType}}" onchange="updateSelBar()" onclick="event.stopPropagation()" style="cursor:pointer"></td>
       <td>{{.Filename}}</td>
       <td><span class="badge badge-{{.FileType}}">{{upper .FileType}}</span></td>
       <td class="muted">{{.Size}}</td>
@@ -1539,19 +1540,24 @@ const browseTmpl = `{{define "content"}}
     </div>
     {{else if eq .FileType "pdf"}}
     <div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="pdf" onclick="gridClick(event,this)">
+      <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" data-type="pdf" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
       <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#f85149" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>
       <div class="grid-name">{{.Filename}}</div>
     </div>
     {{else if eq .FileType "text"}}
     <div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="text" onclick="gridClick(event,this)">
+      <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" data-type="text" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
       <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#d29922" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg></div>
       <div class="grid-name">{{.Filename}}</div>
     </div>
     {{else}}
-    <a class="grid-card" href="{{fileURL .AbsPath}}">
-      <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#8b949e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
-      <div class="grid-name">{{.Filename}}</div>
-    </a>
+    <div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="other" onclick="gridClick(event,this)">
+      <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" data-type="other" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
+      <a href="{{fileURL .AbsPath}}" onclick="event.stopPropagation()" style="display:contents">
+        <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#8b949e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
+        <div class="grid-name">{{.Filename}}</div>
+      </a>
+    </div>
     {{end}}
     {{end}}
     </div>
@@ -1562,11 +1568,11 @@ const browseTmpl = `{{define "content"}}
 <div class="sel-spacer"></div>
 <div id="sel-bar" style="display:none;position:fixed;bottom:0;left:0;right:0;background:#161b22;border-top:1px solid #30363d;padding:12px 24px;z-index:200;align-items:center;gap:12px;flex-wrap:wrap">
   <span id="sel-count" style="color:#c9d1d9;font-size:14px;white-space:nowrap"></span>
-  <select id="sel-pl" style="background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;font-size:13px;padding:5px 8px">
+  <select id="sel-pl" style="background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;font-size:13px;padding:5px 8px;display:none">
     <option value="">Add to playlist...</option>
     {{range .Playlists}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
   </select>
-  <button class="btn btn-primary btn-sm" onclick="addSelectedToPlaylist()">Add to Playlist</button>
+  <button id="sel-pl-btn" class="btn btn-primary btn-sm" style="display:none" onclick="addSelectedToPlaylist()">Add to Playlist</button>
   <button class="btn btn-edit btn-sm" onclick="downloadSelected()">⬇ Download</button>
   {{if .IsAdmin}}
   <button id="sel-rename" class="btn btn-edit btn-sm" style="display:none" onclick="renameSelected()">&#x270E; Rename</button>
@@ -1583,9 +1589,15 @@ function updateSelBar() {
   var count = document.getElementById('sel-count');
   bar.style.display = checks.length > 0 ? 'flex' : 'none';
   var hasDirs = !!document.querySelector('.row-check:checked[data-type="dir"]');
+  var hasMedia = !!document.querySelector('.row-check:checked[data-type="audio"],.row-check:checked[data-type="video"]');
   var label = checks.length + ' item' + (checks.length === 1 ? '' : 's') + ' selected';
   if (hasDirs) label += ' (folder' + (checks.length === 1 ? '' : 's') + ')';
   count.textContent = label;
+  var showPl = hasMedia || hasDirs;
+  var pl = document.getElementById('sel-pl');
+  var plBtn = document.getElementById('sel-pl-btn');
+  if (pl) pl.style.display = showPl ? '' : 'none';
+  if (plBtn) plBtn.style.display = showPl ? '' : 'none';
   var ren = document.getElementById('sel-rename');
   if (ren) ren.style.display = checks.length === 1 ? '' : 'none';
   var all = document.querySelectorAll('.row-check');
