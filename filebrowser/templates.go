@@ -1649,7 +1649,19 @@ function copyPDFMarkdown() {
       if (!r.ok) return r.text().then(function(t) { throw new Error(t); });
       return r.text();
     })
-    .then(function(md) { return navigator.clipboard.writeText(md); })
+    .then(function(md) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(md);
+      }
+      var ta = document.createElement('textarea');
+      ta.value = md;
+      ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    })
     .then(function() {
       btn.textContent = '✓ Copied!';
       setTimeout(function() { btn.textContent = '📋 Copy as Markdown'; btn.disabled = false; }, 2000);
