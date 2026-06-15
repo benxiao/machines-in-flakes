@@ -1434,7 +1434,7 @@ const browseTmpl = `{{define "content"}}
     <tbody>
     {{range .Subdirs}}
     <tr class="dir-row" data-dir="{{.AbsPath}}" onclick="browseDir(this)">
-      <td></td>
+      <td onclick="event.stopPropagation()"><input type="checkbox" class="row-check" value="{{.AbsPath}}" data-type="dir" onchange="updateSelBar()" onclick="event.stopPropagation()" style="cursor:pointer"></td>
       <td>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:6px"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>{{.Name}}
       </td>
@@ -1473,7 +1473,8 @@ const browseTmpl = `{{define "content"}}
     </div>
     <div id="view-grid" class="view-grid" style="display:none">
     {{range .Subdirs}}
-    <div class="grid-card" data-dir="{{.AbsPath}}" onclick="browseDir(this)">
+    <div class="grid-card" data-dir="{{.AbsPath}}" onclick="gridDirClick(event,this)">
+      <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" data-type="dir" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
       {{if .AlbumArt}}
       <div class="grid-thumb" style="position:relative">
         <img src="{{thumbURL .AlbumArt}}" loading="lazy" alt="" style="width:100%;height:100%;object-fit:cover;display:block"
@@ -1581,7 +1582,10 @@ function updateSelBar() {
   var bar = document.getElementById('sel-bar');
   var count = document.getElementById('sel-count');
   bar.style.display = checks.length > 0 ? 'flex' : 'none';
-  count.textContent = checks.length + ' item' + (checks.length === 1 ? '' : 's') + ' selected';
+  var hasDirs = !!document.querySelector('.row-check:checked[data-type="dir"]');
+  var label = checks.length + ' item' + (checks.length === 1 ? '' : 's') + ' selected';
+  if (hasDirs) label += ' (folder' + (checks.length === 1 ? '' : 's') + ')';
+  count.textContent = label;
   var ren = document.getElementById('sel-rename');
   if (ren) ren.style.display = checks.length === 1 ? '' : 'none';
   var all = document.querySelectorAll('.row-check');
@@ -1616,6 +1620,11 @@ function gridClick(event, el) {
   if (chk && chk.checked) { chk.checked = false; el.classList.remove('grid-checked'); updateSelBar(); return; }
   openPreview(el, true);
 }
+function gridDirClick(event, el) {
+  var chk = el.querySelector('.grid-chk');
+  if (chk && chk.checked) { chk.checked = false; el.classList.remove('grid-checked'); updateSelBar(); return; }
+  browseDir(el);
+}
 function gridCheck(event, chk) {
   var card = chk.closest('.grid-card');
   if (card) card.classList.toggle('grid-checked', chk.checked);
@@ -1628,73 +1637,118 @@ function gridCheck(event, chk) {
 function addSelectedToPlaylist() {
   var plId = document.getElementById('sel-pl').value;
   if (!plId) { document.getElementById('sel-pl').focus(); return; }
-  var paths = Array.from(document.querySelectorAll('.row-check:checked')).filter(function(c) {
+  var checked = Array.from(document.querySelectorAll('.row-check:checked'));
+  var dirPaths = checked.filter(function(c) { return c.dataset.type === 'dir'; }).map(function(c) { return c.value; });
+  var filePaths = checked.filter(function(c) {
     var t = c.dataset.type;
     return !t || t === 'audio' || t === 'video';
   }).map(function(c) { return c.value; });
-  if (paths.length === 0) return;
-  Promise.all(paths.map(function(path) {
-    return fetch('/playlists/' + plId + '/items', {
+  if (dirPaths.length === 0 && filePaths.length === 0) return;
+  var promises = [];
+  dirPaths.forEach(function(path) {
+    promises.push(fetch('/api/folder/playlist-add', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path: path, playlist_id: parseInt(plId, 10)})
+    }));
+  });
+  filePaths.forEach(function(path) {
+    promises.push(fetch('/playlists/' + plId + '/items', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({path: path})
-    });
-  })).then(function() {
+    }));
+  });
+  Promise.all(promises).then(function() {
     var ok = document.getElementById('sel-ok');
-    ok.textContent = paths.length + ' item' + (paths.length === 1 ? '' : 's') + ' added';
+    var total = dirPaths.length + filePaths.length;
+    ok.textContent = total + ' item' + (total === 1 ? '' : 's') + ' added to playlist';
     ok.style.display = 'inline';
     setTimeout(function() { ok.style.display = 'none'; clearSelection(); }, 1500);
   });
 }
 function downloadSelected() {
-  var paths = Array.from(document.querySelectorAll('.row-check:checked')).map(function(c) { return c.value; });
-  paths.forEach(function(path, i) {
+  var checked = Array.from(document.querySelectorAll('.row-check:checked'));
+  var i = 0;
+  checked.forEach(function(c) {
+    var path = c.value;
+    var isDir = c.dataset.type === 'dir';
+    var idx = i++;
     setTimeout(function() {
       var a = document.createElement('a');
-      a.href = '/file?path=' + encodeURIComponent(path) + '&dl=1';
+      a.href = isDir
+        ? '/api/folder/download?path=' + encodeURIComponent(path)
+        : '/file?path=' + encodeURIComponent(path) + '&dl=1';
       a.download = '';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-    }, i * 300);
+    }, idx * 300);
   });
 }
 function selPaths() {
   return Array.from(document.querySelectorAll('.row-check:checked')).map(function(c) { return c.value; });
 }
 function deleteSelected() {
-  var paths = selPaths();
-  if (paths.length === 0) return;
-  if (!confirm('Permanently delete ' + paths.length + ' file' + (paths.length === 1 ? '' : 's') + '? This cannot be undone.')) return;
-  fetch('/api/file/delete', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({paths: paths})})
-    .then(function(r) { return r.json(); })
-    .then(function(res) {
-      if (res.errors && res.errors.length) alert('Some files failed:\n' + res.errors.join('\n'));
+  var checked = Array.from(document.querySelectorAll('.row-check:checked'));
+  if (checked.length === 0) return;
+  var dirPaths = checked.filter(function(c) { return c.dataset.type === 'dir'; }).map(function(c) { return c.value; });
+  var filePaths = checked.filter(function(c) { return c.dataset.type !== 'dir'; }).map(function(c) { return c.value; });
+  var msg = '';
+  if (dirPaths.length > 0 && filePaths.length === 0)
+    msg = 'Permanently delete ' + dirPaths.length + ' folder' + (dirPaths.length === 1 ? '' : 's') + ' and all their contents? This cannot be undone.';
+  else if (filePaths.length > 0 && dirPaths.length === 0)
+    msg = 'Permanently delete ' + filePaths.length + ' file' + (filePaths.length === 1 ? '' : 's') + '? This cannot be undone.';
+  else
+    msg = 'Permanently delete ' + filePaths.length + ' file' + (filePaths.length === 1 ? '' : 's') + ' and ' + dirPaths.length + ' folder' + (dirPaths.length === 1 ? '' : 's') + ' and all their contents? This cannot be undone.';
+  if (!confirm(msg)) return;
+  var promises = [];
+  if (filePaths.length > 0)
+    promises.push(fetch('/api/file/delete', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({paths: filePaths})}).then(function(r) { return r.json(); }));
+  if (dirPaths.length > 0)
+    promises.push(fetch('/api/folder/delete', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({paths: dirPaths})}).then(function(r) { return r.json(); }));
+  Promise.all(promises)
+    .then(function(results) {
+      var errs = [];
+      results.forEach(function(res) { if (res.errors && res.errors.length) errs = errs.concat(res.errors); });
+      if (errs.length) alert('Some items failed:\n' + errs.join('\n'));
       location.reload();
     })
     .catch(function(e) { alert('Delete failed: ' + e); });
 }
 function renameSelected() {
-  var paths = selPaths();
-  if (paths.length !== 1) return;
-  var base = paths[0].split('/').pop();
+  var checked = Array.from(document.querySelectorAll('.row-check:checked'));
+  if (checked.length !== 1) return;
+  var isDir = checked[0].dataset.type === 'dir';
+  var path = checked[0].value;
+  var base = path.split('/').pop();
   var name = prompt('New name:', base);
   if (!name || name === base) return;
-  fetch('/api/file/rename', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({path: paths[0], new_name: name})})
+  var endpoint = isDir ? '/api/folder/rename' : '/api/file/rename';
+  fetch(endpoint, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({path: path, new_name: name})})
     .then(function(r) {
       if (!r.ok) return r.text().then(function(t) { alert('Rename failed: ' + t); });
       location.reload();
     });
 }
 function moveSelected() {
-  var paths = selPaths();
-  if (paths.length === 0) return;
-  var dest = prompt('Move ' + paths.length + ' file' + (paths.length === 1 ? '' : 's') + ' to directory:', {{.Dir}});
+  var checked = Array.from(document.querySelectorAll('.row-check:checked'));
+  if (checked.length === 0) return;
+  var dirPaths = checked.filter(function(c) { return c.dataset.type === 'dir'; }).map(function(c) { return c.value; });
+  var filePaths = checked.filter(function(c) { return c.dataset.type !== 'dir'; }).map(function(c) { return c.value; });
+  var label = checked.length + ' item' + (checked.length === 1 ? '' : 's');
+  var dest = prompt('Move ' + label + ' to directory:', {{.Dir}});
   if (!dest) return;
-  fetch('/api/file/move', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({paths: paths, dest_dir: dest})})
-    .then(function(r) { return r.json(); })
-    .then(function(res) {
-      if (res.errors && res.errors.length) alert('Some files failed:\n' + res.errors.join('\n'));
+  var promises = [];
+  if (filePaths.length > 0)
+    promises.push(fetch('/api/file/move', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({paths: filePaths, dest_dir: dest})}).then(function(r) { return r.json(); }));
+  if (dirPaths.length > 0)
+    promises.push(fetch('/api/folder/move', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({paths: dirPaths, dest_dir: dest})}).then(function(r) { return r.json(); }));
+  Promise.all(promises)
+    .then(function(results) {
+      var errs = [];
+      results.forEach(function(res) { if (res.errors && res.errors.length) errs = errs.concat(res.errors); });
+      if (errs.length) alert('Some items failed:\n' + errs.join('\n'));
       location.reload();
     })
     .catch(function(e) { alert('Move failed: ' + e); });

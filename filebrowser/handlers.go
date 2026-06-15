@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -2671,4 +2672,361 @@ func (a *App) handleStatsPage(w http.ResponseWriter, r *http.Request) {
 		Days: days, HasPlay: maxSec > 0, Totals: t,
 		TopItems: top, RecentDone: done,
 	})
+}
+
+// ---- Folder operations ----
+
+func (a *App) purgeFolderRows(ctx context.Context, dir string) error {
+	tx, err := a.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	for _, q := range []string{
+		`DELETE FROM file_index WHERE path LIKE $1 || '/%'`,
+		`DELETE FROM video_positions WHERE path LIKE $1 || '/%'`,
+		`DELETE FROM playlist_items WHERE path LIKE $1 || '/%'`,
+		`DELETE FROM favorites WHERE path LIKE $1 || '/%' AND is_folder = FALSE`,
+		`DELETE FROM favorites WHERE path = $1 AND is_folder = TRUE`,
+	} {
+		if _, err := tx.Exec(ctx, q, dir); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func (a *App) repathFolderRows(ctx context.Context, oldDir, newDir string) error {
+	tx, err := a.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	steps := []struct {
+		q    string
+		args []any
+	}{
+		{`UPDATE file_index
+		  SET path = $2 || SUBSTRING(path FROM LENGTH($1)+1),
+		      dir_path = $2 || SUBSTRING(dir_path FROM LENGTH($1)+1)
+		  WHERE path LIKE $1 || '/%'`, []any{oldDir, newDir}},
+		{`UPDATE video_positions
+		  SET path = $2 || SUBSTRING(path FROM LENGTH($1)+1)
+		  WHERE path LIKE $1 || '/%'`, []any{oldDir, newDir}},
+		{`UPDATE playlist_items
+		  SET path = $2 || SUBSTRING(path FROM LENGTH($1)+1)
+		  WHERE path LIKE $1 || '/%'`, []any{oldDir, newDir}},
+		{`UPDATE favorites
+		  SET path = $2 || SUBSTRING(path FROM LENGTH($1)+1)
+		  WHERE path LIKE $1 || '/%' AND is_folder = FALSE`, []any{oldDir, newDir}},
+		{`UPDATE favorites SET path = $2 WHERE path = $1 AND is_folder = TRUE`, []any{oldDir, newDir}},
+	}
+	for _, s := range steps {
+		if _, err := tx.Exec(ctx, s.q, s.args...); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func copyDirRecursive(src, dst string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(src, path)
+		target := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, info.Mode().Perm())
+		}
+		in, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer in.Close()
+		out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_EXCL, info.Mode().Perm())
+		if err != nil {
+			return err
+		}
+		if _, err := io.Copy(out, in); err != nil {
+			out.Close()
+			os.Remove(target)
+			return err
+		}
+		if err := out.Sync(); err != nil {
+			out.Close()
+			os.Remove(target)
+			return err
+		}
+		return out.Close()
+	})
+}
+
+func moveDirAny(src, dst string) error {
+	err := os.Rename(src, dst)
+	if err == nil {
+		return nil
+	}
+	var lerr *os.LinkError
+	if !errors.As(err, &lerr) || !errors.Is(lerr.Err, syscall.EXDEV) {
+		return err
+	}
+	if err := copyDirRecursive(src, dst); err != nil {
+		os.RemoveAll(dst)
+		return err
+	}
+	return os.RemoveAll(src)
+}
+
+func (a *App) handleFolderDownload(w http.ResponseWriter, r *http.Request) {
+	path := filepath.Clean(r.URL.Query().Get("path"))
+	if !a.isAllowedPath(r, path) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	info, err := os.Stat(path)
+	if err != nil || !info.IsDir() {
+		http.Error(w, "not a directory", http.StatusBadRequest)
+		return
+	}
+	name := strings.ReplaceAll(filepath.Base(path), `"`, `'`)
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.zip"`, name))
+	zw := zip.NewWriter(w)
+	defer zw.Close()
+	if err := filepath.Walk(path, func(fpath string, fi os.FileInfo, err error) error {
+		if err != nil || fi.IsDir() {
+			return nil
+		}
+		rel, _ := filepath.Rel(path, fpath)
+		fw, err := zw.Create(rel)
+		if err != nil {
+			return err
+		}
+		f, err := os.Open(fpath)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		_, err = io.Copy(fw, f)
+		return err
+	}); err != nil {
+		log.Printf("folder download error path=%s: %v", path, err)
+	}
+}
+
+func (a *App) handleFolderDelete(w http.ResponseWriter, r *http.Request) {
+	if !isAdmin(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	var req struct {
+		Paths []string `json:"paths"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Paths) == 0 {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	var deleted int
+	var errs []string
+	for _, p := range req.Paths {
+		absPath := filepath.Clean(p)
+		if !a.isAllowedPath(r, absPath) {
+			errs = append(errs, p+": forbidden")
+			continue
+		}
+		info, err := os.Stat(absPath)
+		if err != nil || !info.IsDir() {
+			errs = append(errs, p+": not a directory")
+			continue
+		}
+		if err := os.RemoveAll(absPath); err != nil {
+			errs = append(errs, p+": "+err.Error())
+			continue
+		}
+		if err := a.purgeFolderRows(r.Context(), absPath); err != nil {
+			log.Printf("folder delete db cleanup: %v", err)
+		}
+		deleted++
+	}
+	if deleted > 0 {
+		log.Printf("folder delete u=%d: %d dir(s)", uid(r), deleted)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"deleted": deleted, "errors": errs})
+}
+
+func (a *App) handleFolderRename(w http.ResponseWriter, r *http.Request) {
+	if !isAdmin(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	var req struct {
+		Path    string `json:"path"`
+		NewName string `json:"new_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	absPath := filepath.Clean(req.Path)
+	if !a.isAllowedPath(r, absPath) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	info, err := os.Stat(absPath)
+	if err != nil || !info.IsDir() {
+		http.Error(w, "not a directory", http.StatusBadRequest)
+		return
+	}
+	name := strings.TrimSpace(req.NewName)
+	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, "/\x00") {
+		http.Error(w, "invalid name", http.StatusBadRequest)
+		return
+	}
+	newPath := filepath.Join(filepath.Dir(absPath), name)
+	if newPath == absPath {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if _, err := os.Lstat(newPath); err == nil {
+		http.Error(w, "target exists", http.StatusConflict)
+		return
+	}
+	if err := os.Rename(absPath, newPath); err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	if err := a.repathFolderRows(r.Context(), absPath, newPath); err != nil {
+		log.Printf("folder rename db update: %v", err)
+	}
+	log.Printf("folder rename u=%d: %s -> %s", uid(r), absPath, newPath)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleFolderMove(w http.ResponseWriter, r *http.Request) {
+	if !isAdmin(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	var req struct {
+		Paths   []string `json:"paths"`
+		DestDir string   `json:"dest_dir"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Paths) == 0 || req.DestDir == "" {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	destDir := filepath.Clean(req.DestDir)
+	if !a.isAllowedPath(r, destDir) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if info, err := os.Stat(destDir); err != nil || !info.IsDir() {
+		http.Error(w, "destination is not a directory", http.StatusBadRequest)
+		return
+	}
+	var moved int
+	var errs []string
+	for _, p := range req.Paths {
+		absPath := filepath.Clean(p)
+		if !a.isAllowedPath(r, absPath) {
+			errs = append(errs, p+": forbidden")
+			continue
+		}
+		info, err := os.Stat(absPath)
+		if err != nil || !info.IsDir() {
+			errs = append(errs, p+": not a directory")
+			continue
+		}
+		newPath := filepath.Join(destDir, filepath.Base(absPath))
+		if newPath == absPath {
+			moved++
+			continue
+		}
+		if _, err := os.Lstat(newPath); err == nil {
+			errs = append(errs, p+": target exists")
+			continue
+		}
+		if err := moveDirAny(absPath, newPath); err != nil {
+			errs = append(errs, p+": "+err.Error())
+			continue
+		}
+		if err := a.repathFolderRows(r.Context(), absPath, newPath); err != nil {
+			log.Printf("folder move db update: %v", err)
+		}
+		moved++
+	}
+	if moved > 0 {
+		log.Printf("folder move u=%d: %d dir(s) -> %s", uid(r), moved, destDir)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"moved": moved, "errors": errs})
+}
+
+func (a *App) handleFolderPlaylistAdd(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Path       string `json:"path"`
+		PlaylistID int64  `json:"playlist_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.PlaylistID == 0 {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	absPath := filepath.Clean(req.Path)
+	if !a.isAllowedPath(r, absPath) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if info, err := os.Stat(absPath); err != nil || !info.IsDir() {
+		http.Error(w, "not a directory", http.StatusBadRequest)
+		return
+	}
+	var mediaPaths []string
+	filepath.WalkDir(absPath, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		ft := classifyExt(filepath.Ext(path))
+		if ft == "audio" || ft == "video" {
+			mediaPaths = append(mediaPaths, path)
+		}
+		return nil
+	})
+	if len(mediaPaths) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"added": 0})
+		return
+	}
+	var startPos int64
+	a.db.QueryRow(r.Context(),
+		`SELECT COALESCE(MAX(position)+1, 0) FROM playlist_items WHERE playlist_id = $1`,
+		req.PlaylistID).Scan(&startPos)
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	added := 0
+	for i, p := range mediaPaths {
+		tag, err := tx.Exec(r.Context(), `
+			INSERT INTO playlist_items (playlist_id, path, position)
+			SELECT $1, $2, $3
+			FROM playlists WHERE id = $1 AND user_id = $4
+			ON CONFLICT DO NOTHING
+		`, req.PlaylistID, p, startPos+int64(i), uid(r))
+		if err != nil {
+			httpErr(w, err, 500)
+			return
+		}
+		added += int(tag.RowsAffected())
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	log.Printf("folder playlist-add u=%d: %d media files from %s -> playlist %d", uid(r), added, absPath, req.PlaylistID)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"added": added})
 }
