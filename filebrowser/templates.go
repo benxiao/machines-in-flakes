@@ -1594,10 +1594,11 @@ function updateSelBar() {
   var bar = document.getElementById('sel-bar');
   var count = document.getElementById('sel-count');
   bar.style.display = checks.length > 0 ? 'flex' : 'none';
-  var hasDirs = !!document.querySelector('.row-check:checked[data-type="dir"]');
+  var dirCount = document.querySelectorAll('.row-check:checked[data-type="dir"]').length;
+  var hasDirs = dirCount > 0;
   var hasMedia = !!document.querySelector('.row-check:checked[data-type="audio"],.row-check:checked[data-type="video"]');
   var label = checks.length + ' item' + (checks.length === 1 ? '' : 's') + ' selected';
-  if (hasDirs) label += ' (folder' + (checks.length === 1 ? '' : 's') + ')';
+  if (hasDirs) label += ' (folder' + (dirCount === 1 ? '' : 's') + ')';
   count.textContent = label;
   var showPl = hasMedia || hasDirs;
   var pl = document.getElementById('sel-pl');
@@ -1636,6 +1637,11 @@ function setView(v) {
 function gridClick(event, el) {
   var chk = el.querySelector('.grid-chk');
   if (chk && chk.checked) { chk.checked = false; el.classList.remove('grid-checked'); updateSelBar(); return; }
+  if (el.dataset.type === 'other') {
+    var link = el.querySelector('a[href]');
+    if (link) { link.click(); }
+    return;
+  }
   openPreview(el, true);
 }
 function copyPDFMarkdown() {
@@ -1659,8 +1665,9 @@ function copyPDFMarkdown() {
       document.body.appendChild(ta);
       ta.focus();
       ta.select();
-      document.execCommand('copy');
+      var ok = document.execCommand('copy');
       document.body.removeChild(ta);
+      if (!ok) throw new Error('Clipboard unavailable');
     })
     .then(function() {
       btn.textContent = '✓ Copied!';
@@ -1702,19 +1709,19 @@ function addSelectedToPlaylist() {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({path: path, playlist_id: parseInt(plId, 10)})
-    }));
+    }).then(function(r) { return r.ok ? r.json() : {added: 0}; }));
   });
   filePaths.forEach(function(path) {
     promises.push(fetch('/playlists/' + plId + '/items', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({path: path})
-    }));
+    }).then(function() { return {added: 1}; }));
   });
-  Promise.all(promises).then(function() {
+  Promise.all(promises).then(function(results) {
+    var added = results.reduce(function(acc, r) { return acc + (r.added || 0); }, 0);
     var ok = document.getElementById('sel-ok');
-    var total = dirPaths.length + filePaths.length;
-    ok.textContent = total + ' item' + (total === 1 ? '' : 's') + ' added to playlist';
+    ok.textContent = added + ' track' + (added === 1 ? '' : 's') + ' added to playlist';
     ok.style.display = 'inline';
     setTimeout(function() { ok.style.display = 'none'; clearSelection(); }, 1500);
   });

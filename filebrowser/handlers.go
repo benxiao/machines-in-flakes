@@ -2676,18 +2676,38 @@ func (a *App) handleStatsPage(w http.ResponseWriter, r *http.Request) {
 
 // ---- Folder operations ----
 
+// escapeLikeArg escapes PostgreSQL LIKE wildcards so folder paths with '_' or '%'
+// match only themselves. Pair with ESCAPE '\' in the SQL clause.
+func escapeLikeArg(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `%`, `\%`)
+	s = strings.ReplaceAll(s, `_`, `\_`)
+	return s
+}
+
 func (a *App) purgeFolderRows(ctx context.Context, dir string) error {
+	likeDir := escapeLikeArg(dir)
 	tx, err := a.db.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
+	// LIKE-based deletes: children of dir
 	for _, q := range []string{
-		`DELETE FROM file_index WHERE path LIKE $1 || '/%'`,
-		`DELETE FROM video_positions WHERE path LIKE $1 || '/%'`,
-		`DELETE FROM playlist_items WHERE path LIKE $1 || '/%'`,
-		`DELETE FROM favorites WHERE path LIKE $1 || '/%' AND is_folder = FALSE`,
+		`DELETE FROM file_index WHERE path LIKE $1 || '/%' ESCAPE '\'`,
+		`DELETE FROM video_positions WHERE path LIKE $1 || '/%' ESCAPE '\'`,
+		`DELETE FROM playlist_items WHERE path LIKE $1 || '/%' ESCAPE '\'`,
+		`DELETE FROM favorites WHERE path LIKE $1 || '/%' AND is_folder = FALSE ESCAPE '\'`,
+		`DELETE FROM indexed_paths WHERE path LIKE $1 || '/%' ESCAPE '\'`,
+	} {
+		if _, err := tx.Exec(ctx, q, likeDir); err != nil {
+			return err
+		}
+	}
+	// Exact-match deletes: the dir itself
+	for _, q := range []string{
 		`DELETE FROM favorites WHERE path = $1 AND is_folder = TRUE`,
+		`DELETE FROM indexed_paths WHERE path = $1`,
 	} {
 		if _, err := tx.Exec(ctx, q, dir); err != nil {
 			return err
@@ -2697,29 +2717,36 @@ func (a *App) purgeFolderRows(ctx context.Context, dir string) error {
 }
 
 func (a *App) repathFolderRows(ctx context.Context, oldDir, newDir string) error {
+	likeOld := escapeLikeArg(oldDir)
 	tx, err := a.db.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
+	// $1=likeOld for LIKE matching, $2=oldDir for LENGTH (unescaped), $3=newDir for prefix
 	steps := []struct {
 		q    string
 		args []any
 	}{
 		{`UPDATE file_index
-		  SET path = $2 || SUBSTRING(path FROM LENGTH($1)+1),
-		      dir_path = $2 || SUBSTRING(dir_path FROM LENGTH($1)+1)
-		  WHERE path LIKE $1 || '/%'`, []any{oldDir, newDir}},
+		  SET path = $3 || SUBSTRING(path FROM LENGTH($2)+1),
+		      dir_path = $3 || SUBSTRING(dir_path FROM LENGTH($2)+1)
+		  WHERE path LIKE $1 || '/%' ESCAPE '\'`, []any{likeOld, oldDir, newDir}},
 		{`UPDATE video_positions
-		  SET path = $2 || SUBSTRING(path FROM LENGTH($1)+1)
-		  WHERE path LIKE $1 || '/%'`, []any{oldDir, newDir}},
+		  SET path = $3 || SUBSTRING(path FROM LENGTH($2)+1)
+		  WHERE path LIKE $1 || '/%' ESCAPE '\'`, []any{likeOld, oldDir, newDir}},
 		{`UPDATE playlist_items
-		  SET path = $2 || SUBSTRING(path FROM LENGTH($1)+1)
-		  WHERE path LIKE $1 || '/%'`, []any{oldDir, newDir}},
+		  SET path = $3 || SUBSTRING(path FROM LENGTH($2)+1)
+		  WHERE path LIKE $1 || '/%' ESCAPE '\'`, []any{likeOld, oldDir, newDir}},
 		{`UPDATE favorites
-		  SET path = $2 || SUBSTRING(path FROM LENGTH($1)+1)
-		  WHERE path LIKE $1 || '/%' AND is_folder = FALSE`, []any{oldDir, newDir}},
+		  SET path = $3 || SUBSTRING(path FROM LENGTH($2)+1)
+		  WHERE path LIKE $1 || '/%' AND is_folder = FALSE ESCAPE '\'`, []any{likeOld, oldDir, newDir}},
+		{`UPDATE indexed_paths
+		  SET path = $3 || SUBSTRING(path FROM LENGTH($2)+1)
+		  WHERE path LIKE $1 || '/%' ESCAPE '\'`, []any{likeOld, oldDir, newDir}},
+		// Exact-match updates use unescaped oldDir
 		{`UPDATE favorites SET path = $2 WHERE path = $1 AND is_folder = TRUE`, []any{oldDir, newDir}},
+		{`UPDATE indexed_paths SET path = $2 WHERE path = $1`, []any{oldDir, newDir}},
 	}
 	for _, s := range steps {
 		if _, err := tx.Exec(ctx, s.q, s.args...); err != nil {
@@ -2794,25 +2821,27 @@ func (a *App) handleFolderDownload(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.zip"`, name))
 	zw := zip.NewWriter(w)
 	defer zw.Close()
-	if err := filepath.Walk(path, func(fpath string, fi os.FileInfo, err error) error {
+	filepath.Walk(path, func(fpath string, fi os.FileInfo, err error) error {
 		if err != nil || fi.IsDir() {
 			return nil
 		}
 		rel, _ := filepath.Rel(path, fpath)
 		fw, err := zw.Create(rel)
 		if err != nil {
-			return err
+			log.Printf("folder download zip create %s: %v", rel, err)
+			return nil
 		}
 		f, err := os.Open(fpath)
 		if err != nil {
-			return err
+			log.Printf("folder download open %s: %v", fpath, err)
+			return nil
 		}
 		defer f.Close()
-		_, err = io.Copy(fw, f)
-		return err
-	}); err != nil {
-		log.Printf("folder download error path=%s: %v", path, err)
-	}
+		if _, err = io.Copy(fw, f); err != nil {
+			log.Printf("folder download copy %s: %v", fpath, err)
+		}
+		return nil
+	})
 }
 
 func (a *App) handleFolderDelete(w http.ResponseWriter, r *http.Request) {
@@ -3017,7 +3046,7 @@ func (a *App) handleFolderPlaylistAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var mediaPaths []string
-	filepath.WalkDir(absPath, func(path string, d os.DirEntry, err error) error {
+	if werr := filepath.WalkDir(absPath, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
 		}
@@ -3026,16 +3055,14 @@ func (a *App) handleFolderPlaylistAdd(w http.ResponseWriter, r *http.Request) {
 			mediaPaths = append(mediaPaths, path)
 		}
 		return nil
-	})
+	}); werr != nil {
+		log.Printf("folder playlist-add walk %s: %v", absPath, werr)
+	}
 	if len(mediaPaths) == 0 {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"added": 0})
 		return
 	}
-	var startPos int64
-	a.db.QueryRow(r.Context(),
-		`SELECT COALESCE(MAX(position)+1, 0) FROM playlist_items WHERE playlist_id = $1`,
-		req.PlaylistID).Scan(&startPos)
 	tx, err := a.db.Begin(r.Context())
 	if err != nil {
 		httpErr(w, err, 500)
@@ -3043,13 +3070,13 @@ func (a *App) handleFolderPlaylistAdd(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	added := 0
-	for i, p := range mediaPaths {
+	for _, p := range mediaPaths {
 		tag, err := tx.Exec(r.Context(), `
 			INSERT INTO playlist_items (playlist_id, path, position)
-			SELECT $1, $2, $3
-			FROM playlists WHERE id = $1 AND user_id = $4
+			SELECT $1, $2, COALESCE((SELECT MAX(position)+1 FROM playlist_items WHERE playlist_id=$1), 0)
+			FROM playlists WHERE id = $1 AND user_id = $3
 			ON CONFLICT DO NOTHING
-		`, req.PlaylistID, p, startPos+int64(i), uid(r))
+		`, req.PlaylistID, p, uid(r))
 		if err != nil {
 			httpErr(w, err, 500)
 			return
