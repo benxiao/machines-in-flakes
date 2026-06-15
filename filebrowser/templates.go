@@ -757,6 +757,9 @@ const baseTmpl = `<!DOCTYPE html>
       <iframe id="modal-pdf" src="" style="display:none"></iframe>
       <pre id="modal-text" style="display:none"></pre>
     </div>
+    <div id="modal-pdf-controls" style="display:none;justify-content:center;align-items:center;gap:12px;padding:10px;background:#0d1117;border-top:1px solid #30363d;flex-shrink:0">
+      <button id="modal-pdf-md-btn" class="btn btn-edit btn-sm" onclick="copyPDFMarkdown()">&#128203; Copy as Markdown</button>
+    </div>
     <div id="modal-iz-hint" style="display:none;color:#8b949e;font-size:11px;text-align:center;padding:4px 0;flex-shrink:0;background:#0d1117;border-top:1px solid #21262d">Scroll or pinch to zoom &middot; drag to pan &middot; double-click to zoom&thinsp;/&thinsp;fit</div>
     <div id="modal-media-controls" style="display:none;justify-content:center;align-items:center;gap:12px;padding:10px;background:#0d1117;border-top:1px solid #30363d;flex-shrink:0">
       <button id="modal-seek-back" class="btn btn-edit btn-sm" onclick="seekActiveMedia(-15)">&#9664;&#9664; 15s</button>
@@ -1082,6 +1085,7 @@ function openPreview(el, autoplay) {
   var seekFwd  = document.getElementById('modal-seek-fwd');
   wrap.style.display = video.style.display = audio.style.display = pdf.style.display = txt.style.display = 'none';
   ctrl.style.display = hint.style.display = 'none';
+  document.getElementById('modal-pdf-controls').style.display = 'none';
   badge.textContent = '';
   img.src = ''; pdf.src = '';
   document.getElementById('modal-body').style.overflow = '';
@@ -1181,7 +1185,9 @@ function openPreview(el, autoplay) {
     }, {once: true});
   } else if (type === 'pdf') {
     pdf.src = fileUrl;
+    pdf.dataset.mdPath = path;
     pdf.style.display = 'block';
+    document.getElementById('modal-pdf-controls').style.display = 'flex';
   } else if (type === 'text') {
     fetch(fileUrl).then(function(r){return r.text();}).then(function(t){
       txt.textContent = t;
@@ -1631,6 +1637,28 @@ function gridClick(event, el) {
   var chk = el.querySelector('.grid-chk');
   if (chk && chk.checked) { chk.checked = false; el.classList.remove('grid-checked'); updateSelBar(); return; }
   openPreview(el, true);
+}
+function copyPDFMarkdown() {
+  var path = document.getElementById('modal-pdf').dataset.mdPath;
+  if (!path) return;
+  var btn = document.getElementById('modal-pdf-md-btn');
+  btn.textContent = '⏳ Converting…';
+  btn.disabled = true;
+  fetch('/api/pdf/markdown?path=' + encodeURIComponent(path))
+    .then(function(r) {
+      if (!r.ok) return r.text().then(function(t) { throw new Error(t); });
+      return r.text();
+    })
+    .then(function(md) { return navigator.clipboard.writeText(md); })
+    .then(function() {
+      btn.textContent = '✓ Copied!';
+      setTimeout(function() { btn.textContent = '📋 Copy as Markdown'; btn.disabled = false; }, 2000);
+    })
+    .catch(function(e) {
+      btn.textContent = '📋 Copy as Markdown';
+      btn.disabled = false;
+      alert('Failed: ' + e.message);
+    });
 }
 function gridDirClick(event, el) {
   var chk = el.querySelector('.grid-chk');

@@ -2964,6 +2964,36 @@ func (a *App) handleFolderMove(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"moved": moved, "errors": errs})
 }
 
+func (a *App) handlePDFMarkdown(w http.ResponseWriter, r *http.Request) {
+	absPath := filepath.Clean(r.URL.Query().Get("path"))
+	if !a.isAllowedPath(r, absPath) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if info, err := os.Stat(absPath); err != nil || info.IsDir() {
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+	if strings.ToLower(filepath.Ext(absPath)) != ".pdf" {
+		http.Error(w, "not a PDF", http.StatusBadRequest)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "markitdown", absPath).Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			http.Error(w, "markitdown failed: "+string(exitErr.Stderr), http.StatusInternalServerError)
+		} else {
+			http.Error(w, "markitdown error: "+err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Write(out)
+}
+
 func (a *App) handleFolderPlaylistAdd(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Path       string `json:"path"`
