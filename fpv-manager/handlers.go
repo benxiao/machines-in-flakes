@@ -3057,6 +3057,74 @@ func (a *App) handleVideoUpload(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, fmt.Sprintf("/log/%d", id), http.StatusSeeOther)
 }
 
+// ---- Video transcoding helpers ----
+
+type countingWriter struct {
+	w io.Writer
+	n int64
+}
+
+func (cw *countingWriter) Write(p []byte) (int, error) {
+	n, err := cw.w.Write(p)
+	cw.n += int64(n)
+	return n, err
+}
+
+// detectNVENC probes whether ffmpeg can open an h264_nvenc encode session.
+func detectNVENC(ffmpegPath string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, ffmpegPath,
+		"-hide_banner", "-f", "lavfi", "-i", "color=black:s=256x256:d=0.2",
+		"-c:v", "h264_nvenc", "-f", "null", "-")
+	return cmd.Run() == nil
+}
+
+var nvencPresetMap = map[string]string{
+	"ultrafast": "p1", "superfast": "p2", "veryfast": "p3", "faster": "p4",
+	"fast": "p4", "medium": "p5", "slow": "p6", "slower": "p7", "veryslow": "p7",
+}
+
+func nvencSegmentArgs(cfg AppConfig, srcPath string, startSec int, useNvenc bool) []string {
+	bitrateStr := strconv.Itoa(cfg.VideoBitrateK) + "k"
+	args := []string{
+		"-y",
+		"-ss", strconv.Itoa(startSec),
+		"-i", srcPath,
+		"-t", strconv.Itoa(cfg.HLSSegmentSec),
+	}
+	if useNvenc {
+		preset := nvencPresetMap[cfg.FFmpegPreset]
+		if preset == "" {
+			preset = "p4"
+		}
+		args = append(args,
+			"-c:v", "h264_nvenc",
+			"-rc", "vbr", "-cq", strconv.Itoa(cfg.FFmpegCRF),
+			"-preset", preset,
+			"-profile:v", "main", "-level", "4.0",
+			"-pix_fmt", "yuv420p",
+			"-bf", "0",
+			"-spatial-aq", "1",
+		)
+	} else {
+		args = append(args,
+			"-c:v", "libx264", "-crf", strconv.Itoa(cfg.FFmpegCRF), "-preset", cfg.FFmpegPreset,
+			"-profile:v", "main", "-level", "4.0",
+			"-pix_fmt", "yuv420p",
+			"-bf", "0",
+		)
+	}
+	args = append(args,
+		"-vf", fmt.Sprintf("scale='min(%d,iw)':-2", cfg.VideoMaxWidth),
+		"-b:v", bitrateStr, "-maxrate", bitrateStr, "-bufsize", strconv.Itoa(cfg.VideoBitrateK*2)+"k",
+		"-c:a", "aac", "-b:a", "128k",
+		"-muxdelay", "0", "-muxpreload", "0",
+		"-f", "mpegts", "pipe:1",
+	)
+	return args
+}
+
 func (a *App) handleVideoServe(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseID(r)
 	if !ok {
@@ -3159,28 +3227,31 @@ func (a *App) handleMobileSegment(w http.ResponseWriter, r *http.Request) {
 	srcPath := filepath.Join(a.videoDir, filename)
 	cfg := a.loadConfig(r.Context())
 	startSec := n * cfg.HLSSegmentSec
-	bitrateStr := strconv.Itoa(cfg.VideoBitrateK) + "k"
 
-	cmd := exec.CommandContext(r.Context(), a.ffmpegPath,
-		"-y",
-		"-ss", strconv.Itoa(startSec),
-		"-i", srcPath,
-		"-t", strconv.Itoa(cfg.HLSSegmentSec),
-		"-c:v", "libx264", "-crf", strconv.Itoa(cfg.FFmpegCRF), "-preset", cfg.FFmpegPreset,
-		"-profile:v", "main", "-level", "4.0",
-		"-pix_fmt", "yuv420p",
-		"-bf", "0",
-		"-vf", fmt.Sprintf("scale='min(%d,iw)':-2", cfg.VideoMaxWidth),
-		"-b:v", bitrateStr, "-maxrate", bitrateStr, "-bufsize", strconv.Itoa(cfg.VideoBitrateK*2)+"k",
-		"-c:a", "aac", "-b:a", "128k",
-		"-muxdelay", "0", "-muxpreload", "0",
-		"-f", "mpegts", "pipe:1",
-	)
+	useNvenc := a.nvencOK.Load()
 	var stderr bytes.Buffer
-	cmd.Stdout = w
+	cw := &countingWriter{w: w}
+	cmd := exec.CommandContext(r.Context(), a.ffmpegPath, nvencSegmentArgs(cfg, srcPath, startSec, useNvenc)...)
+	cmd.Stdout = cw
 	cmd.Stderr = &stderr
 	w.Header().Set("Content-Type", "video/mp2t")
 	if err := cmd.Run(); err != nil {
+		if useNvenc && cw.n == 0 && r.Context().Err() == nil {
+			es := stderr.String()
+			if !strings.Contains(es, "OpenEncodeSessionEx") && !strings.Contains(es, "out of memory") {
+				a.nvencOK.Store(false)
+				log.Printf("nvenc disabled after failure")
+			}
+			log.Printf("nvenc segment %d/%d failed, retrying cpu: %v\n%s", id, n, err, es)
+			stderr.Reset()
+			cmd = exec.CommandContext(r.Context(), a.ffmpegPath, nvencSegmentArgs(cfg, srcPath, startSec, false)...)
+			cmd.Stdout = cw
+			cmd.Stderr = &stderr
+			if err := cmd.Run(); err != nil {
+				log.Printf("transcode segment %d/%d: %v\n%s", id, n, err, stderr.String())
+			}
+			return
+		}
 		log.Printf("transcode segment %d/%d: %v\n%s", id, n, err, stderr.String())
 	}
 }

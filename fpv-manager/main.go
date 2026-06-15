@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -18,6 +19,7 @@ type App struct {
 	db         *pgxpool.Pool
 	videoDir   string
 	ffmpegPath string
+	nvencOK    atomic.Bool
 }
 
 // systemTimezone reads the IANA timezone name from /etc/localtime symlink.
@@ -65,6 +67,10 @@ func main() {
 	app := &App{db: pool, videoDir: videoDir, ffmpegPath: ffmpegPath}
 	if err := app.initSchema(ctx); err != nil {
 		log.Fatalf("init schema: %v", err)
+	}
+	if ffmpegPath != "" {
+		app.nvencOK.Store(detectNVENC(ffmpegPath))
+		log.Printf("nvenc: %v", app.nvencOK.Load())
 	}
 	initTemplates()
 
