@@ -2978,9 +2978,13 @@ func (a *App) handlePDFMarkdown(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not a PDF", http.StatusBadRequest)
 		return
 	}
+	mdBin := a.markitdownPath
+	if mdBin == "" {
+		mdBin = "markitdown"
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "markitdown", absPath).Output()
+	out, err := exec.CommandContext(ctx, mdBin, absPath).Output()
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {

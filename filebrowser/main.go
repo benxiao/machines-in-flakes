@@ -16,11 +16,12 @@ import (
 var appVersion = "dev"
 
 type App struct {
-	db          *pgxpool.Pool
-	ffmpegPath  string
-	reindexing  sync.Map    // key: int64 userID → bool
-	nvencOK     atomic.Bool // h264_nvenc usable (probed at startup)
-	pregenBusy  atomic.Bool // thumbnail pre-generation pass running
+	db               *pgxpool.Pool
+	ffmpegPath       string
+	markitdownPath   string
+	reindexing       sync.Map    // key: int64 userID → bool
+	nvencOK          atomic.Bool // h264_nvenc usable (probed at startup)
+	pregenBusy       atomic.Bool // thumbnail pre-generation pass running
 }
 
 func systemTimezone() string {
@@ -250,8 +251,9 @@ func main() {
 	defer pool.Close()
 
 	app := &App{
-		db:         pool,
-		ffmpegPath: os.Getenv("FB_FFMPEG"),
+		db:             pool,
+		ffmpegPath:     os.Getenv("FB_FFMPEG"),
+		markitdownPath: os.Getenv("FB_MARKITDOWN"),
 	}
 	if err := app.initSchema(ctx); err != nil {
 		log.Fatalf("init schema: %v", err)
