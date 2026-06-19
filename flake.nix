@@ -169,8 +169,7 @@
           ollamaModule = ({ ... }: {
             services.ollama = {
               enable = true;
-              acceleration = "cuda";
-              package = unstable.ollama;
+              package = unstable.ollama-cuda;
             };
             environment.systemPackages = [ unstable.opencode ];
           });
