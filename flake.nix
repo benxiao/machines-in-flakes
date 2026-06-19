@@ -146,6 +146,26 @@
             hardware.nvidia-container-toolkit.enable = true;
           });
 
+          # Frigate's continuous NVDEC decode keeps a CUDA context open at all
+          # times, which pins the GPU near max boost clock (and ~100-160W)
+          # even though actual utilization is <30%. Locking the clock range
+          # low is enough for NVDEC (fixed-function hardware) without hurting
+          # decode throughput.
+          makeGpuClockLockModule = { minClockMHz, maxClockMHz }: ({ config, ... }: {
+            systemd.services.nvidia-clock-lock = {
+              description = "Lock NVIDIA GPU clocks to reduce idle power draw";
+              wants = [ "nvidia-persistenced.service" ];
+              after = [ "nvidia-persistenced.service" ];
+              wantedBy = [ "multi-user.target" ];
+              serviceConfig = {
+                Type = "oneshot";
+                RemainAfterExit = true;
+                ExecStart = "${config.hardware.nvidia.package.bin}/bin/nvidia-smi -lgc ${toString minClockMHz},${toString maxClockMHz}";
+                ExecStop = "${config.hardware.nvidia.package.bin}/bin/nvidia-smi -rgc";
+              };
+            };
+          });
+
           ollamaModule = ({ ... }: {
             services.ollama = {
               enable = true;
@@ -559,6 +579,7 @@
               })
               (makeRouterMonitorModule { })
               nvidiaModule
+              (makeGpuClockLockModule { minClockMHz = 300; maxClockMHz = 900; })
               (makeStorageModule {
                 extraPools = [ "blue2t" "c7" "exos12" "exos16" "tm1t" ];
               })
