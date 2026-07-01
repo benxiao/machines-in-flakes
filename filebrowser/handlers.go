@@ -2496,43 +2496,53 @@ func (a *App) handleFileUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not a directory", http.StatusBadRequest)
 		return
 	}
-	if err := r.ParseMultipartForm(32 << 20); err != nil {
+	mr, err := r.MultipartReader()
+	if err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
 	var uploaded []string
 	var errs []string
-	for _, fh := range r.MultipartForm.File["files"] {
-		name := filepath.Base(fh.Filename)
+	for {
+		part, err := mr.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			errs = append(errs, err.Error())
+			break
+		}
+		if part.FormName() != "files" {
+			part.Close()
+			continue
+		}
+		name := filepath.Base(part.FileName())
 		if name == "" || name == "." || name == ".." || strings.ContainsRune(name, 0) {
-			errs = append(errs, fh.Filename+": invalid name")
+			part.Close()
+			errs = append(errs, part.FileName()+": invalid name")
 			continue
 		}
 		dst := filepath.Join(dir, name)
 		if _, err := os.Lstat(dst); err == nil {
+			part.Close()
 			errs = append(errs, name+": already exists")
-			continue
-		}
-		f, err := fh.Open()
-		if err != nil {
-			errs = append(errs, name+": "+err.Error())
 			continue
 		}
 		out, err := os.Create(dst)
 		if err != nil {
-			f.Close()
+			part.Close()
 			errs = append(errs, name+": "+err.Error())
 			continue
 		}
-		if _, err := io.Copy(out, f); err != nil {
+		if _, err := io.Copy(out, part); err != nil {
 			out.Close()
-			f.Close()
+			part.Close()
 			os.Remove(dst)
 			errs = append(errs, name+": "+err.Error())
 			continue
 		}
 		out.Close()
-		f.Close()
+		part.Close()
 		uploaded = append(uploaded, name)
 	}
 	if len(uploaded) > 0 {

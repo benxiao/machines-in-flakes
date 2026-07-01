@@ -617,7 +617,7 @@ input.pl-seek::-moz-range-thumb { width:14px; height:14px; border-radius:50%; ba
 input.pl-vol { -webkit-appearance:none; appearance:none; width:70px; height:4px; background:#30363d; border-radius:2px; outline:none; cursor:pointer; }
 input.pl-vol::-webkit-slider-thumb { -webkit-appearance:none; width:11px; height:11px; border-radius:50%; background:#58a6ff; cursor:pointer; }
 input.pl-vol::-moz-range-thumb { width:11px; height:11px; border-radius:50%; background:#58a6ff; border:none; cursor:pointer; }
-@media (max-width:480px) { input.pl-vol { width:48px; } }
+@media (pointer: coarse) { .pl-vol-wrap { display:none; } }
 @media (max-width: 640px) {
   main { padding: 12px; }
   header { padding: 10px 16px; flex-wrap: wrap; }
@@ -786,7 +786,7 @@ document.addEventListener('DOMContentLoaded', function() {
     nav.scrollLeft = act.offsetLeft - nav.clientWidth / 2 + act.clientWidth / 2;
   }
 });
-var DEFAULT_VOL = 1; try { var _dv = parseFloat(localStorage.getItem('fb_default_volume')); if (!isNaN(_dv)) DEFAULT_VOL = Math.max(0, Math.min(1, _dv)); } catch(e) {}
+var DEFAULT_VOL = 1; if (!window.matchMedia('(pointer: coarse)').matches) { try { var _dv = parseFloat(localStorage.getItem('fb_default_volume')); if (!isNaN(_dv)) DEFAULT_VOL = Math.max(0, Math.min(1, _dv)); } catch(e) {} }
 function hlsParams() {
   try {
     var ls = localStorage;
