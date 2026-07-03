@@ -972,17 +972,21 @@ function dirNextMedia(path) {
 function dirNextMediaLooping(path) {
   return dirNextMedia(path) || (_folderLoop && window.dirMediaFiles && window.dirMediaFiles.length > 0 ? window.dirMediaFiles[0] : null);
 }
+// Both wrap around: past the last photo goes to the first and vice versa,
+// so the nav buttons are always usable instead of disappearing at the ends.
 function photoNext(path) {
-  if (!window.dirPhotoFiles) return null;
-  for (var i = 0; i < window.dirPhotoFiles.length - 1; i++) {
-    if (window.dirPhotoFiles[i].path === path) return window.dirPhotoFiles[i + 1];
+  var arr = window.dirPhotoFiles;
+  if (!arr || arr.length === 0) return null;
+  for (var i = 0; i < arr.length; i++) {
+    if (arr[i].path === path) return arr[(i + 1) % arr.length];
   }
   return null;
 }
 function photoPrev(path) {
-  if (!window.dirPhotoFiles) return null;
-  for (var i = 1; i < window.dirPhotoFiles.length; i++) {
-    if (window.dirPhotoFiles[i].path === path) return window.dirPhotoFiles[i - 1];
+  var arr = window.dirPhotoFiles;
+  if (!arr || arr.length === 0) return null;
+  for (var i = 0; i < arr.length; i++) {
+    if (arr[i].path === path) return arr[(i - 1 + arr.length) % arr.length];
   }
   return null;
 }
@@ -1108,9 +1112,8 @@ function openPreview(el, autoplay) {
     document.getElementById('modal-body').style.overflow = 'hidden';
     img.src = fileUrl;
     img.dataset.navPath = path;
-    var _pp = photoPrev(path); var _pn = photoNext(path);
-    document.getElementById('modal-nav-prev').style.display = _pp ? '' : 'none';
-    document.getElementById('modal-nav-next').style.display = _pn ? '' : 'none';
+    document.getElementById('modal-nav-prev').style.display = '';
+    document.getElementById('modal-nav-next').style.display = '';
     wrap.style.width = '90vw';
     wrap.style.height = '82vh';
     wrap.style.display = 'block';
