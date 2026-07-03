@@ -625,6 +625,12 @@ input:focus, select:focus { outline: none; border-color: #58a6ff; }
 .modal-body video { max-width: 90vw; max-height: 85vh; display: block; }
 .modal-box.modal-wide { width: 92vw; }
 .modal-box.modal-wide .modal-body video { width: 100%; max-height: calc(92vh - 90px); }
+#modal-iz-hint { padding: 4px 0; }
+#modal-photo-controls { padding: 10px; }
+.modal-box.modal-photo { width: 98vw; max-width: 98vw; max-height: 98vh; }
+.modal-box.modal-photo .modal-header { padding: 4px 12px; }
+.modal-box.modal-photo #modal-iz-hint { padding: 2px 0; }
+.modal-box.modal-photo #modal-photo-controls { padding: 4px 10px; }
 .modal-body iframe { width: 82vw; height: 84vh; border: none; display: block; }
 .modal-body pre {
   padding: 16px;
@@ -827,8 +833,8 @@ const baseTmpl = `<!DOCTYPE html>
     <div id="modal-pdf-controls" style="display:none;justify-content:center;align-items:center;gap:12px;padding:10px;background:var(--bg);border-top:1px solid var(--border);flex-shrink:0">
       <button id="modal-pdf-md-btn" class="btn btn-edit btn-sm" onclick="copyPDFMarkdown()">&#128203; Copy as Markdown</button>
     </div>
-    <div id="modal-iz-hint" style="display:none;color:var(--fg-muted);font-size:11px;text-align:center;padding:4px 0;flex-shrink:0;background:var(--bg);border-top:1px solid var(--surface-hover)">Scroll or pinch to zoom &middot; drag to pan &middot; double-click to zoom&thinsp;/&thinsp;fit</div>
-    <div id="modal-photo-controls" style="display:none;justify-content:center;align-items:center;gap:12px;padding:10px;background:var(--bg);border-top:1px solid var(--border);flex-shrink:0">
+    <div id="modal-iz-hint" style="display:none;color:var(--fg-muted);font-size:11px;text-align:center;flex-shrink:0;background:var(--bg);border-top:1px solid var(--surface-hover)">Scroll or pinch to zoom &middot; drag to pan &middot; double-click to zoom&thinsp;/&thinsp;fit</div>
+    <div id="modal-photo-controls" style="display:none;justify-content:center;align-items:center;gap:12px;background:var(--bg);border-top:1px solid var(--border);flex-shrink:0">
       <button id="modal-slideshow-btn" class="btn btn-edit btn-sm" onclick="toggleSlideshow()">&#9654; Slideshow</button>
     </div>
     <div id="modal-media-controls" style="display:none;justify-content:center;align-items:center;gap:12px;padding:10px;background:var(--bg);border-top:1px solid var(--border);flex-shrink:0">
@@ -1204,8 +1210,9 @@ function openPreview(el, autoplay) {
     img.dataset.navPath = path;
     document.getElementById('modal-nav-prev').style.display = '';
     document.getElementById('modal-nav-next').style.display = '';
-    wrap.style.width = '90vw';
-    wrap.style.height = '82vh';
+    modal.querySelector('.modal-box').classList.add('modal-photo');
+    wrap.style.width = '98vw';
+    wrap.style.height = 'calc(98vh - 70px)'; // 98vh box minus the thinned header/hint/controls bars
     wrap.style.display = 'block';
     hint.style.display = 'block';
     izInit(wrap, img);
@@ -1304,6 +1311,7 @@ function closePreview() {
   stopSlideshow();
   modal.classList.remove('open');
   modal.querySelector('.modal-box').classList.remove('modal-wide');
+  modal.querySelector('.modal-box').classList.remove('modal-photo');
   if (_folderLoop) {
     _folderLoop = false;
     var _pbtn = document.getElementById('btn-play-all');
