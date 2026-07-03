@@ -255,8 +255,14 @@ try {
   await ss(page, '12-settings');
 
   // ── 13. Nav bar has all expected tabs ─────────────────────────────────
+  // NOTE: 'Unplayed' / 'Top Played' were in this list previously but no
+  // longer exist as routes/tabs in the current app (checked main.go +
+  // templates.go — 2026-07-03). Left the old step 7/14 blocks below as-is
+  // since it's unclear whether those were renamed or intentionally removed;
+  // flagging for a human to decide rather than guessing. This list reflects
+  // the nav bar that actually renders today.
   const navLinks = await page.$$eval('nav a', els => els.map(e => e.textContent.trim()));
-  const expected = ['Browse', 'Recent', 'Unplayed', 'Top Played', 'Favorites', 'Playlists', 'Settings'];
+  const expected = ['Browse', 'Recent', 'Stats', 'Favorites', 'Playlists', 'Users', 'Trash', 'Duplicates', 'Settings'];
   const missing = expected.filter(t => !navLinks.some(l => l.includes(t)));
   log(missing.length === 0 ? '✅' : '❌',
     `Nav tabs: ${navLinks.join(', ')}${missing.length ? ' — MISSING: ' + missing.join(', ') : ''}`);
@@ -328,6 +334,89 @@ try {
   }
   await ss(page, '16-star-buttons');
   await page.locator('#btn-list').click({ timeout: 3000 }).catch(() => {}); // reset view
+
+  // ── 17. Photo slideshow (v1.17.3) ─────────────────────────────────────
+  // Non-destructive: just exercises the auto-advance toggle on whatever
+  // photo the default Browse root happens to have, then stops it and closes.
+  await page.goto(BASE + '/browse');
+  await page.waitForTimeout(500);
+  const photoRow = page.locator('#view-list tr.file-row[data-type="photo"]').first();
+  if (await photoRow.count() > 0) {
+    await photoRow.click({ timeout: 5000 });
+    await page.waitForTimeout(500);
+    const slideshowBtn = page.locator('#modal-slideshow-btn');
+    const btnVisible = await slideshowBtn.isVisible().catch(() => false);
+    log(btnVisible ? '✅' : '⚠️', 'Slideshow button visible in photo modal');
+    if (btnVisible) {
+      const before = await page.evaluate(() => document.getElementById('modal-img').dataset.navPath);
+      await slideshowBtn.click({ timeout: 3000 });
+      const running = await slideshowBtn.textContent().catch(() => '');
+      log(running.includes('Slideshow') ? '✅' : '⚠️', `Slideshow toggles on — button: "${running.trim()}"`);
+      await page.waitForTimeout(4500);
+      const after = await page.evaluate(() => document.getElementById('modal-img').dataset.navPath).catch(() => before);
+      log(after !== before ? '✅' : '⚠️', `Slideshow auto-advance after ~4.5s: ${after === before ? 'unchanged — only one photo in this folder?' : 'advanced'}`);
+      await slideshowBtn.click({ timeout: 3000 }); // stop it
+      await ss(page, '17-slideshow');
+    }
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+  } else {
+    log('⚠️', 'No photo files found in default Browse root — skipping slideshow test');
+  }
+
+  // ── 18. Trash page (v1.17.4) ───────────────────────────────────────────
+  // Read-only: lists whatever is already in Trash, does not delete real
+  // files or click Restore/Delete Forever/Empty Trash against production data.
+  await page.goto(BASE + '/trash');
+  await page.waitForSelector('h2, p.muted', { timeout: 5000 }).catch(() => {});
+  const trashHeading = await page.locator('h2').first().textContent().catch(() => '');
+  log(trashHeading.includes('Trash') ? '✅' : '❌', `Trash page loads — heading: "${trashHeading}"`);
+  const trashRows = await page.$$('table tbody tr');
+  const trashEmpty = await page.locator('p.muted', { hasText: 'Trash is empty' }).isVisible().catch(() => false);
+  log(trashRows.length > 0 || trashEmpty ? '✅' : '⚠️',
+    `Trash contents — ${trashRows.length} item(s)${trashEmpty ? ' (empty)' : ''}`);
+  await ss(page, '18-trash');
+
+  // ── 19. Duplicate finder page (v1.17.5) ────────────────────────────────
+  // Triggers a real scan (read-only hashing, safe against production) but
+  // only waits briefly — a full-library scan can take a while, so this
+  // reports whichever state (still running or done) rather than blocking.
+  await page.goto(BASE + '/duplicates');
+  await page.waitForSelector('h2', { timeout: 5000 }).catch(() => {});
+  const dupHeading = await page.locator('h2').first().textContent().catch(() => '');
+  log(dupHeading.includes('Duplicate') ? '✅' : '❌', `Duplicates page loads — heading: "${dupHeading}"`);
+  const scanBtn = page.locator('#dup-scan-btn');
+  if (await scanBtn.count() > 0) {
+    await scanBtn.click({ timeout: 3000 });
+    await page.waitForTimeout(3000);
+    const status = await page.locator('#dup-status').textContent().catch(() => '');
+    log(status.trim().length > 0 ? '✅' : '⚠️', `Duplicate scan triggered — status: "${status.trim()}"`);
+    await ss(page, '19-duplicates');
+  } else {
+    log('⚠️', 'Scan button not found on Duplicates page');
+  }
+
+  // ── 20. Light theme toggle (v1.17.6) ───────────────────────────────────
+  // Toggles to light and back so the admin's session isn't left changed.
+  await page.goto(BASE + '/browse');
+  await page.waitForTimeout(400);
+  const themeBtn = page.locator('#theme-toggle');
+  if (await themeBtn.count() > 0) {
+    const bgBefore = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+    await themeBtn.click({ timeout: 3000 });
+    await page.waitForTimeout(200);
+    const themeAttr = await page.evaluate(() => document.documentElement.dataset.theme);
+    const bgAfter = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+    log(themeAttr === 'light' && bgAfter !== bgBefore ? '✅' : '❌',
+      `Theme toggle switches to light — data-theme="${themeAttr}", bg ${bgBefore} → ${bgAfter}`);
+    await ss(page, '20-light-theme');
+    await themeBtn.click({ timeout: 3000 }); // revert to dark
+    await page.waitForTimeout(200);
+    const themeAttrReverted = await page.evaluate(() => document.documentElement.dataset.theme);
+    log(themeAttrReverted === 'dark' ? '✅' : '⚠️', 'Theme toggle reverts to dark');
+  } else {
+    log('⚠️', 'Theme toggle button #theme-toggle not found');
+  }
 
 } catch (err) {
   console.error('\nEXCEPTION:', err.message);
