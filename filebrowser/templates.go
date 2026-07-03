@@ -328,52 +328,77 @@ func render(w http.ResponseWriter, name string, data any) {
 
 // ---- CSS ----
 
-const css = `
+// themeVars is shared by the main app stylesheet and the standalone login
+// page, which doesn't otherwise share a <style> block with it.
+const themeVars = `
+:root {
+  --bg: #0d1117;
+  --bg-panel: #161b22;
+  --border: #30363d;
+  --fg: #c9d1d9;
+  --fg-muted: #8b949e;
+  --fg-strong: #f0f6fc;
+  --surface-hover: #21262d;
+  --surface-active: #1c2128;
+}
+[data-theme="light"] {
+  --bg: #ffffff;
+  --bg-panel: #f6f8fa;
+  --border: #d0d7de;
+  --fg: #1f2328;
+  --fg-muted: #59636e;
+  --fg-strong: #101828;
+  --surface-hover: #f3f4f6;
+  --surface-active: #eaeef2;
+}
+`
+
+const css = themeVars + `
 *, *::before, *::after { box-sizing: border-box; }
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: 14px;
-  background: #0d1117;
-  color: #c9d1d9;
+  background: var(--bg);
+  color: var(--fg);
   line-height: 1.5;
 }
 a { color: #58a6ff; text-decoration: none; }
 a:hover { text-decoration: underline; }
 header {
-  background: #161b22;
-  border-bottom: 1px solid #30363d;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
   padding: 12px 24px;
 }
-.logo { font-size: 18px; font-weight: 600; color: #f0f6fc; }
+.logo { font-size: 18px; font-weight: 600; color: var(--fg-strong); }
 nav {
-  background: #161b22;
-  border-bottom: 1px solid #30363d;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
   padding: 0 24px;
   display: flex;
 }
 nav a {
   display: inline-block;
   padding: 10px 16px;
-  color: #8b949e;
+  color: var(--fg-muted);
   border-bottom: 2px solid transparent;
   font-size: 14px;
 }
-nav a:hover { color: #c9d1d9; text-decoration: none; }
-nav a.active { color: #f0f6fc; border-bottom-color: #f78166; }
+nav a:hover { color: var(--fg); text-decoration: none; }
+nav a.active { color: var(--fg-strong); border-bottom-color: #f78166; }
 main { padding: 24px; max-width: 1400px; margin: 0 auto; }
-h2 { font-size: 20px; font-weight: 600; margin: 0 0 4px; color: #f0f6fc; }
-h3 { font-size: 16px; font-weight: 600; margin: 0 0 12px; color: #f0f6fc; }
+h2 { font-size: 20px; font-weight: 600; margin: 0 0 4px; color: var(--fg-strong); }
+h3 { font-size: 16px; font-weight: 600; margin: 0 0 12px; color: var(--fg-strong); }
 .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .page-header-left h2 { margin-bottom: 4px; }
-.summary { color: #8b949e; font-size: 13px; }
+.summary { color: var(--fg-muted); font-size: 13px; }
 table { width: 100%; border-collapse: collapse; }
 th {
   text-align: left;
   padding: 8px 12px;
-  background: #161b22;
-  border-bottom: 1px solid #30363d;
-  color: #8b949e;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-muted);
   font-weight: 500;
   font-size: 12px;
   text-transform: uppercase;
@@ -382,11 +407,11 @@ th {
 }
 td {
   padding: 9px 12px;
-  border-bottom: 1px solid #21262d;
+  border-bottom: 1px solid var(--surface-hover);
   vertical-align: middle;
 }
 tr:last-child td { border-bottom: none; }
-tr:hover td { background: #161b22; }
+tr:hover td { background: var(--bg-panel); }
 .badge {
   display: inline-block;
   padding: 2px 8px;
@@ -399,67 +424,67 @@ tr:hover td { background: #161b22; }
 .badge-video   { background: rgba(88,166,255,0.15); color: #58a6ff; border: 1px solid rgba(88,166,255,0.4); }
 .badge-pdf     { background: rgba(248,81,73,0.15);  color: #f85149; border: 1px solid rgba(248,81,73,0.4); }
 .badge-text    { background: rgba(210,153,34,0.15); color: #d29922; border: 1px solid rgba(210,153,34,0.4); }
-.badge-other   { background: rgba(139,148,158,0.15);color: #8b949e; border: 1px solid rgba(139,148,158,0.4); }
+.badge-other   { background: rgba(139,148,158,0.15);color: var(--fg-muted); border: 1px solid rgba(139,148,158,0.4); }
 .badge-audio   { background: rgba(188,96,255,0.15); color: #bc60ff; border: 1px solid rgba(188,96,255,0.4); }
 .badge-dir     { background: rgba(88,166,255,0.12); color: #58a6ff; border: 1px solid rgba(88,166,255,0.3); }
 .badge-archive { background: rgba(219,109,40,0.15); color: #db6d28; border: 1px solid rgba(219,109,40,0.4); }
 .browse-layout { display:flex; margin:-24px; min-height:calc(100vh - 108px); }
-.browse-sidebar { width:220px; flex-shrink:0; border-right:1px solid #30363d; padding:0; position:relative; transition:width 0.18s; display:flex; flex-direction:column; }
+.browse-sidebar { width:220px; flex-shrink:0; border-right:1px solid var(--border); padding:0; position:relative; transition:width 0.18s; display:flex; flex-direction:column; }
 .browse-sidebar.collapsed { width:28px; }
 .browse-sidebar.collapsed .sidebar-paths { display:none; }
-.sidebar-toggle { background:transparent; border:none; color:#8b949e; cursor:pointer; font-size:16px; line-height:1; padding:6px 4px; text-align:center; width:100%; flex-shrink:0; }
-.sidebar-toggle:hover { color:#f0f6fc; }
+.sidebar-toggle { background:transparent; border:none; color:var(--fg-muted); cursor:pointer; font-size:16px; line-height:1; padding:6px 4px; text-align:center; width:100%; flex-shrink:0; }
+.sidebar-toggle:hover { color:var(--fg-strong); }
 .browse-sidebar.collapsed .sidebar-toggle { padding:8px 4px; }
 .sidebar-paths { overflow-y:auto; overflow-x:hidden; flex:1; padding:4px 0; }
-.browse-sidebar-item { display:block; padding:8px 16px; color:#8b949e; font-size:13px; font-family:monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-decoration:none; cursor:pointer; }
-.browse-sidebar-item:hover { background:#161b22; color:#c9d1d9; text-decoration:none; }
-.browse-sidebar-item.active { background:#1c2128; color:#f0f6fc; border-left:3px solid #58a6ff; padding-left:13px; }
+.browse-sidebar-item { display:block; padding:8px 16px; color:var(--fg-muted); font-size:13px; font-family:monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-decoration:none; cursor:pointer; }
+.browse-sidebar-item:hover { background:var(--bg-panel); color:var(--fg); text-decoration:none; }
+.browse-sidebar-item.active { background:var(--surface-active); color:var(--fg-strong); border-left:3px solid #58a6ff; padding-left:13px; }
 .browse-main { flex:1; min-width:0; padding:16px 24px; overflow:hidden; }
 .header-search { position:relative; flex:1; max-width:400px; }
-#search-q { width:100%; padding:6px 14px; background:#0d1117; border:1px solid #30363d; border-radius:20px; color:#c9d1d9; font-size:14px; font-family:inherit; }
+#search-q { width:100%; padding:6px 14px; background:var(--bg); border:1px solid var(--border); border-radius:20px; color:var(--fg); font-size:14px; font-family:inherit; }
 #search-q:focus { outline:none; border-color:#58a6ff; }
-.search-panel { position:absolute; top:calc(100% + 6px); left:0; right:0; background:#161b22; border:1px solid #30363d; border-radius:8px; z-index:500; max-height:70vh; overflow-y:auto; box-shadow:0 8px 24px rgba(0,0,0,0.5); }
-.search-filters { display:flex; gap:6px; padding:10px 12px; border-bottom:1px solid #21262d; flex-wrap:wrap; }
-.sf-chip { background:transparent; border:1px solid #30363d; color:#8b949e; border-radius:12px; padding:3px 10px; font-size:12px; cursor:pointer; }
-.sf-chip.active { background:#1c2128; border-color:#58a6ff; color:#f0f6fc; }
-.search-result-group { border-bottom:1px solid #21262d; }
+.search-panel { position:absolute; top:calc(100% + 6px); left:0; right:0; background:var(--bg-panel); border:1px solid var(--border); border-radius:8px; z-index:500; max-height:70vh; overflow-y:auto; box-shadow:0 8px 24px rgba(0,0,0,0.5); }
+.search-filters { display:flex; gap:6px; padding:10px 12px; border-bottom:1px solid var(--surface-hover); flex-wrap:wrap; }
+.sf-chip { background:transparent; border:1px solid var(--border); color:var(--fg-muted); border-radius:12px; padding:3px 10px; font-size:12px; cursor:pointer; }
+.sf-chip.active { background:var(--surface-active); border-color:#58a6ff; color:var(--fg-strong); }
+.search-result-group { border-bottom:1px solid var(--surface-hover); }
 .search-result-group:last-child { border-bottom:none; }
 .search-result { display:flex; gap:10px; padding:10px 12px; cursor:pointer; align-items:center; }
-.search-result:hover { background:#1c2128; }
-.search-result-thumb { width:56px; height:42px; flex-shrink:0; border-radius:4px; overflow:hidden; background:#0d1117; display:flex; align-items:center; justify-content:center; }
+.search-result:hover { background:var(--surface-active); }
+.search-result-thumb { width:56px; height:42px; flex-shrink:0; border-radius:4px; overflow:hidden; background:var(--bg); display:flex; align-items:center; justify-content:center; }
 .search-result-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
-.search-result-name { font-size:13px; color:#c9d1d9; margin-bottom:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.search-result-dir { font-size:11px; font-family:monospace; color:#8b949e; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.sr-expand { background:transparent; border:none; color:#8b949e; cursor:pointer; font-size:14px; padding:6px 8px; flex-shrink:0; border-radius:6px; }
-.sr-expand:hover { background:#21262d; color:#c9d1d9; }
-.sr-file { display:flex; gap:8px; align-items:center; padding:6px 12px 6px 32px; cursor:pointer; font-size:12px; color:#c9d1d9; }
-.sr-file:hover { background:#1c2128; }
+.search-result-name { font-size:13px; color:var(--fg); margin-bottom:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.search-result-dir { font-size:11px; font-family:monospace; color:var(--fg-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sr-expand { background:transparent; border:none; color:var(--fg-muted); cursor:pointer; font-size:14px; padding:6px 8px; flex-shrink:0; border-radius:6px; }
+.sr-expand:hover { background:var(--surface-hover); color:var(--fg); }
+.sr-file { display:flex; gap:8px; align-items:center; padding:6px 12px 6px 32px; cursor:pointer; font-size:12px; color:var(--fg); }
+.sr-file:hover { background:var(--surface-active); }
 .sr-file-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
-.sr-more { padding:6px 12px 8px 32px; font-size:11px; color:#8b949e; cursor:pointer; }
+.sr-more { padding:6px 12px 8px 32px; font-size:11px; color:var(--fg-muted); cursor:pointer; }
 .sr-more:hover { color:#58a6ff; }
 .sel-spacer { height: 60px; }
 .view-toggle { display:flex; gap:4px; }
-.btn-view { background:transparent; border:1px solid #30363d; color:#8b949e; border-radius:6px; padding:4px 10px; font-size:13px; cursor:pointer; line-height:1.4; }
-.btn-view:hover { background:#21262d; color:#c9d1d9; }
-.btn-view.active { background:#21262d; border-color:#58a6ff; color:#c9d1d9; }
+.btn-view { background:transparent; border:1px solid var(--border); color:var(--fg-muted); border-radius:6px; padding:4px 10px; font-size:13px; cursor:pointer; line-height:1.4; }
+.btn-view:hover { background:var(--surface-hover); color:var(--fg); }
+.btn-view.active { background:var(--surface-hover); border-color:#58a6ff; color:var(--fg); }
 .view-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(110px,1fr)); gap:6px; }
-.grid-card { display:flex; flex-direction:column; align-items:center; padding:10px 6px 8px; border:1px solid transparent; border-radius:6px; cursor:pointer; text-align:center; background:transparent; color:#c9d1d9; text-decoration:none; position:relative; user-select:none; }
-.grid-card:hover { background:#161b22; border-color:#30363d; }
+.grid-card { display:flex; flex-direction:column; align-items:center; padding:10px 6px 8px; border:1px solid transparent; border-radius:6px; cursor:pointer; text-align:center; background:transparent; color:var(--fg); text-decoration:none; position:relative; user-select:none; }
+.grid-card:hover { background:var(--bg-panel); border-color:var(--border); }
 .grid-card:hover .grid-chk { opacity:1; }
-.grid-thumb { width:88px; height:66px; overflow:hidden; border-radius:4px; margin-bottom:6px; background:#0d1117; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.grid-thumb { width:88px; height:66px; overflow:hidden; border-radius:4px; margin-bottom:6px; background:var(--bg); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
 .grid-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
 .grid-icon { width:88px; height:66px; display:flex; align-items:center; justify-content:center; margin-bottom:6px; flex-shrink:0; }
 .grid-name { font-size:12px; line-height:1.3; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; max-width:104px; width:100%; word-break:break-word; }
-.grid-plays { position:absolute; top:6px; right:6px; font-size:10px; background:rgba(0,0,0,0.6); color:#c9d1d9; border-radius:4px; padding:1px 4px; }
+.grid-plays { position:absolute; top:6px; right:6px; font-size:10px; background:rgba(0,0,0,0.6); color:#fff; border-radius:4px; padding:1px 4px; }
 .grid-chk { position:absolute; top:6px; left:6px; opacity:0; transition:opacity 0.1s; }
 .grid-card.grid-checked .grid-chk { opacity:1; }
-.grid-card.grid-checked { border-color:#58a6ff; background:#1c2128; }
-#ext-menu { position:fixed; z-index:300; background:#161b22; border:1px solid #30363d; border-radius:6px; padding:4px; min-width:170px; max-height:60vh; overflow-y:auto; box-shadow:0 8px 24px rgba(0,0,0,0.4); }
-.ext-menu-item { display:flex; align-items:center; gap:8px; padding:6px 10px; border-radius:4px; cursor:pointer; font-size:13px; color:#c9d1d9; white-space:nowrap; }
-.ext-menu-item:hover { background:#21262d; }
+.grid-card.grid-checked { border-color:#58a6ff; background:var(--surface-active); }
+#ext-menu { position:fixed; z-index:300; background:var(--bg-panel); border:1px solid var(--border); border-radius:6px; padding:4px; min-width:170px; max-height:60vh; overflow-y:auto; box-shadow:0 8px 24px rgba(0,0,0,0.4); }
+.ext-menu-item { display:flex; align-items:center; gap:8px; padding:6px 10px; border-radius:4px; cursor:pointer; font-size:13px; color:var(--fg); white-space:nowrap; }
+.ext-menu-item:hover { background:var(--surface-hover); }
 .ext-menu-item .mark { color:#58a6ff; font-size:11px; width:12px; flex-shrink:0; }
-.ext-menu-item .cnt { color:#8b949e; font-size:12px; }
-.ext-menu-sep { border-top:1px solid #30363d; margin:4px 0; }
+.ext-menu-item .cnt { color:var(--fg-muted); font-size:12px; }
+.ext-menu-sep { border-top:1px solid var(--border); margin:4px 0; }
 #btn-select.filter-on { color:#58a6ff; border-color:#58a6ff; }
 #modal-zoom-wrap.iz-grabbing { cursor: grabbing; }
 /* Zoomable image must render at natural size; the transform handles all sizing.
@@ -468,19 +493,19 @@ tr:hover td { background: #161b22; }
 .pl-layout { display: flex; flex-direction: column; gap: 12px; }
 .pl-player { width: 100%; min-width: 0; }
 .pl-player video, .pl-player audio { width: 100%; max-height: 70vh; display: block; background: #000; }
-.pl-sidebar { width: 100%; border: 1px solid #30363d; border-radius: 6px; max-height: 400px; overflow-y: auto; }
-.pl-item { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #21262d; cursor: pointer; }
-.pl-drag { cursor:grab; color:#30363d; padding:0 4px; font-size:14px; flex-shrink:0; user-select:none; line-height:1; }
-.pl-drag:hover { color:#8b949e; }
+.pl-sidebar { width: 100%; border: 1px solid var(--border); border-radius: 6px; max-height: 400px; overflow-y: auto; }
+.pl-item { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--surface-hover); cursor: pointer; }
+.pl-drag { cursor:grab; color:var(--border); padding:0 4px; font-size:14px; flex-shrink:0; user-select:none; line-height:1; }
+.pl-drag:hover { color:var(--fg-muted); }
 .pl-item.dragging { opacity:0.35; }
 .pl-item.drag-over { border-top:2px solid #58a6ff; margin-top:-1px; }
 .pl-item:last-child { border-bottom: none; }
-.pl-item:hover { background: #161b22; }
+.pl-item:hover { background: var(--bg-panel); }
 .pl-item.active { background: rgba(88,166,255,0.1); border-left: 3px solid #58a6ff; padding-left: 9px; }
 .pl-item-name { flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pl-controls { display: flex; gap: 10px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
-.pl-title { font-size: 14px; color: #c9d1d9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 8px; min-height: 1.5em; }
-.pl-badge { color: #8b949e; font-size: 12px; }
+.pl-title { font-size: 14px; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 8px; min-height: 1.5em; }
+.pl-badge { color: var(--fg-muted); font-size: 12px; }
 .btn {
   display: inline-block;
   padding: 6px 14px;
@@ -495,26 +520,26 @@ tr:hover td { background: #161b22; }
 .btn-primary { background: #238636; border-color: #2ea043; color: #fff; }
 .btn-primary:hover { background: #2ea043; text-decoration: none; color: #fff; }
 .btn-sm { padding: 3px 10px; font-size: 12px; }
-.btn-edit { background: transparent; border-color: #30363d; color: #c9d1d9; }
-.btn-edit:hover { background: #21262d; text-decoration: none; color: #c9d1d9; }
+.btn-edit { background: transparent; border-color: var(--border); color: var(--fg); }
+.btn-edit:hover { background: var(--surface-hover); text-decoration: none; color: var(--fg); }
 .btn-danger { background: transparent; border-color: rgba(248,81,73,0.4); color: #f85149; }
 .btn-danger:hover { background: rgba(248,81,73,0.1); text-decoration: none; }
-.btn-cancel { background: transparent; border-color: #30363d; color: #8b949e; }
-.btn-cancel:hover { background: #21262d; text-decoration: none; color: #c9d1d9; }
+.btn-cancel { background: transparent; border-color: var(--border); color: var(--fg-muted); }
+.btn-cancel:hover { background: var(--surface-hover); text-decoration: none; color: var(--fg); }
 form.inline { display: inline; margin: 0; }
 .section { margin-bottom: 40px; }
 .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-.table-wrap { border: 1px solid #30363d; border-radius: 6px; overflow-x: auto; }
+.table-wrap { border: 1px solid var(--border); border-radius: 6px; overflow-x: auto; }
 .form-page { max-width: 580px; }
 .form-group { margin-bottom: 16px; }
-label { display: block; font-size: 13px; color: #8b949e; margin-bottom: 4px; }
+label { display: block; font-size: 13px; color: var(--fg-muted); margin-bottom: 4px; }
 input[type=text], select {
   width: 100%;
   padding: 7px 10px;
-  background: #0d1117;
-  border: 1px solid #30363d;
+  background: var(--bg);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  color: #c9d1d9;
+  color: var(--fg);
   font-size: 14px;
   font-family: inherit;
 }
@@ -529,35 +554,35 @@ input:focus, select:focus { outline: none; border-color: #58a6ff; }
   border-radius: 6px;
   border: 1px solid rgba(248,81,73,0.3);
 }
-.muted { color: #8b949e; }
+.muted { color: var(--fg-muted); }
 .actions-cell { white-space: nowrap; text-align: right; }
 .breadcrumb {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #8b949e;
+  color: var(--fg-muted);
   font-size: 14px;
   margin-bottom: 16px;
   flex-wrap: wrap;
 }
 .breadcrumb a { color: #58a6ff; }
-.breadcrumb .sep { color: #30363d; }
-.breadcrumb .current { color: #f0f6fc; font-weight: 500; }
+.breadcrumb .sep { color: var(--border); }
+.breadcrumb .current { color: var(--fg-strong); font-weight: 500; }
 .file-row { cursor: pointer; }
 .dir-row td { cursor: pointer; }
 .root-card {
   display: block;
   padding: 16px 20px;
-  border: 1px solid #30363d;
+  border: 1px solid var(--border);
   border-radius: 8px;
   margin-bottom: 10px;
-  background: #161b22;
-  color: #c9d1d9;
+  background: var(--bg-panel);
+  color: var(--fg);
   text-decoration: none;
 }
-.root-card:hover { border-color: #58a6ff; background: #1c2128; text-decoration: none; color: #c9d1d9; }
+.root-card:hover { border-color: #58a6ff; background: var(--surface-active); text-decoration: none; color: var(--fg); }
 .root-card-path { font-size: 15px; color: #58a6ff; font-family: monospace; }
-.root-card-meta { font-size: 12px; color: #8b949e; margin-top: 4px; }
+.root-card-meta { font-size: 12px; color: var(--fg-muted); margin-top: 4px; }
 /* Preview modal */
 .modal-overlay {
   display: none;
@@ -570,8 +595,8 @@ input:focus, select:focus { outline: none; border-color: #58a6ff; }
 }
 .modal-overlay.open { display: flex; }
 .modal-box {
-  background: #161b22;
-  border: 1px solid #30363d;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
   display: flex;
@@ -585,12 +610,12 @@ input:focus, select:focus { outline: none; border-color: #58a6ff; }
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid #30363d;
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
-.modal-title { color: #c9d1d9; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70vw; }
-.modal-close { color: #8b949e; cursor: pointer; font-size: 20px; line-height: 1; padding: 0 4px; }
-.modal-close:hover { color: #f0f6fc; }
+.modal-title { color: var(--fg); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70vw; }
+.modal-close { color: var(--fg-muted); cursor: pointer; font-size: 20px; line-height: 1; padding: 0 4px; }
+.modal-close:hover { color: var(--fg-strong); }
 .modal-nav-btn { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.45); color: #fff; border: none; font-size: 36px; width: 44px; height: 72px; cursor: pointer; z-index: 10; border-radius: 6px; line-height: 1; padding: 0; user-select: none; }
 .modal-nav-btn:hover { background: rgba(0,0,0,0.75); }
 .modal-nav-prev { left: 8px; }
@@ -607,53 +632,53 @@ input:focus, select:focus { outline: none; border-color: #58a6ff; }
   max-width: 80vw;
   max-height: 80vh;
   overflow: auto;
-  color: #c9d1d9;
+  color: var(--fg);
   font-size: 13px;
   white-space: pre-wrap;
   word-break: break-all;
   font-family: monospace;
 }
-.fav-btn { background:none; border:none; cursor:pointer; color:#8b949e; font-size:16px; padding:2px 4px; line-height:1; }
+.fav-btn { background:none; border:none; cursor:pointer; color:var(--fg-muted); font-size:16px; padding:2px 4px; line-height:1; }
 .fav-btn:hover { color:#e3b341; }
 .fav-btn.active { color:#e3b341; }
 .pl-unstar-btn { background:none; border:none; color:#e3b341; cursor:pointer; font-size:13px; padding:0 3px; flex-shrink:0; line-height:1; opacity:0.5; transition:opacity 0.15s; }
 .pl-unstar-btn:hover { opacity:1; }
-.fav-item { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid #21262d; cursor:pointer; }
-.fav-item:hover { background:#161b22; }
+.fav-item { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--surface-hover); cursor:pointer; }
+.fav-item:hover { background:var(--bg-panel); }
 .fav-item.active { background:rgba(88,166,255,0.1); border-left:3px solid #58a6ff; padding-left:9px; }
 .fav-item.dragging { opacity:0.35; }
 .fav-item.drag-over { border-top:2px solid #58a6ff; margin-top:-1px; }
-.fav-item-icon { flex-shrink:0; font-size:14px; color:#8b949e; }
+.fav-item-icon { flex-shrink:0; font-size:14px; color:var(--fg-muted); }
 .fav-item-info { flex:1; min-width:0; display:flex; flex-direction:column; gap:1px; }
 .fav-item-name { font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.fav-item-path { font-size:11px; color:#8b949e; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.fav-item-count { font-size:11px; color:#8b949e; flex-shrink:0; background:#21262d; border-radius:8px; padding:1px 6px; }
+.fav-item-path { font-size:11px; color:var(--fg-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fav-item-count { font-size:11px; color:var(--fg-muted); flex-shrink:0; background:var(--surface-hover); border-radius:8px; padding:1px 6px; }
 /* Custom playlist audio player */
-.pl-audio-ui { padding:12px 14px; background:#0d1117; border-radius:8px; border:1px solid #30363d; margin-bottom:10px; box-sizing:border-box; width:100%; overflow:hidden; }
+.pl-audio-ui { padding:12px 14px; background:var(--bg); border-radius:8px; border:1px solid var(--border); margin-bottom:10px; box-sizing:border-box; width:100%; overflow:hidden; }
 .pl-seek-wrap { width:100%; margin-bottom:10px; }
-input.pl-seek { -webkit-appearance:none; appearance:none; width:100%; height:4px; background:#30363d; border-radius:2px; outline:none; cursor:pointer; display:block; margin-bottom:5px; }
+input.pl-seek { -webkit-appearance:none; appearance:none; width:100%; height:4px; background:var(--border); border-radius:2px; outline:none; cursor:pointer; display:block; margin-bottom:5px; }
 input.pl-seek::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; border-radius:50%; background:#bc60ff; cursor:pointer; }
 input.pl-seek::-moz-range-thumb { width:14px; height:14px; border-radius:50%; background:#bc60ff; border:none; cursor:pointer; }
-.pl-time-row { display:flex; justify-content:space-between; font-size:11px; color:#8b949e; }
+.pl-time-row { display:flex; justify-content:space-between; font-size:11px; color:var(--fg-muted); }
 .pl-transport { display:grid; grid-template-columns:1fr auto 1fr; align-items:center; }
 .pl-transport-btns { display:flex; align-items:center; justify-content:center; gap:16px; }
-.pl-nav-btn { background:#21262d; border:1px solid #30363d; border-radius:50%; width:36px; height:36px; cursor:pointer; color:#8b949e; font-size:11px; display:flex; align-items:center; justify-content:center; padding:0; line-height:1; }
-.pl-nav-btn:hover { background:#30363d; color:#c9d1d9; }
+.pl-nav-btn { background:var(--surface-hover); border:1px solid var(--border); border-radius:50%; width:36px; height:36px; cursor:pointer; color:var(--fg-muted); font-size:11px; display:flex; align-items:center; justify-content:center; padding:0; line-height:1; }
+.pl-nav-btn:hover { background:var(--border); color:var(--fg); }
 .pl-mode-btn { background:transparent; border:none; border-radius:6px; width:32px; height:32px; cursor:pointer; font-size:15px; opacity:0.35; padding:0; line-height:1; }
-.pl-mode-btn:hover { background:#21262d; }
+.pl-mode-btn:hover { background:var(--surface-hover); }
 .pl-mode-btn.active { opacity:1; background:rgba(188,96,255,0.15); }
-#pl-play-btn { background:#21262d; border:1px solid #30363d; border-radius:50%; width:44px; height:44px; cursor:pointer; color:#c9d1d9; font-size:16px; display:flex; align-items:center; justify-content:center; padding:0; line-height:1; }
-#pl-play-btn:hover { background:#30363d; border-color:#bc60ff; }
+#pl-play-btn { background:var(--surface-hover); border:1px solid var(--border); border-radius:50%; width:44px; height:44px; cursor:pointer; color:var(--fg); font-size:16px; display:flex; align-items:center; justify-content:center; padding:0; line-height:1; }
+#pl-play-btn:hover { background:var(--border); border-color:#bc60ff; }
 .pl-vol-wrap { display:flex; align-items:center; gap:5px; justify-self:end; }
-.pl-vol-icon { color:#8b949e; font-size:13px; cursor:default; user-select:none; }
-input.pl-vol { -webkit-appearance:none; appearance:none; width:70px; height:4px; background:#30363d; border-radius:2px; outline:none; cursor:pointer; }
+.pl-vol-icon { color:var(--fg-muted); font-size:13px; cursor:default; user-select:none; }
+input.pl-vol { -webkit-appearance:none; appearance:none; width:70px; height:4px; background:var(--border); border-radius:2px; outline:none; cursor:pointer; }
 input.pl-vol::-webkit-slider-thumb { -webkit-appearance:none; width:11px; height:11px; border-radius:50%; background:#58a6ff; cursor:pointer; }
 input.pl-vol::-moz-range-thumb { width:11px; height:11px; border-radius:50%; background:#58a6ff; border:none; cursor:pointer; }
 @media (pointer: coarse) { .pl-vol-wrap { display:none; } }
 @media (max-width: 640px) {
   main { padding: 12px; }
   header { padding: 10px 16px; flex-wrap: wrap; }
-  #play-stats { order: 3; width: 100%; margin-left: 0; justify-content: flex-start; padding-top: 4px; border-top: 1px solid #21262d; }
+  #play-stats { order: 3; width: 100%; margin-left: 0; justify-content: flex-start; padding-top: 4px; border-top: 1px solid var(--surface-hover); }
   nav { overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 0 12px; }
   nav a { white-space: nowrap; padding: 10px 10px; font-size: 13px; }
   .page-header { flex-direction: column; align-items: flex-start; gap: 10px; }
@@ -691,13 +716,13 @@ input.pl-vol::-moz-range-thumb { width:11px; height:11px; border-radius:50%; bac
   .search-result-dir { font-size:10px; }
   /* Browse: stack sidebar above content on mobile */
   .browse-layout { flex-direction:column; margin:-12px; min-height:0; }
-  .browse-sidebar { width:100% !important; border-right:none; border-bottom:1px solid #30363d; flex-direction:row; transition:none; }
+  .browse-sidebar { width:100% !important; border-right:none; border-bottom:1px solid var(--border); flex-direction:row; transition:none; }
   .browse-sidebar.collapsed { width:100% !important; }
   .browse-sidebar.collapsed .sidebar-paths { display:flex; }
   .sidebar-toggle { display:none; }
   .sidebar-paths { display:flex; flex-direction:row; overflow-x:auto; overflow-y:hidden; padding:4px 8px; -webkit-overflow-scrolling:touch; flex:none; width:100%; }
   .browse-sidebar-item { flex-shrink:0; padding:8px 14px; border-left:none !important; padding-left:14px !important; font-size:13px; min-height:44px; display:flex; align-items:center; }
-  .browse-sidebar-item.active { border-bottom:2px solid #58a6ff; border-left:none !important; color:#f0f6fc; background:#1c2128; }
+  .browse-sidebar-item.active { border-bottom:2px solid #58a6ff; border-left:none !important; color:var(--fg-strong); background:var(--surface-active); }
   .browse-main { padding:12px; }
   /* Settings: single column */
   .settings-grid { grid-template-columns:1fr !important; }
@@ -735,10 +760,11 @@ const baseTmpl = `<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>File Browser</title>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<script>try{var _t=localStorage.getItem('fb_theme');if(_t)document.documentElement.dataset.theme=_t;}catch(e){}</script>
 <style>` + css + `</style>
 </head>
 <body>
-<header style="display:flex;align-items:center;gap:16px;padding:10px 24px;background:#161b22;border-bottom:1px solid #30363d">
+<header style="display:flex;align-items:center;gap:16px;padding:10px 24px;background:var(--bg-panel);border-bottom:1px solid var(--border)">
   <span class="logo" style="flex-shrink:0">
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-4px;margin-right:6px"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>File Browser <span style="font-size:0.65em;font-weight:400;opacity:0.45;vertical-align:1px">v{{appVersion}}</span>
   </span>
@@ -753,10 +779,11 @@ const baseTmpl = `<!DOCTYPE html>
         <button class="sf-chip" onclick="setSearchType(this,'photo')">Photo</button>
       </div>
       <div id="search-results-list"></div>
-      <div id="search-status" style="display:none;padding:12px;color:#8b949e;font-size:13px;text-align:center"></div>
+      <div id="search-status" style="display:none;padding:12px;color:var(--fg-muted);font-size:13px;text-align:center"></div>
     </div>
   </div>
-  <span id="play-stats" style="margin-left:auto;color:#8b949e;font-size:12px;white-space:nowrap;flex-shrink:0;display:flex;gap:12px;align-items:center"></span>
+  <span id="play-stats" style="margin-left:auto;color:var(--fg-muted);font-size:12px;white-space:nowrap;flex-shrink:0;display:flex;gap:12px;align-items:center"></span>
+  <button id="theme-toggle" class="btn btn-edit btn-sm" onclick="toggleTheme()" title="Toggle light/dark theme" style="flex-shrink:0">&#9789;</button>
 </header>
 <nav>
   <a href="/browse"     {{if eq .ActiveTab "browse"}}class="active"{{end}}>Browse</a>
@@ -770,7 +797,7 @@ const baseTmpl = `<!DOCTYPE html>
   {{if .IsAdmin}}<a href="/duplicates" {{if eq .ActiveTab "duplicates"}}class="active"{{end}}>Duplicates</a>{{end}}
   <a href="/settings"   {{if eq .ActiveTab "settings"}}class="active"{{end}}>Settings</a>
   <form action="/logout" method="post" style="margin:0;display:flex;align-items:center;padding:0 4px;flex-shrink:0;margin-left:auto">
-    <button type="submit" style="background:transparent;border:1px solid #30363d;color:#8b949e;padding:4px 12px;border-radius:6px;font-size:13px;cursor:pointer;line-height:1.4;white-space:nowrap">Logout</button>
+    <button type="submit" style="background:transparent;border:1px solid var(--border);color:var(--fg-muted);padding:4px 12px;border-radius:6px;font-size:13px;cursor:pointer;line-height:1.4;white-space:nowrap">Logout</button>
   </form>
 </nav>
 <main>
@@ -791,17 +818,17 @@ const baseTmpl = `<!DOCTYPE html>
       <iframe id="modal-pdf" src="" style="display:none"></iframe>
       <pre id="modal-text" style="display:none"></pre>
     </div>
-    <div id="modal-pdf-controls" style="display:none;justify-content:center;align-items:center;gap:12px;padding:10px;background:#0d1117;border-top:1px solid #30363d;flex-shrink:0">
+    <div id="modal-pdf-controls" style="display:none;justify-content:center;align-items:center;gap:12px;padding:10px;background:var(--bg);border-top:1px solid var(--border);flex-shrink:0">
       <button id="modal-pdf-md-btn" class="btn btn-edit btn-sm" onclick="copyPDFMarkdown()">&#128203; Copy as Markdown</button>
     </div>
-    <div id="modal-iz-hint" style="display:none;color:#8b949e;font-size:11px;text-align:center;padding:4px 0;flex-shrink:0;background:#0d1117;border-top:1px solid #21262d">Scroll or pinch to zoom &middot; drag to pan &middot; double-click to zoom&thinsp;/&thinsp;fit</div>
-    <div id="modal-photo-controls" style="display:none;justify-content:center;align-items:center;gap:12px;padding:10px;background:#0d1117;border-top:1px solid #30363d;flex-shrink:0">
+    <div id="modal-iz-hint" style="display:none;color:var(--fg-muted);font-size:11px;text-align:center;padding:4px 0;flex-shrink:0;background:var(--bg);border-top:1px solid var(--surface-hover)">Scroll or pinch to zoom &middot; drag to pan &middot; double-click to zoom&thinsp;/&thinsp;fit</div>
+    <div id="modal-photo-controls" style="display:none;justify-content:center;align-items:center;gap:12px;padding:10px;background:var(--bg);border-top:1px solid var(--border);flex-shrink:0">
       <button id="modal-slideshow-btn" class="btn btn-edit btn-sm" onclick="toggleSlideshow()">&#9654; Slideshow</button>
     </div>
-    <div id="modal-media-controls" style="display:none;justify-content:center;align-items:center;gap:12px;padding:10px;background:#0d1117;border-top:1px solid #30363d;flex-shrink:0">
+    <div id="modal-media-controls" style="display:none;justify-content:center;align-items:center;gap:12px;padding:10px;background:var(--bg);border-top:1px solid var(--border);flex-shrink:0">
       <button id="modal-seek-back" class="btn btn-edit btn-sm" onclick="seekActiveMedia(-15)">&#9664;&#9664; 15s</button>
       <button id="modal-seek-fwd" class="btn btn-edit btn-sm" onclick="seekActiveMedia(15)">15s &#9654;&#9654;</button>
-      <span id="modal-resume-badge" style="color:#8b949e;font-size:12px;margin-left:8px"></span>
+      <span id="modal-resume-badge" style="color:var(--fg-muted);font-size:12px;margin-left:8px"></span>
     </div>
   </div>
   <button id="modal-nav-prev" class="modal-nav-btn modal-nav-prev" style="display:none" onclick="event.stopPropagation();modalNavPhoto(-1)">&#8249;</button>
@@ -809,6 +836,11 @@ const baseTmpl = `<!DOCTYPE html>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4"></script>
 <script>
+function toggleTheme() {
+  var next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem('fb_theme', next); } catch(e) {}
+}
 var _fo = false; try { _fo = !!localStorage.getItem('fb_force_original'); } catch(e) {}
 var MOBILE = !_fo && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 function plLog(msg) {
@@ -1459,7 +1491,7 @@ const browseTmpl = `{{define "content"}}
       {{range .Paths}}
       <a class="browse-sidebar-item{{if eq .Path $.CurrentRoot}} active{{end}}" href="{{browseURL .Path}}" title="{{.Path}}">{{base .Path}}</a>
       {{else}}
-      <span style="padding:8px 16px;color:#8b949e;font-size:12px;display:block">No paths. Add one in <a href="/settings">Settings</a>.</span>
+      <span style="padding:8px 16px;color:var(--fg-muted);font-size:12px;display:block">No paths. Add one in <a href="/settings">Settings</a>.</span>
       {{end}}
     </div>
   </div>
@@ -1474,7 +1506,7 @@ const browseTmpl = `{{define "content"}}
         {{end}}
       </div>
       <div style="display:flex;gap:8px;align-items:center">
-        {{if and .IsAdmin (not .InZip)}}<label class="btn btn-primary btn-sm" id="upload-btn" style="cursor:pointer;margin:0" title="Upload files to this folder">&#8679; Upload<input type="file" id="upload-input" multiple style="display:none" onchange="uploadFiles(this.files)"></label><span id="upload-status" style="display:none;color:#8b949e;font-size:13px;white-space:nowrap"></span>{{end}}
+        {{if and .IsAdmin (not .InZip)}}<label class="btn btn-primary btn-sm" id="upload-btn" style="cursor:pointer;margin:0" title="Upload files to this folder">&#8679; Upload<input type="file" id="upload-input" multiple style="display:none" onchange="uploadFiles(this.files)"></label><span id="upload-status" style="display:none;color:var(--fg-muted);font-size:13px;white-space:nowrap"></span>{{end}}
         {{if and .IsAdmin (not .InZip)}}<button id="btn-new-folder" class="btn btn-primary btn-sm" onclick="createFolder()" title="Create a new subdirectory in this folder">+ New Folder</button>{{end}}
         <button id="btn-play-all" class="btn btn-primary btn-sm" onclick="playFolderAll()" style="display:none" title="Play all media in this folder in a loop">&#9654; Loop</button>
         {{if or .Files .Subdirs}}<button id="btn-select" class="btn btn-edit btn-sm" onclick="toggleExtMenu(event)" title="Show only folders and files with certain extensions">Filter &#9662;</button>{{end}}
@@ -1574,7 +1606,7 @@ const browseTmpl = `{{define "content"}}
       <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>
       {{end}}
       <div class="grid-name">{{.Name}}</div>
-      <button class="fav-btn" data-path="{{.AbsPath}}" data-folder="1" onclick="event.stopPropagation();toggleFav(this)" title="Favorite folder" style="position:absolute;top:4px;right:4px;font-size:14px;background:rgba(0,0,0,0.5);border-radius:3px">☆</button>
+      <button class="fav-btn" data-path="{{.AbsPath}}" data-folder="1" onclick="event.stopPropagation();toggleFav(this)" title="Favorite folder" style="position:absolute;top:4px;right:4px;font-size:14px;background:rgba(0,0,0,0.65);border-radius:3px;color:#fff">☆</button>
     </div>
     {{end}}
     {{range .Files}}
@@ -1619,7 +1651,7 @@ const browseTmpl = `{{define "content"}}
       <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#bc60ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>
       {{end}}
       <div class="grid-name">{{.Filename}}</div>
-      <button class="fav-btn" data-path="{{.AbsPath}}" data-folder="0" onclick="event.stopPropagation();toggleFav(this)" title="Favorite" style="position:absolute;top:4px;right:4px;font-size:14px;background:rgba(0,0,0,0.5);border-radius:3px">☆</button>
+      <button class="fav-btn" data-path="{{.AbsPath}}" data-folder="0" onclick="event.stopPropagation();toggleFav(this)" title="Favorite" style="position:absolute;top:4px;right:4px;font-size:14px;background:rgba(0,0,0,0.65);border-radius:3px;color:#fff">☆</button>
     </div>
     {{else if eq .FileType "pdf"}}
     <div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="pdf" onclick="gridClick(event,this)">
@@ -1656,7 +1688,7 @@ const browseTmpl = `{{define "content"}}
     <div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="other" onclick="gridClick(event,this)">
       <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" data-type="other" data-ext="{{.Extension}}" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
       <a href="{{fileURL .AbsPath}}" onclick="event.stopPropagation()" style="display:contents">
-        <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#8b949e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
+        <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
         <div class="grid-name">{{.Filename}}</div>
       </a>
     </div>
@@ -1668,9 +1700,9 @@ const browseTmpl = `{{define "content"}}
   </div>
 </div>
 <div class="sel-spacer"></div>
-<div id="sel-bar" style="display:none;position:fixed;bottom:0;left:0;right:0;background:#161b22;border-top:1px solid #30363d;padding:12px 24px;z-index:200;align-items:center;gap:12px;flex-wrap:wrap">
-  <span id="sel-count" style="color:#c9d1d9;font-size:14px;white-space:nowrap"></span>
-  <select id="sel-pl" style="background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;font-size:13px;padding:5px 8px;display:none">
+<div id="sel-bar" style="display:none;position:fixed;bottom:0;left:0;right:0;background:var(--bg-panel);border-top:1px solid var(--border);padding:12px 24px;z-index:200;align-items:center;gap:12px;flex-wrap:wrap">
+  <span id="sel-count" style="color:var(--fg);font-size:14px;white-space:nowrap"></span>
+  <select id="sel-pl" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--fg);font-size:13px;padding:5px 8px;display:none">
     <option value="">Add to playlist...</option>
     {{range .Playlists}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
   </select>
@@ -2366,7 +2398,7 @@ const playlistsTmpl = `{{define "content"}}
 </div>
 <div id="new-pl-form" style="display:none;margin-bottom:16px">
   <form action="/playlists" method="post" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-    <input id="new-pl-name" type="text" name="name" placeholder="Playlist name" style="flex:1;min-width:160px;padding:6px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;font-size:14px;font-family:inherit">
+    <input id="new-pl-name" type="text" name="name" placeholder="Playlist name" style="flex:1;min-width:160px;padding:6px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--fg);font-size:14px;font-family:inherit">
     <button class="btn btn-primary btn-sm" type="submit">Create</button>
     <button class="btn btn-edit btn-sm" type="button" onclick="hideNewPl()">Cancel</button>
   </form>
@@ -3002,14 +3034,14 @@ function _plUpdateAudioUI() {
   if (seek && durT > 0) {
     var pct = (curT / durT * 100).toFixed(2);
     seek.value = pct;
-    seek.style.background = 'linear-gradient(to right,#bc60ff 0%,#bc60ff ' + pct + '%,#30363d ' + pct + '%,#30363d 100%)';
+    seek.style.background = 'linear-gradient(to right,#bc60ff 0%,#bc60ff ' + pct + '%,var(--border) ' + pct + '%,var(--border) 100%)';
   }
   if (cur) cur.textContent = fmtTime(curT);
   if (dur && durT > 0) dur.textContent = fmtTime(durT);
   if (vol) {
     var vp = Math.round((a.volume || 0) * 100);
     vol.value = vp;
-    vol.style.background = 'linear-gradient(to right,#58a6ff 0%,#58a6ff ' + vp + '%,#30363d ' + vp + '%,#30363d 100%)';
+    vol.style.background = 'linear-gradient(to right,#58a6ff 0%,#58a6ff ' + vp + '%,var(--border) ' + vp + '%,var(--border) 100%)';
   }
 }
 function plInitAudioUI() {
@@ -3041,7 +3073,7 @@ function plInitAudioUI() {
   if (vol) {
     vol.value = Math.round(DEFAULT_VOL * 100);
     var vp0 = Math.round(DEFAULT_VOL * 100);
-    vol.style.background = 'linear-gradient(to right,#58a6ff 0%,#58a6ff ' + vp0 + '%,#30363d ' + vp0 + '%,#30363d 100%)';
+    vol.style.background = 'linear-gradient(to right,#58a6ff 0%,#58a6ff ' + vp0 + '%,var(--border) ' + vp0 + '%,var(--border) 100%)';
     vol.addEventListener('input', function() {
       var v = parseFloat(vol.value) / 100;
       a.volume = v;
@@ -3094,8 +3126,8 @@ var PLAYLIST_STATE = {{toJSON .State}};
     </div>
   </div>
   <div class="pl-sidebar" id="pl-sidebar">
-    <div style="padding:8px 12px;border-bottom:1px solid #30363d">
-      <span style="font-size:12px;color:#8b949e;font-weight:500;text-transform:uppercase;letter-spacing:0.5px">Playlist</span>
+    <div style="padding:8px 12px;border-bottom:1px solid var(--border)">
+      <span style="font-size:12px;color:var(--fg-muted);font-weight:500;text-transform:uppercase;letter-spacing:0.5px">Playlist</span>
     </div>
     <div id="pl-item-list">
     {{range $i, $it := .Items}}
@@ -3264,8 +3296,8 @@ var START_IDX = {{.StartIdx}};
     </div>
   </div>
   <div class="pl-sidebar" id="pl-sidebar">
-    <div style="padding:8px 12px;border-bottom:1px solid #30363d">
-      <span style="font-size:12px;color:#8b949e;font-weight:500;text-transform:uppercase;letter-spacing:0.5px">{{len .Items}} tracks</span>
+    <div style="padding:8px 12px;border-bottom:1px solid var(--border)">
+      <span style="font-size:12px;color:var(--fg-muted);font-weight:500;text-transform:uppercase;letter-spacing:0.5px">{{len .Items}} tracks</span>
     </div>
     <div id="pl-item-list">
     {{range $i, $it := .Items}}
@@ -3336,8 +3368,8 @@ var PLAYLIST_STATE = null;
     </div>
   </div>
   <div class="pl-sidebar" id="pl-sidebar">
-    <div style="padding:8px 12px;border-bottom:1px solid #30363d">
-      <span id="fav-track-count" style="font-size:12px;color:#8b949e;font-weight:500;text-transform:uppercase;letter-spacing:0.5px">{{len .Tracks}} tracks</span>
+    <div style="padding:8px 12px;border-bottom:1px solid var(--border)">
+      <span id="fav-track-count" style="font-size:12px;color:var(--fg-muted);font-weight:500;text-transform:uppercase;letter-spacing:0.5px">{{len .Tracks}} tracks</span>
     </div>
     <div id="pl-item-list">
     {{range $i, $it := .Items}}
@@ -3500,14 +3532,15 @@ const loginTmpl = `<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>File Browser — Login</title>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<style>
+<script>try{var _t=localStorage.getItem('fb_theme');if(_t)document.documentElement.dataset.theme=_t;}catch(e){}</script>
+<style>` + themeVars + `
 *, *::before, *::after { box-sizing: border-box; }
-body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 14px; background: #0d1117; color: #c9d1d9; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
-.login-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 32px; width: 100%; max-width: 360px; }
-.login-logo { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 600; color: #f0f6fc; margin-bottom: 28px; justify-content: center; }
+body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 14px; background: var(--bg); color: var(--fg); display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+.login-card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px; padding: 32px; width: 100%; max-width: 360px; }
+.login-logo { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 600; color: var(--fg-strong); margin-bottom: 28px; justify-content: center; }
 .form-group { margin-bottom: 16px; }
-label { display: block; font-size: 13px; color: #8b949e; margin-bottom: 4px; }
-input[type=text], input[type=password] { width: 100%; padding: 8px 10px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #c9d1d9; font-size: 14px; font-family: inherit; }
+label { display: block; font-size: 13px; color: var(--fg-muted); margin-bottom: 4px; }
+input[type=text], input[type=password] { width: 100%; padding: 8px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--fg); font-size: 14px; font-family: inherit; }
 input:focus { outline: none; border-color: #58a6ff; }
 .btn-primary { display: block; width: 100%; padding: 8px; background: #238636; border: 1px solid #2ea043; color: #fff; border-radius: 6px; font-size: 14px; font-weight: 500; cursor: pointer; margin-top: 20px; }
 .btn-primary:hover { background: #2ea043; }
@@ -3515,6 +3548,14 @@ input:focus { outline: none; border-color: #58a6ff; }
 </style>
 </head>
 <body>
+<button onclick="toggleTheme()" title="Toggle light/dark theme" style="position:fixed;top:16px;right:16px;background:transparent;border:1px solid var(--border);color:var(--fg-muted);width:32px;height:32px;border-radius:6px;cursor:pointer;font-size:16px">&#9789;</button>
+<script>
+function toggleTheme() {
+  var next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem('fb_theme', next); } catch(e) {}
+}
+</script>
 <div class="login-card">
   <div class="login-logo">
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
@@ -3546,8 +3587,8 @@ const usersTmpl = `{{define "content"}}
 </div>
 <div id="new-user-form" style="display:none;margin-bottom:16px">
   <form action="/users" method="post" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-    <input id="new-user-name" type="text" name="username" placeholder="Username" autocomplete="off" style="flex:1;min-width:140px;padding:6px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;font-size:14px;font-family:inherit">
-    <input type="password" name="password" placeholder="Password" autocomplete="new-password" style="flex:1;min-width:140px;padding:6px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;font-size:14px;font-family:inherit">
+    <input id="new-user-name" type="text" name="username" placeholder="Username" autocomplete="off" style="flex:1;min-width:140px;padding:6px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--fg);font-size:14px;font-family:inherit">
+    <input type="password" name="password" placeholder="Password" autocomplete="new-password" style="flex:1;min-width:140px;padding:6px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--fg);font-size:14px;font-family:inherit">
     <button class="btn btn-primary btn-sm" type="submit">Add</button>
     <button class="btn btn-edit btn-sm" type="button" onclick="hideNewUser()">Cancel</button>
   </form>
@@ -3590,7 +3631,7 @@ function hideNewUser() { document.getElementById('new-user-form').style.display=
 const userDetailTmpl = `{{define "content"}}
 <div class="page-header">
   <div class="page-header-left">
-    <a href="/users" style="color:#8b949e;font-size:13px;text-decoration:none;margin-right:8px">&#8592; Users</a>
+    <a href="/users" style="color:var(--fg-muted);font-size:13px;text-decoration:none;margin-right:8px">&#8592; Users</a>
     <h2>{{.Username}}</h2>
   </div>
   <form action="/users/{{.ID}}/delete" method="post" onsubmit="return confirm('Delete user {{.Username}}?')">
@@ -3729,7 +3770,7 @@ function renderDupResult(data) {
     box.appendChild(header);
     g.Paths.forEach(function(p, pi) {
       var row = document.createElement('label');
-      row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 12px;font-size:13px;border-top:1px solid #21262d';
+      row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 12px;font-size:13px;border-top:1px solid var(--surface-hover)';
       var cb = document.createElement('input');
       cb.type = 'checkbox';
       cb.className = 'dup-check';
@@ -3804,7 +3845,7 @@ const settingsTmpl = `{{define "content"}}
         {{if .Enabled}}checked{{end}} title="Enable or disable this path in Browse" style="cursor:pointer;width:16px;height:16px">
     </td>
     <td><a href="{{browseURL .Path}}">{{.Path}}</a></td>
-    <td class="path-size-cell" data-path="{{.Path}}" style="text-align:right;color:#8b949e;font-size:13px">…</td>
+    <td class="path-size-cell" data-path="{{.Path}}" style="text-align:right;color:var(--fg-muted);font-size:13px">…</td>
     <td class="actions-cell">
       <form class="inline" action="/paths/{{.ID}}/delete" method="post">
         <button class="btn btn-danger btn-sm" type="submit">Remove</button>
@@ -3842,7 +3883,7 @@ const settingsTmpl = `{{define "content"}}
   {{range .Paths}}
   <tr>
     <td><a href="{{browseURL .Path}}">{{.Path}}</a></td>
-    <td class="path-size-cell" data-path="{{.Path}}" style="text-align:right;color:#8b949e;font-size:13px">…</td>
+    <td class="path-size-cell" data-path="{{.Path}}" style="text-align:right;color:var(--fg-muted);font-size:13px">…</td>
   </tr>
   {{end}}
   </tbody>
@@ -4041,22 +4082,22 @@ const statsTmpl = `{{define "content"}}
 <div class="summary" style="margin-bottom:16px">Play time and most played, last 30 days</div>
 
 <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px">
-  <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:12px 16px;min-width:120px">
+  <div style="background:var(--bg-panel);border:1px solid var(--border);border-radius:6px;padding:12px 16px;min-width:120px">
     <div class="muted" style="font-size:12px;margin-bottom:6px">Today</div>
     <div style="color:#58a6ff;font-size:14px">&#9654; {{fmtDur .Totals.TodayVideo}}</div>
     <div style="color:#bc60ff;font-size:14px">&#9834; {{fmtDur .Totals.TodayAudio}}</div>
   </div>
-  <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:12px 16px;min-width:120px">
+  <div style="background:var(--bg-panel);border:1px solid var(--border);border-radius:6px;padding:12px 16px;min-width:120px">
     <div class="muted" style="font-size:12px;margin-bottom:6px">Last 7 days</div>
     <div style="color:#58a6ff;font-size:14px">&#9654; {{fmtDur .Totals.WeekVideo}}</div>
     <div style="color:#bc60ff;font-size:14px">&#9834; {{fmtDur .Totals.WeekAudio}}</div>
   </div>
-  <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:12px 16px;min-width:120px">
+  <div style="background:var(--bg-panel);border:1px solid var(--border);border-radius:6px;padding:12px 16px;min-width:120px">
     <div class="muted" style="font-size:12px;margin-bottom:6px">Last 30 days</div>
     <div style="color:#58a6ff;font-size:14px">&#9654; {{fmtDur .Totals.MonthVideo}}</div>
     <div style="color:#bc60ff;font-size:14px">&#9834; {{fmtDur .Totals.MonthAudio}}</div>
   </div>
-  <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:12px 16px;min-width:120px">
+  <div style="background:var(--bg-panel);border:1px solid var(--border);border-radius:6px;padding:12px 16px;min-width:120px">
     <div class="muted" style="font-size:12px;margin-bottom:6px">All time</div>
     <div style="color:#58a6ff;font-size:14px">&#9654; {{fmtDur .Totals.AllVideo}}</div>
     <div style="color:#bc60ff;font-size:14px">&#9834; {{fmtDur .Totals.AllAudio}}</div>
@@ -4064,7 +4105,7 @@ const statsTmpl = `{{define "content"}}
 </div>
 
 {{if .HasPlay}}
-<div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:16px;margin-bottom:20px">
+<div style="background:var(--bg-panel);border:1px solid var(--border);border-radius:6px;padding:16px;margin-bottom:20px">
   <div style="display:flex;align-items:flex-end;height:180px;gap:3px">
     {{range .Days}}
     <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%;min-width:0" title="{{.Label}} — video: {{fmtDur .VideoSec}}, audio: {{fmtDur .AudioSec}}">
@@ -4075,7 +4116,7 @@ const statsTmpl = `{{define "content"}}
   </div>
   <div class="stats-ticks" style="display:flex;gap:3px;margin-top:6px">
     {{range .Days}}
-    <div style="flex:1;text-align:center;font-size:9px;color:#8b949e;white-space:nowrap;min-width:0">{{.Tick}}</div>
+    <div style="flex:1;text-align:center;font-size:9px;color:var(--fg-muted);white-space:nowrap;min-width:0">{{.Tick}}</div>
     {{end}}
   </div>
   <div style="display:flex;gap:16px;margin-top:10px;font-size:12px">
