@@ -285,6 +285,37 @@ func zipEntryName(name string) string {
 	return strings.TrimPrefix(path.Clean(name), "/")
 }
 
+// findZipAlbumArt mirrors findAlbumArt's rules but scans a zip's top-level
+// entries instead of a directory, so an archive full of photos gets a cover
+// thumbnail in the browse grid just like a folder does.
+func findZipAlbumArt(zipFile string) string {
+	zr, err := zip.OpenReader(zipFile)
+	if err != nil {
+		return ""
+	}
+	defer zr.Close()
+	var first string
+	for _, f := range zr.File {
+		name := zipEntryName(f.Name)
+		if name == "" || strings.Contains(name, "/") || f.FileInfo().IsDir() {
+			continue
+		}
+		ext := strings.ToLower(path.Ext(name))
+		if !photoExts[ext] {
+			continue
+		}
+		virt := zipFile + "/" + name
+		base := strings.ToLower(strings.TrimSuffix(name, ext))
+		if base == "cover" || base == "folder" || base == "album" || base == "front" {
+			return virt
+		}
+		if first == "" {
+			first = virt
+		}
+	}
+	return first
+}
+
 // resolveMediaPath maps a possibly-virtual path to a real file that
 // ServeFile/ffmpeg can read. Real paths pass through untouched; zip-internal
 // paths extract into the cache. Callers keep the original path for DB keys,
@@ -450,15 +481,22 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			ext := filepath.Ext(e.Name())
+			absFile := filepath.Join(dirParam, e.Name())
+			fileType := classifyExt(ext)
+			var art string
+			if fileType == "archive" {
+				art = findZipAlbumArt(absFile)
+			}
 			files = append(files, FileRow{
-				AbsPath:    filepath.Join(dirParam, e.Name()),
+				AbsPath:    absFile,
 				Filename:   e.Name(),
 				Extension:  strings.ToLower(ext),
-				FileType:   classifyExt(ext),
+				FileType:   fileType,
 				SizeBytes:  info.Size(),
 				Size:       formatSize(info.Size()),
 				ModifiedAt: info.ModTime().Format("2006-01-02 15:04"),
 				ModTime:    info.ModTime(),
+				AlbumArt:   art,
 			})
 		}
 	}
