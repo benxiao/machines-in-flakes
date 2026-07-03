@@ -28,6 +28,7 @@ type BrowsePage struct {
 	PlaylistsJSON template.JS
 	DirAlbumArt   string
 	SortBy        string
+	InZip         bool // browsing inside a zip archive: read-only, no upload/mutations
 }
 
 type PlaylistRow struct {
@@ -378,6 +379,7 @@ tr:hover td { background: #161b22; }
 .badge-other   { background: rgba(139,148,158,0.15);color: #8b949e; border: 1px solid rgba(139,148,158,0.4); }
 .badge-audio   { background: rgba(188,96,255,0.15); color: #bc60ff; border: 1px solid rgba(188,96,255,0.4); }
 .badge-dir     { background: rgba(88,166,255,0.12); color: #58a6ff; border: 1px solid rgba(88,166,255,0.3); }
+.badge-archive { background: rgba(219,109,40,0.15); color: #db6d28; border: 1px solid rgba(219,109,40,0.4); }
 .browse-layout { display:flex; margin:-24px; min-height:calc(100vh - 108px); }
 .browse-sidebar { width:220px; flex-shrink:0; border-right:1px solid #30363d; padding:0; position:relative; transition:width 0.18s; display:flex; flex-direction:column; }
 .browse-sidebar.collapsed { width:28px; }
@@ -1418,8 +1420,8 @@ const browseTmpl = `{{define "content"}}
         {{end}}
       </div>
       <div style="display:flex;gap:8px;align-items:center">
-        {{if .IsAdmin}}<label class="btn btn-primary btn-sm" id="upload-btn" style="cursor:pointer;margin:0" title="Upload files to this folder">&#8679; Upload<input type="file" id="upload-input" multiple style="display:none" onchange="uploadFiles(this.files)"></label><span id="upload-status" style="display:none;color:#8b949e;font-size:13px;white-space:nowrap"></span>{{end}}
-        {{if .IsAdmin}}<button id="btn-new-folder" class="btn btn-primary btn-sm" onclick="createFolder()" title="Create a new subdirectory in this folder">+ New Folder</button>{{end}}
+        {{if and .IsAdmin (not .InZip)}}<label class="btn btn-primary btn-sm" id="upload-btn" style="cursor:pointer;margin:0" title="Upload files to this folder">&#8679; Upload<input type="file" id="upload-input" multiple style="display:none" onchange="uploadFiles(this.files)"></label><span id="upload-status" style="display:none;color:#8b949e;font-size:13px;white-space:nowrap"></span>{{end}}
+        {{if and .IsAdmin (not .InZip)}}<button id="btn-new-folder" class="btn btn-primary btn-sm" onclick="createFolder()" title="Create a new subdirectory in this folder">+ New Folder</button>{{end}}
         <button id="btn-play-all" class="btn btn-primary btn-sm" onclick="playFolderAll()" style="display:none" title="Play all media in this folder in a loop">&#9654; Loop</button>
         {{if or .Files .Subdirs}}<button id="btn-select" class="btn btn-edit btn-sm" onclick="toggleExtMenu(event)" title="Show only folders and files with certain extensions">Filter &#9662;</button>{{end}}
         <div class="view-toggle">
@@ -1461,7 +1463,19 @@ const browseTmpl = `{{define "content"}}
     </tr>
     {{end}}
     {{range .Files}}
-    {{if eq .FileType "other"}}
+    {{if eq .FileType "archive"}}
+    <tr class="dir-row" data-dir="{{.AbsPath}}" onclick="browseDir(this)">
+      <td onclick="event.stopPropagation()"><input type="checkbox" class="row-check" value="{{.AbsPath}}" data-type="other" data-ext="{{.Extension}}" onchange="updateSelBar()" onclick="event.stopPropagation()" style="cursor:pointer"></td>
+      <td>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#db6d28" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:6px"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><line x1="10" y1="12" x2="14" y2="12"/></svg>{{.Filename}}
+      </td>
+      <td><span class="badge badge-archive">ZIP</span></td>
+      <td class="muted">{{.Size}}</td>
+      <td class="muted">{{.ModifiedAt}}</td>
+      <td class="muted">—</td>
+      <td></td>
+    </tr>
+    {{else if eq .FileType "other"}}
     <tr data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="other">
       <td><input type="checkbox" class="row-check" value="{{.AbsPath}}" data-type="other" data-ext="{{.Extension}}" onchange="updateSelBar()" onclick="event.stopPropagation()" style="cursor:pointer"></td>
       <td><a href="{{fileURL .AbsPath}}" onclick="event.stopPropagation()">{{.Filename}}</a></td>
@@ -1565,6 +1579,12 @@ const browseTmpl = `{{define "content"}}
       <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#d29922" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg></div>
       <div class="grid-name">{{.Filename}}</div>
     </div>
+    {{else if eq .FileType "archive"}}
+    <div class="grid-card" data-dir="{{.AbsPath}}" onclick="gridDirClick(event,this)">
+      <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" data-type="other" data-ext="{{.Extension}}" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
+      <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#db6d28" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><line x1="10" y1="12" x2="14" y2="12"/></svg></div>
+      <div class="grid-name">{{.Filename}}</div>
+    </div>
     {{else}}
     <div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="other" onclick="gridClick(event,this)">
       <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" data-type="other" data-ext="{{.Extension}}" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
@@ -1590,7 +1610,7 @@ const browseTmpl = `{{define "content"}}
   <button id="sel-pl-btn" class="btn btn-primary btn-sm" style="display:none" onclick="addSelectedToPlaylist()">Add to Playlist</button>
   <button id="sel-ext-btn" class="btn btn-edit btn-sm" style="display:none" onclick="selectSameExt()"></button>
   <button class="btn btn-edit btn-sm" onclick="downloadSelected()">⬇ Download</button>
-  {{if .IsAdmin}}
+  {{if and .IsAdmin (not .InZip)}}
   <button id="sel-rename" class="btn btn-edit btn-sm" style="display:none" onclick="renameSelected()">&#x270E; Rename</button>
   <button class="btn btn-edit btn-sm" onclick="moveSelected()">&#128193; Move</button>
   <button class="btn btn-danger btn-sm" onclick="deleteSelected()">&#128465; Delete</button>

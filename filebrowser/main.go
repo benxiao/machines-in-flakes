@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -299,6 +300,30 @@ func main() {
 		for {
 			if ct, err := pool.Exec(ctx, `DELETE FROM sessions WHERE expires_at < now()`); err == nil && ct.RowsAffected() > 0 {
 				log.Printf("sessions: purged %d expired", ct.RowsAffected())
+			}
+			time.Sleep(time.Hour)
+		}
+	}()
+
+	// Evict zip extraction cache entries untouched for a day (access bumps
+	// mtime, so anything a user keeps playing stays cached).
+	go func() {
+		for {
+			entries, err := os.ReadDir(zipCacheDir)
+			if err == nil {
+				purged := 0
+				for _, e := range entries {
+					info, err := e.Info()
+					if err != nil || time.Since(info.ModTime()) < 24*time.Hour {
+						continue
+					}
+					if os.Remove(filepath.Join(zipCacheDir, e.Name())) == nil {
+						purged++
+					}
+				}
+				if purged > 0 {
+					log.Printf("zipcache: purged %d stale extraction(s)", purged)
+				}
 			}
 			time.Sleep(time.Hour)
 		}

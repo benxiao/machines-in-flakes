@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -57,6 +58,8 @@ func classifyExt(ext string) string {
 		return "audio"
 	case ext == ".pdf":
 		return "pdf"
+	case ext == ".zip":
+		return "archive"
 	case textExts[ext]:
 		return "text"
 	default:
@@ -139,11 +142,24 @@ func (a *App) isAllowedPath(r *http.Request, absPath string) bool {
 	if !matched {
 		return false
 	}
-	resolved, err := filepath.EvalSymlinks(absPath)
+	target := absPath
+	resolved, err := filepath.EvalSymlinks(target)
 	if err != nil {
-		return false
+		// Virtual zip paths don't exist on disk (traversing into the archive
+		// file yields ENOTDIR, a missing sibling ENOENT); the lexical check
+		// above already covered the full virtual path, so the symlink
+		// containment check runs against the archive file itself.
+		zipFile, _, ok := splitZipPath(target)
+		if !ok || !(errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENOTDIR)) {
+			return false
+		}
+		target = zipFile
+		resolved, err = filepath.EvalSymlinks(target)
+		if err != nil {
+			return false
+		}
 	}
-	if resolved == absPath {
+	if resolved == target {
 		return true
 	}
 	for _, root := range roots {
@@ -156,6 +172,195 @@ func (a *App) isAllowedPath(r *http.Request, absPath string) bool {
 		}
 	}
 	return false
+}
+
+// ---- Zip archives browsed as folders ----
+//
+// Files inside a .zip are addressed with virtual paths that extend the
+// archive's real path with the entry path, e.g. /media/photos.zip/a/b.jpg.
+// Paths stay opaque strings, so auth checks, position/favorite keys and the
+// templates all work unchanged; anything that must read bytes goes through
+// resolveMediaPath, which extracts the entry into an on-disk cache.
+
+const zipCacheDir = "/var/lib/filebrowser/zipcache"
+
+// Extraction copies whole entries out of archives; cap concurrent ones.
+var zipSem = make(chan struct{}, 3)
+
+// splitZipPath splits a virtual zip path into the archive file and the entry
+// path inside it ("" means the archive root). ok is false when no path
+// component is an existing regular .zip file.
+func splitZipPath(absPath string) (zipFile, inner string, ok bool) {
+	for p := absPath; ; {
+		if strings.EqualFold(filepath.Ext(p), ".zip") {
+			if info, err := os.Stat(p); err == nil && info.Mode().IsRegular() {
+				return p, strings.TrimPrefix(strings.TrimPrefix(absPath, p), "/"), true
+			}
+		}
+		parent := filepath.Dir(p)
+		if parent == p {
+			return "", "", false
+		}
+		p = parent
+	}
+}
+
+// extractZipEntry extracts one entry into the cache and returns the cached
+// file's path. The key covers the archive's mtime, so an updated zip never
+// serves stale content; cache names are hashes, so a hostile entry name
+// can't escape the cache dir (zip-slip). The entry's extension is kept so
+// ServeFile sniffs the right Content-Type.
+func (a *App) extractZipEntry(ctx context.Context, zipFile, inner string) (string, error) {
+	info, err := os.Stat(zipFile)
+	if err != nil {
+		return "", err
+	}
+	key := fmt.Sprintf("%s|%d|%s", zipFile, info.ModTime().UnixNano(), inner)
+	h := sha256.Sum256([]byte(key))
+	cacheFile := filepath.Join(zipCacheDir, hex.EncodeToString(h[:])+strings.ToLower(filepath.Ext(inner)))
+	if _, err := os.Stat(cacheFile); err == nil {
+		now := time.Now()
+		os.Chtimes(cacheFile, now, now) // keep hot entries alive across cleanup
+		return cacheFile, nil
+	}
+
+	select {
+	case zipSem <- struct{}{}:
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+	defer func() { <-zipSem }()
+	// Another request may have extracted it while we waited on the semaphore.
+	if _, err := os.Stat(cacheFile); err == nil {
+		return cacheFile, nil
+	}
+
+	zr, err := zip.OpenReader(zipFile)
+	if err != nil {
+		return "", err
+	}
+	defer zr.Close()
+	for _, f := range zr.File {
+		// inner comes from a Clean-ed absolute path, so it never contains
+		// ".."; traversal-named entries simply never match.
+		if f.FileInfo().IsDir() || zipEntryName(f.Name) != inner {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return "", err
+		}
+		if err := os.MkdirAll(zipCacheDir, 0755); err != nil {
+			rc.Close()
+			return "", err
+		}
+		// Unique temp name: two requests for the same entry can race past the
+		// cache check above; each writes its own file and rename is atomic.
+		tmp, err := os.CreateTemp(zipCacheDir, "extract-*.tmp")
+		if err != nil {
+			rc.Close()
+			return "", err
+		}
+		_, err = io.Copy(tmp, rc)
+		rc.Close()
+		if cerr := tmp.Close(); err == nil {
+			err = cerr
+		}
+		if err == nil {
+			err = os.Rename(tmp.Name(), cacheFile)
+		}
+		if err != nil {
+			os.Remove(tmp.Name())
+			return "", err
+		}
+		return cacheFile, nil
+	}
+	return "", fmt.Errorf("entry %q not found in %s: %w", inner, zipFile, os.ErrNotExist)
+}
+
+// zipEntryName normalizes an archive entry name for comparison with inner
+// paths (drops "./" and trailing slashes; keeps ".." intact so traversal
+// names never match a clean inner path).
+func zipEntryName(name string) string {
+	return strings.TrimPrefix(path.Clean(name), "/")
+}
+
+// resolveMediaPath maps a possibly-virtual path to a real file that
+// ServeFile/ffmpeg can read. Real paths pass through untouched; zip-internal
+// paths extract into the cache. Callers keep the original path for DB keys,
+// Content-Disposition and the thumbnail cache key.
+func (a *App) resolveMediaPath(ctx context.Context, absPath string) (string, error) {
+	if _, err := os.Stat(absPath); err == nil {
+		return absPath, nil
+	}
+	zipFile, inner, ok := splitZipPath(absPath)
+	if !ok || inner == "" {
+		return "", os.ErrNotExist
+	}
+	return a.extractZipEntry(ctx, zipFile, inner)
+}
+
+// listZipDir lists the immediate children of inner within zipFile as rows
+// whose AbsPaths are virtual paths under dirParam. Directories that exist
+// only as prefixes of deeper entries are synthesized.
+func listZipDir(zipFile, inner, dirParam string) ([]SubdirRow, []FileRow, error) {
+	zr, err := zip.OpenReader(zipFile)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer zr.Close()
+	prefix := ""
+	if inner != "" {
+		prefix = inner + "/"
+	}
+	dirTimes := make(map[string]time.Time)
+	var files []FileRow
+	for _, f := range zr.File {
+		name := zipEntryName(f.Name)
+		if name == "." || strings.HasPrefix(name, "../") || !strings.HasPrefix(name, prefix) {
+			continue
+		}
+		rest := name[len(prefix):]
+		if rest == "" {
+			continue
+		}
+		if i := strings.IndexByte(rest, '/'); i >= 0 {
+			// A deeper entry implies a child directory at this level.
+			d := rest[:i]
+			if t, seen := dirTimes[d]; !seen || f.Modified.After(t) {
+				dirTimes[d] = f.Modified
+			}
+			continue
+		}
+		if f.FileInfo().IsDir() {
+			if _, seen := dirTimes[rest]; !seen {
+				dirTimes[rest] = f.Modified
+			}
+			continue
+		}
+		ext := path.Ext(rest)
+		size := int64(f.UncompressedSize64)
+		files = append(files, FileRow{
+			AbsPath:    dirParam + "/" + rest,
+			Filename:   rest,
+			Extension:  strings.ToLower(ext),
+			FileType:   classifyExt(ext),
+			SizeBytes:  size,
+			Size:       formatSize(size),
+			ModifiedAt: f.Modified.Format("2006-01-02 15:04"),
+			ModTime:    f.Modified,
+		})
+	}
+	subdirs := make([]SubdirRow, 0, len(dirTimes))
+	for d, t := range dirTimes {
+		subdirs = append(subdirs, SubdirRow{
+			AbsPath:    dirParam + "/" + d,
+			Name:       d,
+			ModifiedAt: t.Format("2006-01-02 15:04"),
+			ModTime:    t,
+		})
+	}
+	return subdirs, files, nil
 }
 
 func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
@@ -209,43 +414,53 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	entries, err := os.ReadDir(dirParam)
-	if err != nil {
-		httpErr(w, err, 500)
-		return
-	}
-
 	sortBy := r.URL.Query().Get("sort") // "" or "name" = alphabetical; "date" = newest first
 
 	var subdirs []SubdirRow
 	var files []FileRow
-	for _, e := range entries {
-		if e.IsDir() {
-			absDir := filepath.Join(dirParam, e.Name())
-			row := SubdirRow{AbsPath: absDir, Name: e.Name(), AlbumArt: findAlbumArt(absDir)}
-			if info, err := e.Info(); err == nil {
-				row.ModTime = info.ModTime()
-				row.ModifiedAt = info.ModTime().Format("2006-01-02 15:04")
-			}
-			subdirs = append(subdirs, row)
-			continue
-		}
-		info, err := e.Info()
+	inZip := false
+	if zipFile, inner, ok := splitZipPath(dirParam); ok {
+		// A .zip file (or a virtual dir inside one) browses like a folder.
+		inZip = true
+		subdirs, files, err = listZipDir(zipFile, inner, dirParam)
 		if err != nil {
-			log.Printf("stat %s/%s: %v", dirParam, e.Name(), err)
-			continue
+			httpErr(w, err, 500)
+			return
 		}
-		ext := filepath.Ext(e.Name())
-		files = append(files, FileRow{
-			AbsPath:    filepath.Join(dirParam, e.Name()),
-			Filename:   e.Name(),
-			Extension:  strings.ToLower(ext),
-			FileType:   classifyExt(ext),
-			SizeBytes:  info.Size(),
-			Size:       formatSize(info.Size()),
-			ModifiedAt: info.ModTime().Format("2006-01-02 15:04"),
-			ModTime:    info.ModTime(),
-		})
+	} else {
+		entries, err := os.ReadDir(dirParam)
+		if err != nil {
+			httpErr(w, err, 500)
+			return
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				absDir := filepath.Join(dirParam, e.Name())
+				row := SubdirRow{AbsPath: absDir, Name: e.Name(), AlbumArt: findAlbumArt(absDir)}
+				if info, err := e.Info(); err == nil {
+					row.ModTime = info.ModTime()
+					row.ModifiedAt = info.ModTime().Format("2006-01-02 15:04")
+				}
+				subdirs = append(subdirs, row)
+				continue
+			}
+			info, err := e.Info()
+			if err != nil {
+				log.Printf("stat %s/%s: %v", dirParam, e.Name(), err)
+				continue
+			}
+			ext := filepath.Ext(e.Name())
+			files = append(files, FileRow{
+				AbsPath:    filepath.Join(dirParam, e.Name()),
+				Filename:   e.Name(),
+				Extension:  strings.ToLower(ext),
+				FileType:   classifyExt(ext),
+				SizeBytes:  info.Size(),
+				Size:       formatSize(info.Size()),
+				ModifiedAt: info.ModTime().Format("2006-01-02 15:04"),
+				ModTime:    info.ModTime(),
+			})
+		}
 	}
 	if sortBy == "date" {
 		sort.Slice(subdirs, func(i, j int) bool { return subdirs[i].ModTime.After(subdirs[j].ModTime) })
@@ -313,6 +528,7 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		PlaylistsJSON: template.JS(plJSON),
 		DirAlbumArt:   albumArt,
 		SortBy:        sortBy,
+		InZip:         inZip,
 	})
 }
 
@@ -427,7 +643,12 @@ func (a *App) handleServeFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
-	info, err := os.Stat(absPath)
+	servePath, err := a.resolveMediaPath(r.Context(), absPath)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	info, err := os.Stat(servePath)
 	if err != nil || info.IsDir() {
 		http.NotFound(w, r)
 		return
@@ -435,7 +656,7 @@ func (a *App) handleServeFile(w http.ResponseWriter, r *http.Request) {
 	filename := filepath.Base(absPath)
 	if r.URL.Query().Get("dl") == "1" {
 		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
-		http.ServeFile(w, r, absPath)
+		http.ServeFile(w, r, servePath)
 		return
 	}
 	fileType := classifyExt(filepath.Ext(filename))
@@ -448,7 +669,7 @@ func (a *App) handleServeFile(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 	}
-	http.ServeFile(w, r, absPath)
+	http.ServeFile(w, r, servePath)
 }
 
 func (a *App) handlePathsList(w http.ResponseWriter, r *http.Request) {
@@ -630,7 +851,7 @@ func (a *App) reindexUser(ctx context.Context, userID int64) {
 				return nil
 			}
 			ft := classifyExt(filepath.Ext(p))
-			if ft == "other" || ft == "text" {
+			if ft == "other" || ft == "text" || ft == "archive" {
 				return nil
 			}
 			seen[p] = true
@@ -1487,6 +1708,14 @@ func (a *App) handleThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Zip-internal files extract to the cache; the thumb cache key above
+	// stays on the virtual path so it survives cache eviction.
+	srcPath, err := a.resolveMediaPath(r.Context(), absPath)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
 	select {
 	case thumbSem <- struct{}{}:
 	case <-r.Context().Done():
@@ -1496,7 +1725,7 @@ func (a *App) handleThumbnail(w http.ResponseWriter, r *http.Request) {
 
 	// Another request may have generated it while we waited on the semaphore.
 	if _, err := os.Stat(cacheFile); err != nil {
-		if err := a.generateThumb(r.Context(), absPath, cacheFile, fileType); err != nil {
+		if err := a.generateThumb(r.Context(), srcPath, cacheFile, fileType); err != nil {
 			log.Printf("thumbnail %s: %v", absPath, err)
 			http.Error(w, "thumbnail generation failed", http.StatusInternalServerError)
 			return
@@ -1651,6 +1880,11 @@ func (a *App) handleHLSPlaylist(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
+	srcPath, err := a.resolveMediaPath(r.Context(), absPath)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
 	ffprobePath := filepath.Join(filepath.Dir(a.ffmpegPath), "ffprobe")
 	ts := transcodeParamsFromRequest(r)
 	if classifyExt(filepath.Ext(absPath)) == "audio" {
@@ -1661,7 +1895,7 @@ func (a *App) handleHLSPlaylist(w http.ResponseWriter, r *http.Request) {
 		}
 		brOut, _ := exec.CommandContext(r.Context(), ffprobePath,
 			"-v", "quiet", "-show_entries", "stream=bit_rate",
-			"-select_streams", "a:0", "-of", "csv=p=0", absPath,
+			"-select_streams", "a:0", "-of", "csv=p=0", srcPath,
 		).Output()
 		bitrate, _ := strconv.ParseInt(strings.TrimSpace(string(brOut)), 10, 64)
 		if bitrate > 0 && bitrate < int64(ts.AudioHLSThreshold)*1000 {
@@ -1670,7 +1904,7 @@ func (a *App) handleHLSPlaylist(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	out, err := exec.CommandContext(r.Context(), ffprobePath,
-		"-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", absPath,
+		"-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", srcPath,
 	).Output()
 	if err != nil {
 		http.Error(w, "could not probe media", http.StatusInternalServerError)
@@ -1839,6 +2073,11 @@ func (a *App) handleHLSSegment(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	srcPath, err := a.resolveMediaPath(r.Context(), absPath)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
 	ts := transcodeParamsFromRequest(r)
 	startSec := n * ts.SegmentSec
 
@@ -1854,7 +2093,7 @@ func (a *App) handleHLSSegment(w http.ResponseWriter, r *http.Request) {
 		args := []string{
 			"-y",
 			"-ss", strconv.Itoa(startSec),
-			"-i", absPath,
+			"-i", srcPath,
 			"-t", strconv.Itoa(ts.SegmentSec),
 			"-vn",
 			"-c:a", "aac", "-b:a", fmt.Sprintf("%dk", ts.AudioKbps),
@@ -1874,7 +2113,7 @@ func (a *App) handleHLSSegment(w http.ResponseWriter, r *http.Request) {
 
 	useNvenc := a.nvencOK.Load()
 	cw := &countingWriter{w: w}
-	cmd := exec.CommandContext(r.Context(), a.ffmpegPath, videoSegmentArgs(ts, absPath, startSec, useNvenc)...)
+	cmd := exec.CommandContext(r.Context(), a.ffmpegPath, videoSegmentArgs(ts, srcPath, startSec, useNvenc)...)
 	var stderr bytes.Buffer
 	cmd.Stdout = cw
 	cmd.Stderr = &stderr
@@ -1891,7 +2130,7 @@ func (a *App) handleHLSSegment(w http.ResponseWriter, r *http.Request) {
 			}
 			log.Printf("nvenc segment %s/%d failed, retrying with libx264: %v\n%s", absPath, n, err, es)
 			stderr.Reset()
-			cmd = exec.CommandContext(r.Context(), a.ffmpegPath, videoSegmentArgs(ts, absPath, startSec, false)...)
+			cmd = exec.CommandContext(r.Context(), a.ffmpegPath, videoSegmentArgs(ts, srcPath, startSec, false)...)
 			cmd.Stdout = cw
 			cmd.Stderr = &stderr
 			if err := cmd.Run(); err != nil {
@@ -1998,8 +2237,12 @@ func (a *App) handleTranscodeStream(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
-	info, err := os.Stat(absPath)
-	if err != nil || info.IsDir() {
+	srcPath, err := a.resolveMediaPath(r.Context(), absPath)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if info, err := os.Stat(srcPath); err != nil || info.IsDir() {
 		http.NotFound(w, r)
 		return
 	}
@@ -2013,20 +2256,20 @@ func (a *App) handleTranscodeStream(w http.ResponseWriter, r *http.Request) {
 	ffprobePath := filepath.Join(filepath.Dir(a.ffmpegPath), "ffprobe")
 	if out, err := exec.CommandContext(r.Context(), ffprobePath,
 		"-v", "error", "-select_streams", "a:0",
-		"-show_entries", "stream=codec_name", "-of", "csv=p=0", absPath).Output(); err == nil {
+		"-show_entries", "stream=codec_name", "-of", "csv=p=0", srcPath).Output(); err == nil {
 		codec = strings.TrimSpace(string(out))
 	}
 	var args []string
 	if codec == "aac" {
 		args = []string{
-			"-y", "-i", absPath,
+			"-y", "-i", srcPath,
 			"-vn",
 			"-c:a", "copy",
 			"-f", "adts", "pipe:1",
 		}
 	} else {
 		args = []string{
-			"-y", "-i", absPath,
+			"-y", "-i", srcPath,
 			"-vn",
 			"-c:a", "aac", "-b:a", fmt.Sprintf("%dk", audioKbps),
 			"-f", "adts", "pipe:1",
@@ -2079,22 +2322,42 @@ func (a *App) handleFolderPlay(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		httpErr(w, err, 500)
-		return
-	}
 	var items []PlaylistItem
 	startIdx := 0
-	for _, e := range entries {
-		if e.IsDir() || classifyExt(filepath.Ext(e.Name())) != "audio" {
-			continue
+	if zipFile, inner, ok := splitZipPath(dir); ok {
+		_, zfiles, err := listZipDir(zipFile, inner, dir)
+		if err != nil {
+			httpErr(w, err, 500)
+			return
 		}
-		p := filepath.Join(dir, e.Name())
-		if file != "" && p == filepath.Clean(file) {
-			startIdx = len(items)
+		sort.Slice(zfiles, func(i, j int) bool {
+			return strings.ToLower(zfiles[i].Filename) < strings.ToLower(zfiles[j].Filename)
+		})
+		for _, f := range zfiles {
+			if f.FileType != "audio" {
+				continue
+			}
+			if file != "" && f.AbsPath == filepath.Clean(file) {
+				startIdx = len(items)
+			}
+			items = append(items, PlaylistItem{Path: f.AbsPath, Name: f.Filename, FileType: "audio"})
 		}
-		items = append(items, PlaylistItem{Path: p, Name: e.Name(), FileType: "audio"})
+	} else {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			httpErr(w, err, 500)
+			return
+		}
+		for _, e := range entries {
+			if e.IsDir() || classifyExt(filepath.Ext(e.Name())) != "audio" {
+				continue
+			}
+			p := filepath.Join(dir, e.Name())
+			if file != "" && p == filepath.Clean(file) {
+				startIdx = len(items)
+			}
+			items = append(items, PlaylistItem{Path: p, Name: e.Name(), FileType: "audio"})
+		}
 	}
 	render(w, "folder-play", FolderPlayPage{
 		ActiveTab: "browse", IsAdmin: isAdmin(r),
@@ -3134,12 +3397,17 @@ func (a *App) handlePDFMarkdown(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
-	if info, err := os.Stat(absPath); err != nil || info.IsDir() {
+	if strings.ToLower(filepath.Ext(absPath)) != ".pdf" {
+		http.Error(w, "not a PDF", http.StatusBadRequest)
+		return
+	}
+	srcPath, err := a.resolveMediaPath(r.Context(), absPath)
+	if err != nil {
 		http.Error(w, "file not found", http.StatusNotFound)
 		return
 	}
-	if strings.ToLower(filepath.Ext(absPath)) != ".pdf" {
-		http.Error(w, "not a PDF", http.StatusBadRequest)
+	if info, err := os.Stat(srcPath); err != nil || info.IsDir() {
+		http.Error(w, "file not found", http.StatusNotFound)
 		return
 	}
 	mdBin := a.markitdownPath
@@ -3148,7 +3416,7 @@ func (a *App) handlePDFMarkdown(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, mdBin, absPath).Output()
+	out, err := exec.CommandContext(ctx, mdBin, srcPath).Output()
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
