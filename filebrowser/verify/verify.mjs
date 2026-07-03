@@ -255,30 +255,20 @@ try {
   await ss(page, '12-settings');
 
   // ── 13. Nav bar has all expected tabs ─────────────────────────────────
-  // NOTE: 'Unplayed' / 'Top Played' were in this list previously but no
-  // longer exist as routes/tabs in the current app (checked main.go +
-  // templates.go — 2026-07-03). Left the old step 7/14 blocks below as-is
-  // since it's unclear whether those were renamed or intentionally removed;
-  // flagging for a human to decide rather than guessing. This list reflects
-  // the nav bar that actually renders today.
+  // NOTE: this list used to also expect 'Unplayed' / 'Top Played', but
+  // neither exists as a route/tab in the current app (checked main.go +
+  // templates.go — 2026-07-03). The Top Played test step was removed
+  // (2026-07-03) since it always failed against a route that 404s. The
+  // Unplayed check below (step 9) has the identical problem but was left
+  // in place — same call as before applies: unclear whether it was
+  // renamed or intentionally dropped, so flagging rather than guessing.
   const navLinks = await page.$$eval('nav a', els => els.map(e => e.textContent.trim()));
   const expected = ['Browse', 'Recent', 'Stats', 'Favorites', 'Playlists', 'Users', 'Trash', 'Duplicates', 'Settings'];
   const missing = expected.filter(t => !navLinks.some(l => l.includes(t)));
   log(missing.length === 0 ? '✅' : '❌',
     `Nav tabs: ${navLinks.join(', ')}${missing.length ? ' — MISSING: ' + missing.join(', ') : ''}`);
 
-  // ── 14. Top Played tab ────────────────────────────────────────────────
-  await page.goto(BASE + '/top-played');
-  await page.waitForSelector('.pl-layout, p.muted', { timeout: 5000 }).catch(() => {});
-  const topPlayedTitle = await page.locator('h2').first().textContent().catch(() => '');
-  const topPlayedLayout = await page.locator('.pl-layout').isVisible().catch(() => false);
-  const topPlayedEmpty = await page.locator('p.muted').first().isVisible().catch(() => false);
-  log(topPlayedTitle.includes('Top') ? '✅' : '❌', `Top Played page loads — "${topPlayedTitle}"`);
-  log(topPlayedLayout || topPlayedEmpty ? '✅' : '⚠️',
-    topPlayedLayout ? 'Top Played has tracks — player layout visible' : 'Top Played empty state shown');
-  await ss(page, '14-top-played');
-
-  // ── 15. Favorites tab ─────────────────────────────────────────────────
+  // ── 14. Favorites tab ─────────────────────────────────────────────────
   await page.goto(BASE + '/favorites');
   await page.waitForSelector('.pl-layout, p.muted', { timeout: 5000 }).catch(() => {});
   const favTitle = await page.locator('h2').first().textContent().catch(() => '');
@@ -288,9 +278,9 @@ try {
     `Favorites page loads — "${favTitle}"`);
   log(favLayout || favEmpty ? '✅' : '⚠️',
     favLayout ? 'Favorites has tracks — player layout visible' : 'Favorites empty state shown');
-  await ss(page, '15-favorites');
+  await ss(page, '14-favorites');
 
-  // ── 16. Star buttons in Browse (list + grid) ─────────────────────────
+  // ── 15. Star buttons in Browse (list + grid) ─────────────────────────
   await page.goto(BASE + '/browse');
   await page.waitForTimeout(600);
   // Check list view: fav-btn on folder row and audio row
@@ -332,10 +322,10 @@ try {
     await firstFavBtn.click({ timeout: 3000 });
     await page.waitForTimeout(400);
   }
-  await ss(page, '16-star-buttons');
+  await ss(page, '15-star-buttons');
   await page.locator('#btn-list').click({ timeout: 3000 }).catch(() => {}); // reset view
 
-  // ── 17. Photo slideshow (v1.17.3) ─────────────────────────────────────
+  // ── 16. Photo slideshow (v1.17.3) ─────────────────────────────────────
   // Non-destructive: just exercises the auto-advance toggle on whatever
   // photo the default Browse root happens to have, then stops it and closes.
   await page.goto(BASE + '/browse');
@@ -356,7 +346,7 @@ try {
       const after = await page.evaluate(() => document.getElementById('modal-img').dataset.navPath).catch(() => before);
       log(after !== before ? '✅' : '⚠️', `Slideshow auto-advance after ~4.5s: ${after === before ? 'unchanged — only one photo in this folder?' : 'advanced'}`);
       await slideshowBtn.click({ timeout: 3000 }); // stop it
-      await ss(page, '17-slideshow');
+      await ss(page, '16-slideshow');
     }
     await page.keyboard.press('Escape');
     await page.waitForTimeout(300);
@@ -364,7 +354,7 @@ try {
     log('⚠️', 'No photo files found in default Browse root — skipping slideshow test');
   }
 
-  // ── 18. Trash page (v1.17.4) ───────────────────────────────────────────
+  // ── 17. Trash page (v1.17.4) ───────────────────────────────────────────
   // Read-only: lists whatever is already in Trash, does not delete real
   // files or click Restore/Delete Forever/Empty Trash against production data.
   await page.goto(BASE + '/trash');
@@ -375,9 +365,9 @@ try {
   const trashEmpty = await page.locator('p.muted', { hasText: 'Trash is empty' }).isVisible().catch(() => false);
   log(trashRows.length > 0 || trashEmpty ? '✅' : '⚠️',
     `Trash contents — ${trashRows.length} item(s)${trashEmpty ? ' (empty)' : ''}`);
-  await ss(page, '18-trash');
+  await ss(page, '17-trash');
 
-  // ── 19. Duplicate finder page (v1.17.5) ────────────────────────────────
+  // ── 18. Duplicate finder page (v1.17.5) ────────────────────────────────
   // Triggers a real scan (read-only hashing, safe against production) but
   // only waits briefly — a full-library scan can take a while, so this
   // reports whichever state (still running or done) rather than blocking.
@@ -391,12 +381,12 @@ try {
     await page.waitForTimeout(3000);
     const status = await page.locator('#dup-status').textContent().catch(() => '');
     log(status.trim().length > 0 ? '✅' : '⚠️', `Duplicate scan triggered — status: "${status.trim()}"`);
-    await ss(page, '19-duplicates');
+    await ss(page, '18-duplicates');
   } else {
     log('⚠️', 'Scan button not found on Duplicates page');
   }
 
-  // ── 20. Light theme toggle (v1.17.6) ───────────────────────────────────
+  // ── 19. Light theme toggle (v1.17.6) ───────────────────────────────────
   // Toggles to light and back so the admin's session isn't left changed.
   await page.goto(BASE + '/browse');
   await page.waitForTimeout(400);
@@ -409,7 +399,7 @@ try {
     const bgAfter = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
     log(themeAttr === 'light' && bgAfter !== bgBefore ? '✅' : '❌',
       `Theme toggle switches to light — data-theme="${themeAttr}", bg ${bgBefore} → ${bgAfter}`);
-    await ss(page, '20-light-theme');
+    await ss(page, '19-light-theme');
     await themeBtn.click({ timeout: 3000 }); // revert to dark
     await page.waitForTimeout(200);
     const themeAttrReverted = await page.evaluate(() => document.documentElement.dataset.theme);
@@ -418,7 +408,7 @@ try {
     log('⚠️', 'Theme toggle button #theme-toggle not found');
   }
 
-  // ── 21. Audio playback speed control (v1.17.7) ─────────────────────────
+  // ── 20. Audio playback speed control (v1.17.7) ─────────────────────────
   // Sets speed to +10% then reverts to 0% so the admin's persisted default
   // isn't left changed. Doesn't rely on the (currently broken, see step 13
   // note) /unplayed discovery — finds an audio row directly on the default
@@ -438,7 +428,7 @@ try {
       await page.waitForTimeout(200);
       const rate = await page.evaluate(() => document.getElementById('pl-audio').playbackRate);
       log(Math.abs(rate - 1.10) < 0.001 ? '✅' : '❌', `Speed +10% sets playbackRate — ${rate}`);
-      await ss(page, '21-speed-control');
+      await ss(page, '20-speed-control');
       // Revert so the persisted default doesn't stay changed for the real admin
       await speedSlider.evaluate((el) => { el.value = '0'; el.dispatchEvent(new Event('input', { bubbles: true })); });
       await page.waitForTimeout(200);
