@@ -418,6 +418,35 @@ try {
     log('⚠️', 'Theme toggle button #theme-toggle not found');
   }
 
+  // ── 21. Audio playback speed control (v1.17.7) ─────────────────────────
+  // Sets speed to +10% then reverts to 0% so the admin's persisted default
+  // isn't left changed. Doesn't rely on the (currently broken, see step 13
+  // note) /unplayed discovery — finds an audio row directly on the default
+  // Browse root and reaches the shared player via /folder/play?file=...
+  await page.goto(BASE + '/browse');
+  await page.waitForTimeout(500);
+  const audioRow = page.locator('#view-list tr.file-row[data-type="audio"]').first();
+  if (await audioRow.count() > 0) {
+    const audioPath = await audioRow.getAttribute('data-path');
+    await page.goto(BASE + '/folder/play?file=' + encodeURIComponent(audioPath));
+    await page.waitForTimeout(800);
+    const speedSlider = page.locator('#pl-speed');
+    const speedVisible = await speedSlider.isVisible().catch(() => false);
+    log(speedVisible ? '✅' : '⚠️', 'Speed slider visible in shared player');
+    if (speedVisible) {
+      await speedSlider.evaluate((el) => { el.value = '10'; el.dispatchEvent(new Event('input', { bubbles: true })); });
+      await page.waitForTimeout(200);
+      const rate = await page.evaluate(() => document.getElementById('pl-audio').playbackRate);
+      log(Math.abs(rate - 1.10) < 0.001 ? '✅' : '❌', `Speed +10% sets playbackRate — ${rate}`);
+      await ss(page, '21-speed-control');
+      // Revert so the persisted default doesn't stay changed for the real admin
+      await speedSlider.evaluate((el) => { el.value = '0'; el.dispatchEvent(new Event('input', { bubbles: true })); });
+      await page.waitForTimeout(200);
+    }
+  } else {
+    log('⚠️', 'No audio files found in default Browse root — skipping speed control test');
+  }
+
 } catch (err) {
   console.error('\nEXCEPTION:', err.message);
   await ss(page, 'xx-exception-state').catch(() => {});

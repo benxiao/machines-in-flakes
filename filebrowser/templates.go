@@ -675,6 +675,11 @@ input.pl-vol { -webkit-appearance:none; appearance:none; width:70px; height:4px;
 input.pl-vol::-webkit-slider-thumb { -webkit-appearance:none; width:11px; height:11px; border-radius:50%; background:#58a6ff; cursor:pointer; }
 input.pl-vol::-moz-range-thumb { width:11px; height:11px; border-radius:50%; background:#58a6ff; border:none; cursor:pointer; }
 @media (pointer: coarse) { .pl-vol-wrap { display:none; } }
+.pl-speed-wrap { display:flex; align-items:center; gap:5px; justify-self:start; }
+.pl-speed-icon { color:var(--fg-muted); font-size:13px; cursor:default; user-select:none; }
+input.pl-speed { -webkit-appearance:none; appearance:none; width:70px; height:4px; background:var(--border); border-radius:2px; outline:none; cursor:pointer; }
+input.pl-speed::-webkit-slider-thumb { -webkit-appearance:none; width:11px; height:11px; border-radius:50%; background:#58a6ff; cursor:pointer; }
+input.pl-speed::-moz-range-thumb { width:11px; height:11px; border-radius:50%; background:#58a6ff; border:none; cursor:pointer; }
 @media (max-width: 640px) {
   main { padding: 12px; }
   header { padding: 10px 16px; flex-wrap: wrap; }
@@ -856,6 +861,9 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 });
 var DEFAULT_VOL = 1; if (!window.matchMedia('(pointer: coarse)').matches) { try { var _dv = parseFloat(localStorage.getItem('fb_default_volume')); if (!isNaN(_dv)) DEFAULT_VOL = Math.max(0, Math.min(1, _dv)); } catch(e) {} }
+// Unlike volume, speed has no OS-level equivalent on touch devices, so it's
+// not gated behind the coarse-pointer check.
+var DEFAULT_SPEED = 1; try { var _ds = parseFloat(localStorage.getItem('fb_default_speed')); if (!isNaN(_ds)) DEFAULT_SPEED = Math.max(0.8, Math.min(1.2, _ds)); } catch(e) {}
 function hlsParams() {
   try {
     var ls = localStorage;
@@ -2915,7 +2923,7 @@ function startPlaylistItem(idx, seekTo, autoplay) {
       }
     }
   } else if (plMseOk()) {
-    media = a; a.style.display = 'block'; a.volume = DEFAULT_VOL; _plUpdateAudioUI();
+    media = a; a.style.display = 'block'; a.volume = DEFAULT_VOL; a.playbackRate = DEFAULT_SPEED; _plUpdateAudioUI();
     if (a.hlsInstance) { a.hlsInstance.destroy(); a.hlsInstance = null; }
     if (_plActiveBlobUrl) { URL.revokeObjectURL(_plActiveBlobUrl); _plActiveBlobUrl = null; }
     if (a._plOnEnded) { a.removeEventListener('ended', a._plOnEnded); a._plOnEnded = null; }
@@ -2924,7 +2932,7 @@ function startPlaylistItem(idx, seekTo, autoplay) {
     plMseStart(idx, seekTo, autoplay);
   } else if (usesTranscode) {
     var transcodeUrl = plAudioUrl(item);
-    media = a; a.style.display = 'block'; a.volume = DEFAULT_VOL; _plUpdateAudioUI();
+    media = a; a.style.display = 'block'; a.volume = DEFAULT_VOL; a.playbackRate = DEFAULT_SPEED; _plUpdateAudioUI();
     if (a.hlsInstance) { a.hlsInstance.destroy(); a.hlsInstance = null; }
     if (_plActiveBlobUrl) { URL.revokeObjectURL(_plActiveBlobUrl); _plActiveBlobUrl = null; }
     plStartPreload(idx);
@@ -2943,7 +2951,7 @@ function startPlaylistItem(idx, seekTo, autoplay) {
     });
   } else {
     media = a;
-    a.style.display = 'block'; a.volume = DEFAULT_VOL; _plUpdateAudioUI();
+    a.style.display = 'block'; a.volume = DEFAULT_VOL; a.playbackRate = DEFAULT_SPEED; _plUpdateAudioUI();
     if (a.hlsInstance) { a.hlsInstance.destroy(); a.hlsInstance = null; }
     if (_plActiveBlobUrl) { URL.revokeObjectURL(_plActiveBlobUrl); _plActiveBlobUrl = null; }
     _useBlobOrFallback(fileUrl, 10000, function(src) {
@@ -3043,6 +3051,18 @@ function _plUpdateAudioUI() {
     vol.value = vp;
     vol.style.background = 'linear-gradient(to right,#58a6ff 0%,#58a6ff ' + vp + '%,var(--border) ' + vp + '%,var(--border) 100%)';
   }
+  var speed = document.getElementById('pl-speed');
+  if (speed) {
+    var sp = Math.round((a.playbackRate - 1) * 100);
+    speed.value = sp;
+    // Bipolar control: fill the band between the center (0% / normal speed)
+    // and wherever the thumb sits, rather than volume's fill-from-left,
+    // so it's visually obvious at a glance which direction and how far.
+    var spPct = (sp + 20) / 40 * 100;
+    var lo = Math.min(50, spPct), hi = Math.max(50, spPct);
+    speed.style.background = 'linear-gradient(to right,var(--border) 0%,var(--border) ' + lo + '%,#58a6ff ' + lo + '%,#58a6ff ' + hi + '%,var(--border) ' + hi + '%,var(--border) 100%)';
+    speed.title = sp === 0 ? 'Speed: normal' : 'Speed: ' + (sp > 0 ? '+' : '') + sp + '%';
+  }
 }
 function plInitAudioUI() {
   var a = document.getElementById('pl-audio');
@@ -3052,6 +3072,11 @@ function plInitAudioUI() {
   ['timeupdate','play','pause','loadedmetadata','durationchange'].forEach(function(ev) {
     a.addEventListener(ev, _plUpdateAudioUI);
   });
+  // playbackRate set at track-start time doesn't survive: the MSE branch
+  // reassigns a.src to a new MediaSource object URL afterward (plMseStart),
+  // which resets playbackRate to 1 — re-assert it once the new track's
+  // metadata is actually loaded, regardless of which loading path was used.
+  a.addEventListener('loadedmetadata', function() { a.playbackRate = DEFAULT_SPEED; _plUpdateAudioUI(); });
   if (seek) {
     seek.addEventListener('input', function() {
       var tp = plTrackPos();
@@ -3079,6 +3104,16 @@ function plInitAudioUI() {
       a.volume = v;
       DEFAULT_VOL = v;
       try { localStorage.setItem('fb_default_volume', v); } catch(e) {}
+      _plUpdateAudioUI();
+    });
+  }
+  var speed = document.getElementById('pl-speed');
+  if (speed) {
+    speed.addEventListener('input', function() {
+      var rate = 1 + parseFloat(speed.value) / 100;
+      a.playbackRate = rate;
+      DEFAULT_SPEED = rate;
+      try { localStorage.setItem('fb_default_speed', rate); } catch(e) {}
       _plUpdateAudioUI();
     });
   }
@@ -3113,7 +3148,10 @@ var PLAYLIST_STATE = {{toJSON .State}};
         <div class="pl-time-row"><span id="pl-time-cur">0:00</span><span id="pl-time-dur">--:--</span></div>
       </div>
       <div class="pl-transport">
-        <div></div>
+        <div class="pl-speed-wrap">
+          <span class="pl-speed-icon">&#177;</span>
+          <input type="range" class="pl-speed" id="pl-speed" value="0" min="-20" max="20" step="1">
+        </div>
         ` + plTransportHTML + `
         <div class="pl-vol-wrap">
           <span class="pl-vol-icon">&#128266;</span>
@@ -3282,7 +3320,10 @@ var START_IDX = {{.StartIdx}};
         <div class="pl-time-row"><span id="pl-time-cur">0:00</span><span id="pl-time-dur">--:--</span></div>
       </div>
       <div class="pl-transport">
-        <div></div>
+        <div class="pl-speed-wrap">
+          <span class="pl-speed-icon">&#177;</span>
+          <input type="range" class="pl-speed" id="pl-speed" value="0" min="-20" max="20" step="1">
+        </div>
         ` + plTransportHTML + `
         <div class="pl-vol-wrap">
           <span class="pl-vol-icon">&#128266;</span>
@@ -3355,7 +3396,10 @@ var PLAYLIST_STATE = null;
         <div class="pl-time-row"><span id="pl-time-cur">0:00</span><span id="pl-time-dur">--:--</span></div>
       </div>
       <div class="pl-transport">
-        <div></div>
+        <div class="pl-speed-wrap">
+          <span class="pl-speed-icon">&#177;</span>
+          <input type="range" class="pl-speed" id="pl-speed" value="0" min="-20" max="20" step="1">
+        </div>
         ` + plTransportHTML + `
         <div class="pl-vol-wrap">
           <span class="pl-vol-icon">&#128266;</span>
