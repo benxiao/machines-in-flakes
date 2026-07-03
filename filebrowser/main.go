@@ -192,6 +192,7 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/pdf/markdown",          a.handlePDFMarkdown)
 	mux.HandleFunc("GET /api/folder/download",      a.handleFolderDownload)
 	mux.HandleFunc("POST /api/folder/delete",       a.handleFolderDelete)
+	mux.HandleFunc("POST /api/folder/create",       a.handleFolderCreate)
 	mux.HandleFunc("POST /api/folder/rename",       a.handleFolderRename)
 	mux.HandleFunc("POST /api/folder/move",         a.handleFolderMove)
 	mux.HandleFunc("POST /api/folder/playlist-add", a.handleFolderPlaylistAdd)

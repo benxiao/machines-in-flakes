@@ -24,6 +24,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -96,18 +97,65 @@ func formatSize(n int64) string {
 	}
 }
 
-// isAllowedPath checks that absPath is equal to or under one of the current user's enabled indexed roots,
-// either directly owned (admin) or via path_grants (non-admin).
-func (a *App) isAllowedPath(r *http.Request, absPath string) bool {
-	var count int
-	err := a.db.QueryRow(r.Context(), `
-		SELECT COUNT(*) FROM indexed_paths ip
+// allowedRoots returns the current user's enabled indexed roots, either
+// directly owned (admin) or via path_grants (non-admin).
+func (a *App) allowedRoots(r *http.Request) []string {
+	rows, err := a.db.Query(r.Context(), `
+		SELECT ip.path FROM indexed_paths ip
 		WHERE ip.enabled = TRUE
-		  AND ($2 = ip.path OR starts_with($2, ip.path || '/'))
 		  AND (ip.user_id = $1
 		       OR EXISTS (SELECT 1 FROM path_grants pg WHERE pg.path_id = ip.id AND pg.user_id = $1))
-	`, uid(r), absPath).Scan(&count)
-	return err == nil && count > 0
+	`, uid(r))
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var roots []string
+	for rows.Next() {
+		var p string
+		if rows.Scan(&p) == nil {
+			roots = append(roots, p)
+		}
+	}
+	return roots
+}
+
+func underRoot(path, root string) bool {
+	return path == root || strings.HasPrefix(path, root+"/")
+}
+
+// isAllowedPath checks that absPath is equal to or under one of the current
+// user's allowed roots. Symlinked components must also resolve to somewhere
+// inside an allowed root, so a link planted in a media tree can't reach out.
+func (a *App) isAllowedPath(r *http.Request, absPath string) bool {
+	roots := a.allowedRoots(r)
+	matched := false
+	for _, root := range roots {
+		if underRoot(absPath, root) {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		return false
+	}
+	resolved, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		return false
+	}
+	if resolved == absPath {
+		return true
+	}
+	for _, root := range roots {
+		rr, err := filepath.EvalSymlinks(root)
+		if err != nil {
+			continue
+		}
+		if underRoot(resolved, rr) {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
@@ -575,15 +623,17 @@ func (a *App) reindexUser(ctx context.Context, userID int64) {
 
 	type entry struct{ path, filename, fileType, dirPath string }
 	var entries []entry
+	seen := make(map[string]bool) // nested roots walk the same files twice
 	for _, root := range roots {
 		filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
-			if err != nil || info.IsDir() {
+			if err != nil || info.IsDir() || seen[p] {
 				return nil
 			}
 			ft := classifyExt(filepath.Ext(p))
 			if ft == "other" || ft == "text" {
 				return nil
 			}
+			seen[p] = true
 			entries = append(entries, entry{p, filepath.Base(p), ft, filepath.Dir(p)})
 			return nil
 		})
@@ -599,13 +649,16 @@ func (a *App) reindexUser(ctx context.Context, userID int64) {
 		log.Printf("reindex: delete: %v", err)
 		return
 	}
-	for _, e := range entries {
-		if _, err := tx.Exec(ctx,
-			`INSERT INTO file_index (user_id, path, filename, file_type, dir_path) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`,
-			userID, e.path, e.filename, e.fileType, e.dirPath,
-		); err != nil {
-			log.Printf("reindex: insert %s: %v", e.path, err)
-		}
+	if _, err := tx.CopyFrom(ctx,
+		pgx.Identifier{"file_index"},
+		[]string{"user_id", "path", "filename", "file_type", "dir_path"},
+		pgx.CopyFromSlice(len(entries), func(i int) ([]any, error) {
+			e := entries[i]
+			return []any{userID, e.path, e.filename, e.fileType, e.dirPath}, nil
+		}),
+	); err != nil {
+		log.Printf("reindex: copy: %v", err)
+		return
 	}
 	if err := tx.Commit(ctx); err != nil {
 		log.Printf("reindex: commit: %v", err)
@@ -909,7 +962,9 @@ func (a *App) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	})
-	if next == "" || !strings.HasPrefix(next, "/") {
+	// Require a local path: "//host" and "/\host" are protocol-relative
+	// URLs to browsers, i.e. open redirects.
+	if !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") || strings.HasPrefix(next, `/\`) {
 		next = "/browse"
 	}
 	http.Redirect(w, r, next, http.StatusFound)
@@ -1479,13 +1534,13 @@ func transcodeParamsFromRequest(r *http.Request) TranscodeSettings {
 	if v := q.Get("preset"); validPresets[v] {
 		s.Preset = v
 	}
-	if n, err := strconv.Atoi(q.Get("max_width")); err == nil && n >= 0 {
+	if n, err := strconv.Atoi(q.Get("max_width")); err == nil && n >= 0 && n <= 7680 {
 		s.MaxWidth = n
 	}
-	if n, err := strconv.Atoi(q.Get("video_kbps")); err == nil && n > 0 {
+	if n, err := strconv.Atoi(q.Get("video_kbps")); err == nil && n > 0 && n <= 40000 {
 		s.VideoKbps = n
 	}
-	if n, err := strconv.Atoi(q.Get("audio_kbps")); err == nil && n > 0 {
+	if n, err := strconv.Atoi(q.Get("audio_kbps")); err == nil && n > 0 && n <= 1024 {
 		s.AudioKbps = n
 	}
 	if n, err := strconv.Atoi(q.Get("segment_sec")); err == nil && n >= 2 && n <= 60 {
@@ -1494,11 +1549,15 @@ func transcodeParamsFromRequest(r *http.Request) TranscodeSettings {
 	if v := q.Get("audio_hls"); v != "" {
 		s.AudioHLS = v == "1"
 	}
-	if n, err := strconv.Atoi(q.Get("audio_hls_threshold")); err == nil && n > 0 {
+	if n, err := strconv.Atoi(q.Get("audio_hls_threshold")); err == nil && n > 0 && n <= 10000 {
 		s.AudioHLSThreshold = n
 	}
 	return s
 }
+
+// Cap concurrent segment transcodes so rapid seeking or many parallel
+// streams can't spawn unbounded ffmpeg processes; excess requests queue.
+var segSem = make(chan struct{}, 6)
 
 func tsQueryParams(ts TranscodeSettings) string {
 	audioHLS := "0"
@@ -1550,6 +1609,20 @@ func (a *App) handlePathSize(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 	if path == "" {
 		http.Error(w, "missing path", http.StatusBadRequest)
+		return
+	}
+	path = filepath.Clean(path)
+	// The settings page shows sizes for the user's own roots (even disabled
+	// ones) and for enabled granted roots; anything else is off limits.
+	var count int
+	err := a.db.QueryRow(r.Context(), `
+		SELECT COUNT(*) FROM indexed_paths ip
+		WHERE ($2 = ip.path OR starts_with($2, ip.path || '/'))
+		  AND (ip.user_id = $1
+		       OR (ip.enabled AND EXISTS (SELECT 1 FROM path_grants pg WHERE pg.path_id = ip.id AND pg.user_id = $1)))
+	`, uid(r), path).Scan(&count)
+	if err != nil || count == 0 {
+		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 	out, err := exec.CommandContext(r.Context(), "du", "-sb", path).Output()
@@ -1768,6 +1841,13 @@ func (a *App) handleHLSSegment(w http.ResponseWriter, r *http.Request) {
 	}
 	ts := transcodeParamsFromRequest(r)
 	startSec := n * ts.SegmentSec
+
+	select {
+	case segSem <- struct{}{}:
+	case <-r.Context().Done():
+		return
+	}
+	defer func() { <-segSem }()
 	w.Header().Set("Content-Type", "video/mp2t")
 
 	if classifyExt(filepath.Ext(absPath)) == "audio" {
@@ -1968,8 +2048,10 @@ func (a *App) handleTranscodeStream(w http.ResponseWriter, r *http.Request) {
 // otherwise unobservable (no devtools with the screen off).
 func (a *App) handleClientLog(w http.ResponseWriter, r *http.Request) {
 	b, _ := io.ReadAll(io.LimitReader(r.Body, 2048))
+	// Strip control characters (newlines, ANSI escapes) so a client can't
+	// forge journal lines or inject terminal sequences.
 	msg := strings.Map(func(c rune) rune {
-		if c == '\n' || c == '\r' {
+		if c < 0x20 || c == 0x7f {
 			return ' '
 		}
 		return c
@@ -2707,7 +2789,7 @@ func (a *App) purgeFolderRows(ctx context.Context, dir string) error {
 		`DELETE FROM file_index WHERE path LIKE $1 || '/%' ESCAPE '\'`,
 		`DELETE FROM video_positions WHERE path LIKE $1 || '/%' ESCAPE '\'`,
 		`DELETE FROM playlist_items WHERE path LIKE $1 || '/%' ESCAPE '\'`,
-		`DELETE FROM favorites WHERE path LIKE $1 || '/%' AND is_folder = FALSE ESCAPE '\'`,
+		`DELETE FROM favorites WHERE path LIKE $1 || '/%' ESCAPE '\' AND is_folder = FALSE`,
 		`DELETE FROM indexed_paths WHERE path LIKE $1 || '/%' ESCAPE '\'`,
 	} {
 		if _, err := tx.Exec(ctx, q, likeDir); err != nil {
@@ -2750,7 +2832,7 @@ func (a *App) repathFolderRows(ctx context.Context, oldDir, newDir string) error
 		  WHERE path LIKE $1 || '/%' ESCAPE '\'`, []any{likeOld, oldDir, newDir}},
 		{`UPDATE favorites
 		  SET path = $3 || SUBSTRING(path FROM LENGTH($2)+1)
-		  WHERE path LIKE $1 || '/%' AND is_folder = FALSE ESCAPE '\'`, []any{likeOld, oldDir, newDir}},
+		  WHERE path LIKE $1 || '/%' ESCAPE '\' AND is_folder = FALSE`, []any{likeOld, oldDir, newDir}},
 		{`UPDATE indexed_paths
 		  SET path = $3 || SUBSTRING(path FROM LENGTH($2)+1)
 		  WHERE path LIKE $1 || '/%' ESCAPE '\'`, []any{likeOld, oldDir, newDir}},
@@ -2836,7 +2918,9 @@ func (a *App) handleFolderDownload(w http.ResponseWriter, r *http.Request) {
 			return nil
 		}
 		rel, _ := filepath.Rel(path, fpath)
-		fw, err := zw.Create(rel)
+		// Media files are already compressed; Deflate would just burn CPU
+		// and stall the download.
+		fw, err := zw.CreateHeader(&zip.FileHeader{Name: rel, Method: zip.Store, Modified: fi.ModTime()})
 		if err != nil {
 			log.Printf("folder download zip create %s: %v", rel, err)
 			return nil
@@ -2893,6 +2977,47 @@ func (a *App) handleFolderDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"deleted": deleted, "errors": errs})
+}
+
+func (a *App) handleFolderCreate(w http.ResponseWriter, r *http.Request) {
+	if !isAdmin(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	var req struct {
+		Dir  string `json:"dir"`
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	dir := filepath.Clean(req.Dir)
+	if !a.isAllowedPath(r, dir) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		http.Error(w, "not a directory", http.StatusBadRequest)
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, "/\x00") {
+		http.Error(w, "invalid name", http.StatusBadRequest)
+		return
+	}
+	newPath := filepath.Join(dir, name)
+	if _, err := os.Lstat(newPath); err == nil {
+		http.Error(w, "target exists", http.StatusConflict)
+		return
+	}
+	if err := os.Mkdir(newPath, 0755); err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	log.Printf("folder create u=%d: %s", uid(r), newPath)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *App) handleFolderRename(w http.ResponseWriter, r *http.Request) {

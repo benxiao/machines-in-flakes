@@ -429,6 +429,13 @@ tr:hover td { background: #161b22; }
 .grid-chk { position:absolute; top:6px; left:6px; opacity:0; transition:opacity 0.1s; }
 .grid-card.grid-checked .grid-chk { opacity:1; }
 .grid-card.grid-checked { border-color:#58a6ff; background:#1c2128; }
+#ext-menu { position:fixed; z-index:300; background:#161b22; border:1px solid #30363d; border-radius:6px; padding:4px; min-width:170px; max-height:60vh; overflow-y:auto; box-shadow:0 8px 24px rgba(0,0,0,0.4); }
+.ext-menu-item { display:flex; align-items:center; gap:8px; padding:6px 10px; border-radius:4px; cursor:pointer; font-size:13px; color:#c9d1d9; white-space:nowrap; }
+.ext-menu-item:hover { background:#21262d; }
+.ext-menu-item .mark { color:#58a6ff; font-size:11px; width:12px; flex-shrink:0; }
+.ext-menu-item .cnt { color:#8b949e; font-size:12px; }
+.ext-menu-sep { border-top:1px solid #30363d; margin:4px 0; }
+#btn-select.filter-on { color:#58a6ff; border-color:#58a6ff; }
 #modal-zoom-wrap.iz-grabbing { cursor: grabbing; }
 /* Zoomable image must render at natural size; the transform handles all sizing.
    Override the .modal-body img max-width/height constraints below. */
@@ -1412,7 +1419,9 @@ const browseTmpl = `{{define "content"}}
       </div>
       <div style="display:flex;gap:8px;align-items:center">
         {{if .IsAdmin}}<label class="btn btn-primary btn-sm" id="upload-btn" style="cursor:pointer;margin:0" title="Upload files to this folder">&#8679; Upload<input type="file" id="upload-input" multiple style="display:none" onchange="uploadFiles(this.files)"></label><span id="upload-status" style="display:none;color:#8b949e;font-size:13px;white-space:nowrap"></span>{{end}}
+        {{if .IsAdmin}}<button id="btn-new-folder" class="btn btn-primary btn-sm" onclick="createFolder()" title="Create a new subdirectory in this folder">+ New Folder</button>{{end}}
         <button id="btn-play-all" class="btn btn-primary btn-sm" onclick="playFolderAll()" style="display:none" title="Play all media in this folder in a loop">&#9654; Loop</button>
+        {{if or .Files .Subdirs}}<button id="btn-select" class="btn btn-edit btn-sm" onclick="toggleExtMenu(event)" title="Show only folders and files with certain extensions">Filter &#9662;</button>{{end}}
         <div class="view-toggle">
           <button class="btn-view {{if eq .SortBy "date"}}active{{end}}" onclick="setSort('date')" title="Sort by date">&#128197; Date</button>
           <button class="btn-view {{if ne .SortBy "date"}}active{{end}}" onclick="setSort('name')" title="Sort by name">A&#8250;Z Name</button>
@@ -1454,7 +1463,7 @@ const browseTmpl = `{{define "content"}}
     {{range .Files}}
     {{if eq .FileType "other"}}
     <tr data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="other">
-      <td><input type="checkbox" class="row-check" value="{{.AbsPath}}" data-type="other" onchange="updateSelBar()" onclick="event.stopPropagation()" style="cursor:pointer"></td>
+      <td><input type="checkbox" class="row-check" value="{{.AbsPath}}" data-type="other" data-ext="{{.Extension}}" onchange="updateSelBar()" onclick="event.stopPropagation()" style="cursor:pointer"></td>
       <td><a href="{{fileURL .AbsPath}}" onclick="event.stopPropagation()">{{.Filename}}</a></td>
       <td><span class="badge badge-{{.FileType}}">{{upper .FileType}}</span></td>
       <td class="muted">{{.Size}}</td>
@@ -1464,7 +1473,7 @@ const browseTmpl = `{{define "content"}}
     </tr>
     {{else}}
     <tr class="file-row" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="{{.FileType}}" onclick="openPreview(this, true)">
-      <td><input type="checkbox" class="row-check" value="{{.AbsPath}}" data-type="{{.FileType}}" onchange="updateSelBar()" onclick="event.stopPropagation()" style="cursor:pointer"></td>
+      <td><input type="checkbox" class="row-check" value="{{.AbsPath}}" data-type="{{.FileType}}" data-ext="{{.Extension}}" onchange="updateSelBar()" onclick="event.stopPropagation()" style="cursor:pointer"></td>
       <td>{{.Filename}}</td>
       <td><span class="badge badge-{{.FileType}}">{{upper .FileType}}</span></td>
       <td class="muted">{{.Size}}</td>
@@ -1503,7 +1512,7 @@ const browseTmpl = `{{define "content"}}
     {{range .Files}}
     {{if eq .FileType "photo"}}
     <div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="photo" onclick="gridClick(event,this)">
-      <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" data-type="photo" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
+      <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" data-type="photo" data-ext="{{.Extension}}" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
       <div class="grid-thumb">
         <img src="{{thumbURL .AbsPath}}" loading="lazy" alt="{{.Filename}}" style="width:100%;height:100%;object-fit:cover;display:block"
              onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
@@ -1516,7 +1525,7 @@ const browseTmpl = `{{define "content"}}
     {{else if eq .FileType "video"}}
     <div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="video" onclick="gridClick(event,this)">
       {{if gt .WatchCount 0}}<span class="grid-plays">{{.WatchCount}}×</span>{{end}}
-      <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" data-type="video" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
+      <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" data-type="video" data-ext="{{.Extension}}" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
       <div class="grid-thumb">
         <img src="{{thumbURL .AbsPath}}" loading="lazy" alt="" style="width:100%;height:100%;object-fit:cover;display:block"
              onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
@@ -1529,7 +1538,7 @@ const browseTmpl = `{{define "content"}}
     {{else if eq .FileType "audio"}}
     <div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="audio" onclick="gridClick(event,this)">
       {{if gt .WatchCount 0}}<span class="grid-plays">{{.WatchCount}}×</span>{{end}}
-      <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" data-type="audio" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
+      <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" data-type="audio" data-ext="{{.Extension}}" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
       {{if $.DirAlbumArt}}
       <div class="grid-thumb">
         <img src="{{thumbURL $.DirAlbumArt}}" loading="lazy" alt="" style="width:100%;height:100%;object-fit:cover;display:block"
@@ -1546,19 +1555,19 @@ const browseTmpl = `{{define "content"}}
     </div>
     {{else if eq .FileType "pdf"}}
     <div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="pdf" onclick="gridClick(event,this)">
-      <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" data-type="pdf" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
+      <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" data-type="pdf" data-ext="{{.Extension}}" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
       <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#f85149" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>
       <div class="grid-name">{{.Filename}}</div>
     </div>
     {{else if eq .FileType "text"}}
     <div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="text" onclick="gridClick(event,this)">
-      <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" data-type="text" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
+      <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" data-type="text" data-ext="{{.Extension}}" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
       <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#d29922" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg></div>
       <div class="grid-name">{{.Filename}}</div>
     </div>
     {{else}}
     <div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="other" onclick="gridClick(event,this)">
-      <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" data-type="other" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
+      <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" data-type="other" data-ext="{{.Extension}}" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
       <a href="{{fileURL .AbsPath}}" onclick="event.stopPropagation()" style="display:contents">
         <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#8b949e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
         <div class="grid-name">{{.Filename}}</div>
@@ -1579,6 +1588,7 @@ const browseTmpl = `{{define "content"}}
     {{range .Playlists}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
   </select>
   <button id="sel-pl-btn" class="btn btn-primary btn-sm" style="display:none" onclick="addSelectedToPlaylist()">Add to Playlist</button>
+  <button id="sel-ext-btn" class="btn btn-edit btn-sm" style="display:none" onclick="selectSameExt()"></button>
   <button class="btn btn-edit btn-sm" onclick="downloadSelected()">⬇ Download</button>
   {{if .IsAdmin}}
   <button id="sel-rename" class="btn btn-edit btn-sm" style="display:none" onclick="renameSelected()">&#x270E; Rename</button>
@@ -1588,15 +1598,77 @@ const browseTmpl = `{{define "content"}}
   <button class="btn btn-edit btn-sm" onclick="clearSelection()">&#x2715; Clear</button>
   <span id="sel-ok" style="display:none;color:#3fb950;font-size:13px"></span>
 </div>
+<div id="ext-menu" style="display:none" onclick="event.stopPropagation()"></div>
 <script>
+function selView() {
+  var grid = document.getElementById('view-grid');
+  if (grid && grid.style.display !== 'none') return grid;
+  return document.getElementById('view-list');
+}
+// Selection queries are scoped to the visible view: list and grid each render
+// a checkbox for the same file, so document-wide queries double-count.
+function selChecks(onlyChecked) {
+  var v = selView();
+  if (!v) return [];
+  return Array.from(v.querySelectorAll('.row-check' + (onlyChecked ? ':checked' : '')));
+}
+function setCheck(c, on) {
+  c.checked = on;
+  var card = c.closest('.grid-card');
+  if (card) card.classList.toggle('grid-checked', on);
+}
+function extOf(c) { return c.dataset.ext || ''; }
+// Extension filter: null shows everything, otherwise a Set of keys to show.
+// Folders filter under the 'dir' key (real extensions start with '.' or are
+// '' for extensionless files, so it can't collide). Transient — resets on
+// navigation.
+var extFilter = null;
+function fileRowEl(c) { return c.closest('tr') || c.closest('.grid-card'); }
+function filterKey(c) { return c.dataset.type === 'dir' ? 'dir' : extOf(c); }
+function isFiltered(c) {
+  return extFilter !== null && !extFilter.has(filterKey(c));
+}
+function toggleFilterKey(key) {
+  if (extFilter === null) {
+    extFilter = new Set([key]);
+  } else if (extFilter.has(key)) {
+    extFilter.delete(key);
+    if (extFilter.size === 0) extFilter = null;
+  } else {
+    extFilter.add(key);
+  }
+  applyExtFilter();
+}
+function applyExtFilter() {
+  document.querySelectorAll('.row-check').forEach(function(c) {
+    var el = fileRowEl(c);
+    if (!el) return;
+    var hide = isFiltered(c);
+    el.style.display = hide ? 'none' : '';
+    if (hide && c.checked) setCheck(c, false);
+  });
+  var btn = document.getElementById('btn-select');
+  if (btn) {
+    if (extFilter === null) {
+      btn.textContent = 'Filter ▾';
+      btn.classList.remove('filter-on');
+    } else {
+      var exts = Array.from(extFilter).map(function(e) { return e === 'dir' ? 'folders' : (e || '(no ext)'); });
+      btn.textContent = 'Filter: ' + (exts.length <= 2 ? exts.join(' ') : exts.length + ' types') + ' ▾';
+      btn.classList.add('filter-on');
+    }
+  }
+  updateSelBar();
+}
 function updateSelBar() {
-  var checks = document.querySelectorAll('.row-check:checked');
+  var all = selChecks(false).filter(function(c) { return !isFiltered(c); });
+  var checks = selChecks(true);
   var bar = document.getElementById('sel-bar');
   var count = document.getElementById('sel-count');
   bar.style.display = checks.length > 0 ? 'flex' : 'none';
-  var dirCount = document.querySelectorAll('.row-check:checked[data-type="dir"]').length;
+  var dirCount = checks.filter(function(c) { return c.dataset.type === 'dir'; }).length;
   var hasDirs = dirCount > 0;
-  var hasMedia = !!document.querySelector('.row-check:checked[data-type="audio"],.row-check:checked[data-type="video"]');
+  var hasMedia = checks.some(function(c) { return c.dataset.type === 'audio' || c.dataset.type === 'video'; });
   var label = checks.length + ' item' + (checks.length === 1 ? '' : 's') + ' selected';
   if (hasDirs) label += ' (folder' + (dirCount === 1 ? '' : 's') + ')';
   count.textContent = label;
@@ -1607,7 +1679,23 @@ function updateSelBar() {
   if (plBtn) plBtn.style.display = showPl ? '' : 'none';
   var ren = document.getElementById('sel-rename');
   if (ren) ren.style.display = checks.length === 1 ? '' : 'none';
-  var all = document.querySelectorAll('.row-check');
+  // Offer "Select all .ext" when the selection is files sharing one extension
+  // and more files with that extension remain unselected.
+  var extBtn = document.getElementById('sel-ext-btn');
+  if (extBtn) {
+    var show = false;
+    var files = checks.filter(function(c) { return c.dataset.type !== 'dir'; });
+    if (files.length > 0 && !hasDirs && files.every(function(c) { return extOf(c) === extOf(files[0]); })) {
+      var ext = extOf(files[0]);
+      var total = all.filter(function(c) { return c.dataset.type !== 'dir' && extOf(c) === ext; }).length;
+      if (total > files.length) {
+        extBtn.textContent = 'Select all ' + (ext || 'without extension') + ' (' + total + ')';
+        extBtn.dataset.ext = ext;
+        show = true;
+      }
+    }
+    extBtn.style.display = show ? '' : 'none';
+  }
   var selAll = document.getElementById('sel-all');
   if (selAll) {
     selAll.indeterminate = checks.length > 0 && checks.length < all.length;
@@ -1615,15 +1703,88 @@ function updateSelBar() {
   }
 }
 function toggleSelectAll(cb) {
-  document.querySelectorAll('.row-check').forEach(function(c) { c.checked = cb.checked; });
+  selChecks(false).forEach(function(c) { if (!isFiltered(c)) setCheck(c, cb.checked); });
   updateSelBar();
 }
 function clearSelection() {
-  document.querySelectorAll('.row-check').forEach(function(c) { c.checked = false; });
+  document.querySelectorAll('.row-check').forEach(function(c) { setCheck(c, false); });
   var selAll = document.getElementById('sel-all');
   if (selAll) { selAll.checked = false; selAll.indeterminate = false; }
   updateSelBar();
 }
+function selectSameExt() {
+  var ext = document.getElementById('sel-ext-btn').dataset.ext || '';
+  selChecks(false).forEach(function(c) {
+    if (c.dataset.type !== 'dir' && extOf(c) === ext && !isFiltered(c)) setCheck(c, true);
+  });
+  updateSelBar();
+}
+function hideExtMenu() {
+  var m = document.getElementById('ext-menu');
+  if (m) m.style.display = 'none';
+}
+function toggleExtMenu(ev) {
+  ev.stopPropagation();
+  var menu = document.getElementById('ext-menu');
+  if (menu.style.display !== 'none') { hideExtMenu(); return; }
+  buildExtMenu();
+  var r = ev.currentTarget.getBoundingClientRect();
+  menu.style.display = 'block';
+  // Clamp inside the viewport: the toolbar button sits near the right edge.
+  menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 8)) + 'px';
+  menu.style.top = (r.bottom + 4) + 'px';
+}
+function buildExtMenu() {
+  var menu = document.getElementById('ext-menu');
+  menu.textContent = '';
+  var all = selChecks(false);
+  var files = all.filter(function(c) { return c.dataset.type !== 'dir'; });
+  var dirCount = all.length - files.length;
+  function addItem(label, cnt, checked, onClick) {
+    var d = document.createElement('div');
+    d.className = 'ext-menu-item';
+    var mark = document.createElement('span');
+    mark.className = 'mark';
+    mark.textContent = '✓';
+    if (!checked) mark.style.visibility = 'hidden';
+    d.appendChild(mark);
+    var l = document.createElement('span');
+    l.textContent = label;
+    l.style.flex = '1';
+    d.appendChild(l);
+    if (cnt !== null) {
+      var s = document.createElement('span');
+      s.className = 'cnt';
+      s.textContent = cnt;
+      d.appendChild(s);
+    }
+    d.onclick = function(e) { e.stopPropagation(); onClick(); updateSelBar(); buildExtMenu(); };
+    menu.appendChild(d);
+  }
+  function sep() {
+    var d = document.createElement('div');
+    d.className = 'ext-menu-sep';
+    menu.appendChild(d);
+  }
+  addItem('Show all', null, extFilter === null, function() { extFilter = null; applyExtFilter(); });
+  sep();
+  if (dirCount > 0) {
+    addItem('Folders', dirCount, extFilter === null || extFilter.has('dir'), function() { toggleFilterKey('dir'); });
+  }
+  var counts = {};
+  files.forEach(function(c) { var e = extOf(c); counts[e] = (counts[e] || 0) + 1; });
+  Object.keys(counts).sort(function(a, b) { return counts[b] - counts[a] || (a < b ? -1 : 1); }).forEach(function(ext) {
+    var shown = extFilter === null || extFilter.has(ext);
+    addItem(ext || '(no extension)', counts[ext], shown, function() { toggleFilterKey(ext); });
+  });
+  sep();
+  addItem('Select shown', null, false, function() {
+    all.forEach(function(c) { if (!isFiltered(c)) setCheck(c, true); });
+    hideExtMenu();
+  });
+}
+document.addEventListener('click', hideExtMenu);
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') hideExtMenu(); });
 function setView(v) {
   var list = document.getElementById('view-list');
   var grid = document.getElementById('view-grid');
@@ -1633,6 +1794,8 @@ function setView(v) {
   document.getElementById('btn-list').classList.toggle('active', v === 'list');
   document.getElementById('btn-grid').classList.toggle('active', v === 'grid');
   try { localStorage.setItem('fb_view', v); } catch(e) {}
+  hideExtMenu();
+  updateSelBar();
 }
 function gridClick(event, el) {
   var chk = el.querySelector('.grid-chk');
@@ -1696,7 +1859,7 @@ function gridCheck(event, chk) {
 function addSelectedToPlaylist() {
   var plId = document.getElementById('sel-pl').value;
   if (!plId) { document.getElementById('sel-pl').focus(); return; }
-  var checked = Array.from(document.querySelectorAll('.row-check:checked'));
+  var checked = selChecks(true);
   var dirPaths = checked.filter(function(c) { return c.dataset.type === 'dir'; }).map(function(c) { return c.value; });
   var filePaths = checked.filter(function(c) {
     var t = c.dataset.type;
@@ -1727,7 +1890,7 @@ function addSelectedToPlaylist() {
   });
 }
 function downloadSelected() {
-  var checked = Array.from(document.querySelectorAll('.row-check:checked'));
+  var checked = selChecks(true);
   var i = 0;
   checked.forEach(function(c) {
     var path = c.value;
@@ -1746,10 +1909,10 @@ function downloadSelected() {
   });
 }
 function selPaths() {
-  return Array.from(document.querySelectorAll('.row-check:checked')).map(function(c) { return c.value; });
+  return selChecks(true).map(function(c) { return c.value; });
 }
 function deleteSelected() {
-  var checked = Array.from(document.querySelectorAll('.row-check:checked'));
+  var checked = selChecks(true);
   if (checked.length === 0) return;
   var dirPaths = checked.filter(function(c) { return c.dataset.type === 'dir'; }).map(function(c) { return c.value; });
   var filePaths = checked.filter(function(c) { return c.dataset.type !== 'dir'; }).map(function(c) { return c.value; });
@@ -1776,7 +1939,7 @@ function deleteSelected() {
     .catch(function(e) { alert('Delete failed: ' + e); });
 }
 function renameSelected() {
-  var checked = Array.from(document.querySelectorAll('.row-check:checked'));
+  var checked = selChecks(true);
   if (checked.length !== 1) return;
   var isDir = checked[0].dataset.type === 'dir';
   var path = checked[0].value;
@@ -1791,7 +1954,7 @@ function renameSelected() {
     });
 }
 function moveSelected() {
-  var checked = Array.from(document.querySelectorAll('.row-check:checked'));
+  var checked = selChecks(true);
   if (checked.length === 0) return;
   var dirPaths = checked.filter(function(c) { return c.dataset.type === 'dir'; }).map(function(c) { return c.value; });
   var filePaths = checked.filter(function(c) { return c.dataset.type !== 'dir'; }).map(function(c) { return c.value; });
@@ -1811,6 +1974,15 @@ function moveSelected() {
       location.reload();
     })
     .catch(function(e) { alert('Move failed: ' + e); });
+}
+function createFolder() {
+  var name = prompt('New folder name:');
+  if (!name) return;
+  fetch('/api/folder/create', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({dir: {{.Dir}}, name: name})})
+    .then(function(r) {
+      if (!r.ok) return r.text().then(function(t) { alert('Create folder failed: ' + t); });
+      location.reload();
+    });
 }
 function uploadFiles(files) {
   if (!files || files.length === 0) return;
