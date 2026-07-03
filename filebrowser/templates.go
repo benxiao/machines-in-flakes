@@ -221,6 +221,21 @@ type UserRow struct {
 	CreatedAt string
 }
 
+type TrashPage struct {
+	ActiveTab string
+	IsAdmin   bool
+	Items     []TrashItemRow
+	Error     string
+}
+
+type TrashItemRow struct {
+	ID           int64
+	Name         string
+	OriginalPath string
+	IsFolder     bool
+	DeletedAt    string
+}
+
 // ---- Template engine ----
 
 var pages map[string]*template.Template
@@ -288,6 +303,7 @@ func initTemplates() {
 	add("users", usersTmpl)
 	add("user_detail", userDetailTmpl)
 	add("settings", settingsTmpl)
+	add("trash", trashTmpl)
 	// login uses its own standalone template (no nav/base)
 	pages["login"] = template.Must(template.New("login").Funcs(funcMap).Parse(loginTmpl))
 }
@@ -744,6 +760,7 @@ const baseTmpl = `<!DOCTYPE html>
   <a href="/favorites"  {{if eq .ActiveTab "favorites"}}class="active"{{end}}>Favorites</a>
   <a href="/playlists"  {{if eq .ActiveTab "playlists"}}class="active"{{end}}>Playlists</a>
   {{if .IsAdmin}}<a href="/users" {{if eq .ActiveTab "users"}}class="active"{{end}}>Users</a>{{end}}
+  {{if .IsAdmin}}<a href="/trash" {{if eq .ActiveTab "trash"}}class="active"{{end}}>Trash</a>{{end}}
   <a href="/settings"   {{if eq .ActiveTab "settings"}}class="active"{{end}}>Settings</a>
   <form action="/logout" method="post" style="margin:0;display:flex;align-items:center;padding:0 4px;flex-shrink:0;margin-left:auto">
     <button type="submit" style="background:transparent;border:1px solid #30363d;color:#8b949e;padding:4px 12px;border-radius:6px;font-size:13px;cursor:pointer;line-height:1.4;white-space:nowrap">Logout</button>
@@ -1981,11 +1998,11 @@ function deleteSelected() {
   var filePaths = checked.filter(function(c) { return c.dataset.type !== 'dir'; }).map(function(c) { return c.value; });
   var msg = '';
   if (dirPaths.length > 0 && filePaths.length === 0)
-    msg = 'Permanently delete ' + dirPaths.length + ' folder' + (dirPaths.length === 1 ? '' : 's') + ' and all their contents? This cannot be undone.';
+    msg = 'Move ' + dirPaths.length + ' folder' + (dirPaths.length === 1 ? '' : 's') + ' to Trash?';
   else if (filePaths.length > 0 && dirPaths.length === 0)
-    msg = 'Permanently delete ' + filePaths.length + ' file' + (filePaths.length === 1 ? '' : 's') + '? This cannot be undone.';
+    msg = 'Move ' + filePaths.length + ' file' + (filePaths.length === 1 ? '' : 's') + ' to Trash?';
   else
-    msg = 'Permanently delete ' + filePaths.length + ' file' + (filePaths.length === 1 ? '' : 's') + ' and ' + dirPaths.length + ' folder' + (dirPaths.length === 1 ? '' : 's') + ' and all their contents? This cannot be undone.';
+    msg = 'Move ' + filePaths.length + ' file' + (filePaths.length === 1 ? '' : 's') + ' and ' + dirPaths.length + ' folder' + (dirPaths.length === 1 ? '' : 's') + ' to Trash?';
   if (!confirm(msg)) return;
   var promises = [];
   if (filePaths.length > 0)
@@ -3604,6 +3621,56 @@ const userDetailTmpl = `{{define "content"}}
   <p class="muted" style="padding:12px 0">No paths added yet. Add paths in Settings first.</p>
   {{end}}
 </div>
+{{end}}`
+
+const trashTmpl = `{{define "content"}}
+<div class="page-header">
+  <div class="page-header-left">
+    <h2>Trash</h2>
+  </div>
+  {{if .Items}}
+  <form action="/trash/empty" method="post" onsubmit="return confirm('Permanently delete all {{len .Items}} item(s) in Trash? This cannot be undone.')">
+    <button class="btn btn-danger btn-sm" type="submit">Empty Trash</button>
+  </form>
+  {{end}}
+</div>
+{{if .Error}}<div class="error-box">{{.Error}}</div>{{end}}
+<p class="muted" style="margin:-4px 0 16px">Deleted files and folders wait here for 30 days before being permanently removed.</p>
+{{if .Items}}
+<div class="section">
+<div class="table-wrap">
+<table>
+<thead><tr>
+  <th>Name</th>
+  <th>Type</th>
+  <th>Original location</th>
+  <th>Deleted</th>
+  <th></th>
+</tr></thead>
+<tbody>
+{{range .Items}}
+<tr>
+  <td>{{.Name}}</td>
+  <td><span class="badge badge-{{if .IsFolder}}dir{{else}}other{{end}}">{{if .IsFolder}}FOLDER{{else}}FILE{{end}}</span></td>
+  <td class="muted" style="font-size:12px">{{.OriginalPath}}</td>
+  <td class="muted">{{.DeletedAt}}</td>
+  <td class="actions-cell">
+    <form class="inline" action="/trash/{{.ID}}/restore" method="post">
+      <button class="btn btn-edit btn-sm" type="submit">Restore</button>
+    </form>
+    <form class="inline" action="/trash/{{.ID}}/purge" method="post" onsubmit="return confirm('Permanently delete {{.Name}}? This cannot be undone.')">
+      <button class="btn btn-danger btn-sm" type="submit">Delete Forever</button>
+    </form>
+  </td>
+</tr>
+{{end}}
+</tbody>
+</table>
+</div>
+</div>
+{{else}}
+<p class="muted">Trash is empty.</p>
+{{end}}
 {{end}}`
 
 const settingsTmpl = `{{define "content"}}

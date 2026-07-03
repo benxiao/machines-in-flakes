@@ -95,6 +95,14 @@ CREATE TABLE IF NOT EXISTS favorites (
 	created_at TIMESTAMPTZ DEFAULT now(),
 	PRIMARY KEY (user_id, path)
 );
+CREATE TABLE IF NOT EXISTS trash_items (
+	id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+	original_path TEXT NOT NULL,
+	trash_path    TEXT NOT NULL UNIQUE,
+	is_folder     BOOLEAN NOT NULL,
+	deleted_by    BIGINT REFERENCES users(id) ON DELETE SET NULL,
+	deleted_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 `
 
 const migrations = `
@@ -231,6 +239,10 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /users/{id}/delete", a.handleUserDelete)
 	mux.HandleFunc("POST /paths/{id}/grant", a.handlePathGrant)
 	mux.HandleFunc("POST /paths/{id}/revoke/{uid}", a.handlePathRevoke)
+	mux.HandleFunc("GET /trash", a.handleTrashPage)
+	mux.HandleFunc("POST /trash/empty", a.handleTrashEmpty)
+	mux.HandleFunc("POST /trash/{id}/restore", a.handleTrashRestore)
+	mux.HandleFunc("POST /trash/{id}/purge", a.handleTrashPurge)
 }
 
 func main() {
@@ -325,6 +337,14 @@ func main() {
 					log.Printf("zipcache: purged %d stale extraction(s)", purged)
 				}
 			}
+			time.Sleep(time.Hour)
+		}
+	}()
+
+	// Permanently purge trash items past their 30-day retention window.
+	go func() {
+		for {
+			app.purgeExpiredTrash(ctx)
 			time.Sleep(time.Hour)
 		}
 	}()
