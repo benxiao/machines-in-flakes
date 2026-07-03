@@ -863,7 +863,8 @@ document.addEventListener('DOMContentLoaded', function() {
 var DEFAULT_VOL = 1; if (!window.matchMedia('(pointer: coarse)').matches) { try { var _dv = parseFloat(localStorage.getItem('fb_default_volume')); if (!isNaN(_dv)) DEFAULT_VOL = Math.max(0, Math.min(1, _dv)); } catch(e) {} }
 // Unlike volume, speed has no OS-level equivalent on touch devices, so it's
 // not gated behind the coarse-pointer check.
-var DEFAULT_SPEED = 1; try { var _ds = parseFloat(localStorage.getItem('fb_default_speed')); if (!isNaN(_ds)) DEFAULT_SPEED = Math.max(0.8, Math.min(1.2, _ds)); } catch(e) {}
+var PL_SPEED_MIN = 0.8, PL_SPEED_MAX = 1.2, PL_SPEED_STEP = 0.02;
+var DEFAULT_SPEED = 1; try { var _ds = parseFloat(localStorage.getItem('fb_default_speed')); if (!isNaN(_ds)) DEFAULT_SPEED = Math.max(PL_SPEED_MIN, Math.min(PL_SPEED_MAX, _ds)); } catch(e) {}
 function hlsParams() {
   try {
     var ls = localStorage;
@@ -3053,15 +3054,21 @@ function _plUpdateAudioUI() {
   }
   var speed = document.getElementById('pl-speed');
   if (speed) {
-    var sp = Math.round((a.playbackRate - 1) * 100);
-    speed.value = sp;
-    // Bipolar control: fill the band between the center (0% / normal speed)
-    // and wherever the thumb sits, rather than volume's fill-from-left,
-    // so it's visually obvious at a glance which direction and how far.
-    var spPct = (sp + 20) / 40 * 100;
-    var lo = Math.min(50, spPct), hi = Math.max(50, spPct);
+    // Snap to the step and round off binary floating-point noise (0.8 + 3*0.02
+    // is not exactly 0.86 in JS floats).
+    var rate = Math.round(Math.round(a.playbackRate / PL_SPEED_STEP) * PL_SPEED_STEP * 100) / 100;
+    speed.value = rate;
+    // Bipolar control: fill the band between the center (1x / normal speed)
+    // and wherever the thumb sits, rather than volume's fill-from-left, so
+    // it's visually obvious at a glance which direction and how far. Computed
+    // generally rather than assumed-50% so it stays correct if the range is
+    // ever widened to something not centered on 1x.
+    var pct = (rate - PL_SPEED_MIN) / (PL_SPEED_MAX - PL_SPEED_MIN) * 100;
+    var centerPct = (1 - PL_SPEED_MIN) / (PL_SPEED_MAX - PL_SPEED_MIN) * 100;
+    var lo = Math.min(centerPct, pct), hi = Math.max(centerPct, pct);
     speed.style.background = 'linear-gradient(to right,var(--border) 0%,var(--border) ' + lo + '%,#58a6ff ' + lo + '%,#58a6ff ' + hi + '%,var(--border) ' + hi + '%,var(--border) 100%)';
-    speed.title = sp === 0 ? 'Speed: normal' : 'Speed: ' + (sp > 0 ? '+' : '') + sp + '%';
+    var pctDelta = Math.round((rate - 1) * 100);
+    speed.title = pctDelta === 0 ? 'Speed: normal' : 'Speed: ' + (pctDelta > 0 ? '+' : '') + pctDelta + '%';
   }
 }
 function plInitAudioUI() {
@@ -3110,7 +3117,7 @@ function plInitAudioUI() {
   var speed = document.getElementById('pl-speed');
   if (speed) {
     speed.addEventListener('input', function() {
-      var rate = 1 + parseFloat(speed.value) / 100;
+      var rate = parseFloat(speed.value);
       a.playbackRate = rate;
       DEFAULT_SPEED = rate;
       try { localStorage.setItem('fb_default_speed', rate); } catch(e) {}
@@ -3150,7 +3157,7 @@ var PLAYLIST_STATE = {{toJSON .State}};
       <div class="pl-transport">
         <div class="pl-speed-wrap">
           <span class="pl-speed-icon">&#177;</span>
-          <input type="range" class="pl-speed" id="pl-speed" value="0" min="-20" max="20" step="1">
+          <input type="range" class="pl-speed" id="pl-speed" value="1" min="0.8" max="1.2" step="0.02">
         </div>
         ` + plTransportHTML + `
         <div class="pl-vol-wrap">
@@ -3322,7 +3329,7 @@ var START_IDX = {{.StartIdx}};
       <div class="pl-transport">
         <div class="pl-speed-wrap">
           <span class="pl-speed-icon">&#177;</span>
-          <input type="range" class="pl-speed" id="pl-speed" value="0" min="-20" max="20" step="1">
+          <input type="range" class="pl-speed" id="pl-speed" value="1" min="0.8" max="1.2" step="0.02">
         </div>
         ` + plTransportHTML + `
         <div class="pl-vol-wrap">
@@ -3398,7 +3405,7 @@ var PLAYLIST_STATE = null;
       <div class="pl-transport">
         <div class="pl-speed-wrap">
           <span class="pl-speed-icon">&#177;</span>
-          <input type="range" class="pl-speed" id="pl-speed" value="0" min="-20" max="20" step="1">
+          <input type="range" class="pl-speed" id="pl-speed" value="1" min="0.8" max="1.2" step="0.02">
         </div>
         ` + plTransportHTML + `
         <div class="pl-vol-wrap">
