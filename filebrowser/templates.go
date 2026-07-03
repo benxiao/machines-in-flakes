@@ -864,7 +864,7 @@ document.addEventListener('DOMContentLoaded', function() {
 var DEFAULT_VOL = 1; if (!window.matchMedia('(pointer: coarse)').matches) { try { var _dv = parseFloat(localStorage.getItem('fb_default_volume')); if (!isNaN(_dv)) DEFAULT_VOL = Math.max(0, Math.min(1, _dv)); } catch(e) {} }
 // Unlike volume, speed has no OS-level equivalent on touch devices, so it's
 // not gated behind the coarse-pointer check.
-var PL_SPEED_MIN = 0.8, PL_SPEED_MAX = 1.2, PL_SPEED_STEP = 0.01;
+var PL_SPEED_MIN = 0.7, PL_SPEED_MAX = 1.3, PL_SPEED_STEP = 0.01;
 var DEFAULT_SPEED = 1; try { var _ds = parseFloat(localStorage.getItem('fb_default_speed')); if (!isNaN(_ds)) DEFAULT_SPEED = Math.max(PL_SPEED_MIN, Math.min(PL_SPEED_MAX, _ds)); } catch(e) {}
 function hlsParams() {
   try {
@@ -3161,7 +3161,7 @@ var PLAYLIST_STATE = {{toJSON .State}};
       <div class="pl-transport">
         <div class="pl-speed-wrap">
           <span class="pl-speed-icon">&#177;</span>
-          <input type="range" class="pl-speed" id="pl-speed" value="1" min="0.8" max="1.2" step="0.01">
+          <input type="range" class="pl-speed" id="pl-speed" value="1" min="0.7" max="1.3" step="0.01">
           <span class="pl-speed-label" id="pl-speed-label"></span>
         </div>
         ` + plTransportHTML + `
@@ -3334,7 +3334,7 @@ var START_IDX = {{.StartIdx}};
       <div class="pl-transport">
         <div class="pl-speed-wrap">
           <span class="pl-speed-icon">&#177;</span>
-          <input type="range" class="pl-speed" id="pl-speed" value="1" min="0.8" max="1.2" step="0.01">
+          <input type="range" class="pl-speed" id="pl-speed" value="1" min="0.7" max="1.3" step="0.01">
           <span class="pl-speed-label" id="pl-speed-label"></span>
         </div>
         ` + plTransportHTML + `
@@ -3411,7 +3411,7 @@ var PLAYLIST_STATE = null;
       <div class="pl-transport">
         <div class="pl-speed-wrap">
           <span class="pl-speed-icon">&#177;</span>
-          <input type="range" class="pl-speed" id="pl-speed" value="1" min="0.8" max="1.2" step="0.01">
+          <input type="range" class="pl-speed" id="pl-speed" value="1" min="0.7" max="1.3" step="0.01">
           <span class="pl-speed-label" id="pl-speed-label"></span>
         </div>
         ` + plTransportHTML + `
