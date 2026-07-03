@@ -677,6 +677,7 @@ input.pl-vol::-moz-range-thumb { width:11px; height:11px; border-radius:50%; bac
 @media (pointer: coarse) { .pl-vol-wrap { display:none; } }
 .pl-speed-wrap { display:flex; align-items:center; gap:5px; justify-self:start; }
 .pl-speed-icon { color:var(--fg-muted); font-size:13px; cursor:default; user-select:none; }
+.pl-speed-label { color:var(--fg-muted); font-size:11px; cursor:default; user-select:none; min-width:34px; white-space:nowrap; }
 input.pl-speed { -webkit-appearance:none; appearance:none; width:70px; height:4px; background:var(--border); border-radius:2px; outline:none; cursor:pointer; }
 input.pl-speed::-webkit-slider-thumb { -webkit-appearance:none; width:11px; height:11px; border-radius:50%; background:#58a6ff; cursor:pointer; }
 input.pl-speed::-moz-range-thumb { width:11px; height:11px; border-radius:50%; background:#58a6ff; border:none; cursor:pointer; }
@@ -3068,7 +3069,10 @@ function _plUpdateAudioUI() {
     var lo = Math.min(centerPct, pct), hi = Math.max(centerPct, pct);
     speed.style.background = 'linear-gradient(to right,var(--border) 0%,var(--border) ' + lo + '%,#58a6ff ' + lo + '%,#58a6ff ' + hi + '%,var(--border) ' + hi + '%,var(--border) 100%)';
     var pctDelta = Math.round((rate - 1) * 100);
-    speed.title = pctDelta === 0 ? 'Speed: normal' : 'Speed: ' + (pctDelta > 0 ? '+' : '') + pctDelta + '%';
+    var pctText = pctDelta === 0 ? 'normal' : (pctDelta > 0 ? '+' : '') + pctDelta + '%';
+    speed.title = 'Speed: ' + pctText;
+    var label = document.getElementById('pl-speed-label');
+    if (label) label.textContent = pctText;
   }
 }
 function plInitAudioUI() {
@@ -3158,6 +3162,7 @@ var PLAYLIST_STATE = {{toJSON .State}};
         <div class="pl-speed-wrap">
           <span class="pl-speed-icon">&#177;</span>
           <input type="range" class="pl-speed" id="pl-speed" value="1" min="0.8" max="1.2" step="0.01">
+          <span class="pl-speed-label" id="pl-speed-label"></span>
         </div>
         ` + plTransportHTML + `
         <div class="pl-vol-wrap">
@@ -3330,6 +3335,7 @@ var START_IDX = {{.StartIdx}};
         <div class="pl-speed-wrap">
           <span class="pl-speed-icon">&#177;</span>
           <input type="range" class="pl-speed" id="pl-speed" value="1" min="0.8" max="1.2" step="0.01">
+          <span class="pl-speed-label" id="pl-speed-label"></span>
         </div>
         ` + plTransportHTML + `
         <div class="pl-vol-wrap">
@@ -3406,6 +3412,7 @@ var PLAYLIST_STATE = null;
         <div class="pl-speed-wrap">
           <span class="pl-speed-icon">&#177;</span>
           <input type="range" class="pl-speed" id="pl-speed" value="1" min="0.8" max="1.2" step="0.01">
+          <span class="pl-speed-label" id="pl-speed-label"></span>
         </div>
         ` + plTransportHTML + `
         <div class="pl-vol-wrap">
