@@ -23,6 +23,8 @@ type App struct {
 	reindexing       sync.Map    // key: int64 userID → bool
 	nvencOK          atomic.Bool // h264_nvenc usable (probed at startup)
 	pregenBusy       atomic.Bool // thumbnail pre-generation pass running
+	dupScanning      sync.Map    // key: int64 userID → bool
+	dupResults       sync.Map    // key: int64 userID → *dupScanResult
 }
 
 func systemTimezone() string {
@@ -243,6 +245,9 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /trash/empty", a.handleTrashEmpty)
 	mux.HandleFunc("POST /trash/{id}/restore", a.handleTrashRestore)
 	mux.HandleFunc("POST /trash/{id}/purge", a.handleTrashPurge)
+	mux.HandleFunc("GET /duplicates", a.handleDuplicatesPage)
+	mux.HandleFunc("POST /duplicates/scan", a.handleDuplicatesScan)
+	mux.HandleFunc("GET /duplicates/status", a.handleDuplicatesStatus)
 }
 
 func main() {

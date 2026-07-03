@@ -3468,6 +3468,185 @@ func (a *App) handleTrashEmpty(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/trash", http.StatusFound)
 }
 
+// ---- Duplicate finder ----
+//
+// An on-demand, admin-triggered scan rather than part of the periodic
+// reindex — hashing full file content of a large library every cycle would
+// be wasteful for what's meant to be an occasional cleanup action. Results
+// are transient: held in memory, recomputed each time a scan runs.
+
+type DuplicateGroup struct {
+	SizeBytes int64
+	Size      string
+	Paths     []string
+}
+
+type dupScanResult struct {
+	ScannedAt time.Time
+	Groups    []DuplicateGroup
+}
+
+// Hashing is sequential full-file reads that can be large (video); cap
+// concurrency so a scan doesn't thrash disk/ZFS throughput.
+var dupHashSem = make(chan struct{}, 2)
+
+func hashFile(ctx context.Context, path string) (string, error) {
+	select {
+	case dupHashSem <- struct{}{}:
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+	defer func() { <-dupHashSem }()
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// scanDuplicates walks the user's enabled roots, grouping files by size
+// first (cheap, stat-only) and only hashing files that share a size with at
+// least one other file — most files in a real library are unique sizes, so
+// this prunes the expensive step drastically.
+func (a *App) scanDuplicates(ctx context.Context, userID int64) {
+	if _, running := a.dupScanning.LoadOrStore(userID, true); running {
+		return
+	}
+	defer a.dupScanning.Delete(userID)
+
+	rows, err := a.db.Query(ctx, `
+		SELECT ip.path FROM indexed_paths ip
+		WHERE ip.enabled = TRUE
+		  AND (ip.user_id = $1 OR EXISTS (SELECT 1 FROM path_grants pg WHERE pg.path_id = ip.id AND pg.user_id = $1))
+	`, userID)
+	if err != nil {
+		log.Printf("dup scan: query paths: %v", err)
+		return
+	}
+	var roots []string
+	for rows.Next() {
+		var p string
+		if rows.Scan(&p) == nil {
+			roots = append(roots, p)
+		}
+	}
+	rows.Close()
+
+	bySize := make(map[int64][]string)
+	seen := make(map[string]bool) // nested roots walk the same files twice
+	for _, root := range roots {
+		filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil
+			}
+			if info.IsDir() {
+				if info.Name() == trashDirName {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if seen[p] || info.Size() == 0 {
+				return nil
+			}
+			seen[p] = true
+			bySize[info.Size()] = append(bySize[info.Size()], p)
+			return nil
+		})
+	}
+
+	type hashKey struct {
+		size int64
+		hash string
+	}
+	byHash := make(map[hashKey][]string)
+	for size, paths := range bySize {
+		if len(paths) < 2 {
+			continue
+		}
+		for _, p := range paths {
+			h, err := hashFile(ctx, p)
+			if err != nil {
+				continue
+			}
+			k := hashKey{size, h}
+			byHash[k] = append(byHash[k], p)
+		}
+	}
+
+	var groups []DuplicateGroup
+	for k, paths := range byHash {
+		if len(paths) < 2 {
+			continue
+		}
+		sort.Strings(paths)
+		groups = append(groups, DuplicateGroup{SizeBytes: k.size, Size: formatSize(k.size), Paths: paths})
+	}
+	sort.Slice(groups, func(i, j int) bool { return groups[i].SizeBytes > groups[j].SizeBytes })
+
+	a.dupResults.Store(userID, &dupScanResult{ScannedAt: time.Now(), Groups: groups})
+	log.Printf("dup scan: user %d found %d duplicate group(s)", userID, len(groups))
+}
+
+func (a *App) handleDuplicatesPage(w http.ResponseWriter, r *http.Request) {
+	if !isAdmin(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	render(w, "duplicates", DuplicatesPage{ActiveTab: "duplicates", IsAdmin: true})
+}
+
+func (a *App) handleDuplicatesScan(w http.ResponseWriter, r *http.Request) {
+	if !isAdmin(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	userID := uid(r)
+	go func() {
+		ctx2, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+		a.scanDuplicates(ctx2, userID)
+	}()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleDuplicatesStatus re-verifies each cached group against disk before
+// returning it, so files removed since the last scan (e.g. moved to Trash
+// via this same page) don't linger in the report until the next rescan.
+func (a *App) handleDuplicatesStatus(w http.ResponseWriter, r *http.Request) {
+	userID := uid(r)
+	_, running := a.dupScanning.Load(userID)
+	resp := map[string]any{"scanning": running}
+	if v, ok := a.dupResults.Load(userID); ok {
+		res := v.(*dupScanResult)
+		var live []DuplicateGroup
+		var wasted int64
+		for _, g := range res.Groups {
+			var paths []string
+			for _, p := range g.Paths {
+				if _, err := os.Stat(p); err == nil {
+					paths = append(paths, p)
+				}
+			}
+			if len(paths) < 2 {
+				continue
+			}
+			live = append(live, DuplicateGroup{SizeBytes: g.SizeBytes, Size: g.Size, Paths: paths})
+			wasted += g.SizeBytes * int64(len(paths)-1)
+		}
+		resp["scanned_at"] = res.ScannedAt.Local().Format("2006-01-02 15:04")
+		resp["groups"] = live
+		resp["wasted_bytes"] = wasted
+		resp["wasted"] = formatSize(wasted)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
 func (a *App) handleFolderDownload(w http.ResponseWriter, r *http.Request) {
 	path := filepath.Clean(r.URL.Query().Get("path"))
 	if !a.isAllowedPath(r, path) {
