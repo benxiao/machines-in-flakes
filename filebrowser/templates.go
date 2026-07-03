@@ -771,6 +771,9 @@ const baseTmpl = `<!DOCTYPE html>
       <button id="modal-pdf-md-btn" class="btn btn-edit btn-sm" onclick="copyPDFMarkdown()">&#128203; Copy as Markdown</button>
     </div>
     <div id="modal-iz-hint" style="display:none;color:#8b949e;font-size:11px;text-align:center;padding:4px 0;flex-shrink:0;background:#0d1117;border-top:1px solid #21262d">Scroll or pinch to zoom &middot; drag to pan &middot; double-click to zoom&thinsp;/&thinsp;fit</div>
+    <div id="modal-photo-controls" style="display:none;justify-content:center;align-items:center;gap:12px;padding:10px;background:#0d1117;border-top:1px solid #30363d;flex-shrink:0">
+      <button id="modal-slideshow-btn" class="btn btn-edit btn-sm" onclick="toggleSlideshow()">&#9654; Slideshow</button>
+    </div>
     <div id="modal-media-controls" style="display:none;justify-content:center;align-items:center;gap:12px;padding:10px;background:#0d1117;border-top:1px solid #30363d;flex-shrink:0">
       <button id="modal-seek-back" class="btn btn-edit btn-sm" onclick="seekActiveMedia(-15)">&#9664;&#9664; 15s</button>
       <button id="modal-seek-fwd" class="btn btn-edit btn-sm" onclick="seekActiveMedia(15)">15s &#9654;&#9654;</button>
@@ -995,6 +998,21 @@ function modalNavPhoto(dir) {
   var nxt = dir > 0 ? photoNext(img.dataset.navPath) : photoPrev(img.dataset.navPath);
   if (nxt) openPreview({dataset: nxt}, false);
 }
+var slideshowTimer = null;
+function stopSlideshow() {
+  if (!slideshowTimer) return;
+  clearInterval(slideshowTimer);
+  slideshowTimer = null;
+  var btn = document.getElementById('modal-slideshow-btn');
+  if (btn) { btn.textContent = '▶ Slideshow'; btn.classList.remove('btn-edit'); }
+}
+function toggleSlideshow() {
+  if (slideshowTimer) { stopSlideshow(); return; }
+  slideshowTimer = setInterval(function() { modalNavPhoto(1); }, 4000);
+  var btn = document.getElementById('modal-slideshow-btn');
+  btn.textContent = '⏸ Slideshow';
+  btn.classList.add('btn-edit');
+}
 // ---- Image zoom/pan ----
 var iz = {scale:1, fitScale:1, tx:0, ty:0, dragging:false, lx:0, ly:0, lastT:null};
 function izApply() {
@@ -1100,12 +1118,18 @@ function openPreview(el, autoplay) {
   wrap.style.display = video.style.display = audio.style.display = pdf.style.display = txt.style.display = 'none';
   ctrl.style.display = hint.style.display = 'none';
   document.getElementById('modal-pdf-controls').style.display = 'none';
+  // Not stopped here: openPreview re-enters itself for photo->photo nav
+  // (modalNavPhoto, including the slideshow timer's own ticks), so clearing
+  // the timer on every call would kill it after a single advance. It's only
+  // stopped in closePreview and when a non-photo type takes over the modal.
+  document.getElementById('modal-photo-controls').style.display = 'none';
   badge.textContent = '';
   img.src = ''; pdf.src = '';
   document.getElementById('modal-body').style.overflow = '';
   document.getElementById('modal-nav-prev').style.display = document.getElementById('modal-nav-next').style.display = 'none';
   if (video.dataset.resumePath){ if (video.hlsInstance) { video.hlsInstance.destroy(); video.hlsInstance = null; } video.src = ''; video.dataset.resumePath = ''; }
   if (audio.dataset.resumePath) { if (audio.hlsInstance) { audio.hlsInstance.destroy(); audio.hlsInstance = null; } audio.pause(); audio.src = ''; audio.dataset.resumePath = ''; }
+  if (type !== 'photo') stopSlideshow();
   if (type === 'photo') {
     // Give the wrap an explicit viewport size: the image is position:absolute
     // so it contributes no intrinsic size, and a flex container would collapse.
@@ -1119,6 +1143,7 @@ function openPreview(el, autoplay) {
     wrap.style.display = 'block';
     hint.style.display = 'block';
     izInit(wrap, img);
+    document.getElementById('modal-photo-controls').style.display = 'flex';
   } else if (type === 'video') {
     modal.querySelector('.modal-box').classList.add('modal-wide');
     seekBack.style.display = ''; seekFwd.style.display = '';
@@ -1210,6 +1235,7 @@ function openPreview(el, autoplay) {
   modal.classList.add('open');
 }
 function closePreview() {
+  stopSlideshow();
   modal.classList.remove('open');
   modal.querySelector('.modal-box').classList.remove('modal-wide');
   if (_folderLoop) {
