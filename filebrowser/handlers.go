@@ -985,7 +985,7 @@ func (a *App) reindexUser(ctx context.Context, userID int64) {
 				return nil
 			}
 			ft := classifyExt(filepath.Ext(p))
-			if ft == "other" || ft == "text" || ft == "archive" {
+			if ft == "other" || ft == "text" {
 				return nil
 			}
 			seen[p] = true
