@@ -626,8 +626,10 @@ input:focus, select:focus { outline: none; border-color: #58a6ff; }
 .modal-box.modal-wide { width: 92vw; }
 .modal-box.modal-wide .modal-body video { width: 100%; max-height: calc(92vh - 90px); }
 #modal-iz-hint { padding: 4px 0; }
+.iz-hint-touch { display: none; }
+@media (pointer: coarse) { .iz-hint-mouse { display: none; } .iz-hint-touch { display: inline; } }
 #modal-photo-controls { padding: 10px; }
-.modal-box.modal-photo { width: 98vw; max-width: 98vw; max-height: 98vh; }
+.modal-box.modal-photo { width: 98vw; max-width: 98vw; height: 98vh; max-height: 98vh; }
 .modal-box.modal-photo .modal-header { padding: 4px 12px; }
 .modal-box.modal-photo #modal-iz-hint { padding: 2px 0; }
 .modal-box.modal-photo #modal-photo-controls { padding: 4px 10px; }
@@ -703,6 +705,8 @@ input.pl-speed::-moz-range-thumb { width:11px; height:11px; border-radius:50%; b
   table th:nth-child(6), table td:nth-child(6) { display: none; }
   /* Modal: let media fill the screen width */
   .modal-box { max-width: 100vw; max-height: 100vh; width: 100vw; border-radius: 0; }
+  /* Photo viewer: true fullscreen; dvh tracks the visible viewport as browser chrome hides */
+  .modal-box.modal-photo { width: 100vw; max-width: 100vw; height: 100vh; height: 100dvh; max-height: 100vh; max-height: 100dvh; }
   .modal-box.modal-wide .modal-body video { max-height: 52vh; }
   .modal-body video { max-width: 100vw; max-height: 52vh; width: 100%; }
   .modal-body audio { width: 90vw; }
@@ -839,7 +843,7 @@ const baseTmpl = `<!DOCTYPE html>
     <div id="modal-pdf-controls" style="display:none;justify-content:center;align-items:center;gap:12px;padding:10px;background:var(--bg);border-top:1px solid var(--border);flex-shrink:0">
       <button id="modal-pdf-md-btn" class="btn btn-edit btn-sm" onclick="copyPDFMarkdown()">&#128203; Copy as Markdown</button>
     </div>
-    <div id="modal-iz-hint" style="display:none;color:var(--fg-muted);font-size:11px;text-align:center;flex-shrink:0;background:var(--bg);border-top:1px solid var(--surface-hover)">Scroll or pinch to zoom &middot; drag to pan &middot; double-click to zoom&thinsp;/&thinsp;fit</div>
+    <div id="modal-iz-hint" style="display:none;color:var(--fg-muted);font-size:11px;text-align:center;flex-shrink:0;background:var(--bg);border-top:1px solid var(--surface-hover)"><span class="iz-hint-mouse">Scroll to zoom &middot; drag to pan &middot; double-click to zoom&thinsp;/&thinsp;fit</span><span class="iz-hint-touch">Pinch to zoom &middot; drag to pan &middot; double-tap to zoom&thinsp;/&thinsp;fit</span></div>
     <div id="modal-photo-controls" style="display:none;justify-content:center;align-items:center;gap:12px;background:var(--bg);border-top:1px solid var(--border);flex-shrink:0">
       <button id="modal-slideshow-btn" class="btn btn-edit btn-sm" onclick="toggleSlideshow()">&#9654; Slideshow</button>
     </div>
@@ -1092,7 +1096,7 @@ function toggleSlideshow() {
   btn.classList.add('btn-edit');
 }
 // ---- Image zoom/pan ----
-var iz = {scale:1, fitScale:1, tx:0, ty:0, dragging:false, lx:0, ly:0, lastT:null};
+var iz = {scale:1, fitScale:1, tx:0, ty:0, dragging:false, lx:0, ly:0, lastT:null, tapT:0, tapX:0, tapY:0};
 function izApply() {
   document.getElementById('modal-img').style.transform = 'translate('+iz.tx+'px,'+iz.ty+'px) scale('+iz.scale+')';
 }
@@ -1109,6 +1113,23 @@ function izZoomAt(cx, cy, factor) {
   iz.tx = cx - (cx - iz.tx) * ns / iz.scale;
   iz.ty = cy - (cy - iz.ty) * ns / iz.scale;
   iz.scale = ns;
+  izApply();
+}
+// Double-click / double-tap: toggle between fit and 100% (actual pixels),
+// bringing the clicked point to the middle of the viewport (clamped so the
+// image edge never pulls inside it).
+function izTapZoom(cx, cy) {
+  var wrap = document.getElementById('modal-zoom-wrap');
+  var img  = document.getElementById('modal-img');
+  if (Math.abs(iz.scale - iz.fitScale) >= 0.01) { izFit(); return; }
+  // If fit already shows actual pixels (small image), zoom to 2x instead.
+  var ns = iz.fitScale >= 0.99 ? 2 : 1;
+  var px = (cx - iz.tx) / iz.scale, py = (cy - iz.ty) / iz.scale;
+  var W = wrap.clientWidth, H = wrap.clientHeight;
+  var sw = img.naturalWidth * ns, sh = img.naturalHeight * ns;
+  iz.scale = ns;
+  iz.tx = sw > W ? Math.min(0, Math.max(W - sw, W / 2 - px * ns)) : (W - sw) / 2;
+  iz.ty = sh > H ? Math.min(0, Math.max(H - sh, H / 2 - py * ns)) : (H - sh) / 2;
   izApply();
 }
 function izInit(wrap, img) {
@@ -1136,11 +1157,22 @@ function izInit(wrap, img) {
     });
     wrap.addEventListener('dblclick', function(e) {
       var r = wrap.getBoundingClientRect();
-      // Toggle between fit and 100% (actual pixels) at the click point.
-      if (Math.abs(iz.scale - iz.fitScale) < 0.01) izZoomAt(e.clientX - r.left, e.clientY - r.top, 1 / iz.scale);
-      else izFit();
+      izTapZoom(e.clientX - r.left, e.clientY - r.top);
     });
-    wrap.addEventListener('touchstart', function(e) { e.preventDefault(); iz.lastT = Array.from(e.touches).map(function(t){return {clientX:t.clientX,clientY:t.clientY};}); }, {passive:false});
+    wrap.addEventListener('touchstart', function(e) {
+      e.preventDefault();
+      // dblclick never fires on touch (preventDefault above), so detect
+      // double-tap by hand: two single-finger starts close in time and space.
+      if (e.touches.length === 1) {
+        var t = e.touches[0], now = Date.now();
+        if (iz.tapT && now - iz.tapT < 350 && Math.hypot(t.clientX - iz.tapX, t.clientY - iz.tapY) < 40) {
+          iz.tapT = 0;
+          var r = wrap.getBoundingClientRect();
+          izTapZoom(t.clientX - r.left, t.clientY - r.top);
+        } else { iz.tapT = now; iz.tapX = t.clientX; iz.tapY = t.clientY; }
+      } else iz.tapT = 0;
+      iz.lastT = Array.from(e.touches).map(function(t){return {clientX:t.clientX,clientY:t.clientY};});
+    }, {passive:false});
     wrap.addEventListener('touchmove', function(e) {
       e.preventDefault();
       var r = wrap.getBoundingClientRect(), lt = iz.lastT;
@@ -1173,6 +1205,15 @@ document.addEventListener('mouseup', function() {
   iz.dragging = false;
   var w = document.getElementById('modal-zoom-wrap');
   if (w) w.classList.remove('iz-grabbing');
+});
+// Rotation / viewport resize: recompute the fit; re-fit only if not zoomed in.
+window.addEventListener('resize', function() {
+  var wrap = document.getElementById('modal-zoom-wrap');
+  var img  = document.getElementById('modal-img');
+  if (!wrap || wrap.style.display === 'none' || !img.naturalWidth) return;
+  var atFit = Math.abs(iz.scale - iz.fitScale) < 0.01;
+  iz.fitScale = Math.min(wrap.clientWidth / img.naturalWidth, wrap.clientHeight / img.naturalHeight, 1);
+  if (atFit) izFit();
 });
 // ---- End image zoom ----
 
@@ -1217,8 +1258,10 @@ function openPreview(el, autoplay) {
     document.getElementById('modal-nav-prev').style.display = '';
     document.getElementById('modal-nav-next').style.display = '';
     modal.querySelector('.modal-box').classList.add('modal-photo');
-    wrap.style.width = '98vw';
-    wrap.style.height = 'calc(98vh - 70px)'; // 98vh box minus the thinned header/hint/controls bars
+    // The .modal-photo box has a definite height, so the flex body has one too
+    // and the wrap can simply fill it — no viewport arithmetic.
+    wrap.style.width = '100%';
+    wrap.style.height = '100%';
     wrap.style.display = 'block';
     hint.style.display = 'block';
     izInit(wrap, img);
