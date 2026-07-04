@@ -864,6 +864,8 @@ const baseTmpl = `<!DOCTYPE html>
     <div class="modal-body" id="modal-body">
       <div id="modal-zoom-wrap" style="display:none;overflow:hidden;position:relative;cursor:grab;touch-action:none">
         <img id="modal-img" src="" alt="" style="position:absolute;top:0;left:0;transform-origin:0 0;user-select:none;-webkit-user-select:none;pointer-events:none">
+        <div id="modal-exif-panel" style="display:none;position:absolute;top:10px;right:10px;max-width:260px;background:rgba(13,17,23,0.92);border:1px solid var(--border);border-radius:8px;padding:12px 14px;font-size:12px;line-height:1.6;color:#fff;z-index:5"
+             onclick="event.stopPropagation()" ontouchstart="event.stopPropagation()" ontouchmove="event.stopPropagation()" ontouchend="event.stopPropagation()" onwheel="event.stopPropagation()" onmousedown="event.stopPropagation()" ondblclick="event.stopPropagation()"></div>
       </div>
       <video id="modal-video" controls style="display:none"></video>
       <audio id="modal-audio" controls style="display:none;width:90vw;max-width:600px"></audio>
@@ -876,6 +878,7 @@ const baseTmpl = `<!DOCTYPE html>
     <div id="modal-iz-hint" style="display:none;color:var(--fg-muted);font-size:11px;text-align:center;flex-shrink:0;background:var(--bg);border-top:1px solid var(--surface-hover)"><span class="iz-hint-mouse">Scroll to zoom &middot; drag to pan &middot; double-click to zoom&thinsp;/&thinsp;fit</span><span class="iz-hint-touch">Pinch to zoom &middot; swipe for next&thinsp;/&thinsp;prev &middot; double-tap to zoom&thinsp;/&thinsp;fit</span></div>
     <div id="modal-photo-controls" style="display:none;justify-content:center;align-items:center;gap:12px;background:var(--bg);border-top:1px solid var(--border);flex-shrink:0">
       <button id="modal-slideshow-btn" class="btn btn-edit btn-sm" onclick="toggleSlideshow()">&#9654; Slideshow</button>
+      <button id="modal-exif-btn" class="btn btn-edit btn-sm" onclick="toggleExifPanel()">&#9432; Info</button>
     </div>
     <div id="modal-media-controls" style="display:none;justify-content:center;align-items:center;gap:12px;padding:10px;background:var(--bg);border-top:1px solid var(--border);flex-shrink:0">
       <button id="modal-seek-back" class="btn btn-edit btn-sm" onclick="seekActiveMedia(-15)">&#9664;&#9664; 15s</button>
@@ -1125,6 +1128,37 @@ function toggleSlideshow() {
   btn.textContent = '⏸ Slideshow';
   btn.classList.add('btn-edit');
 }
+function toggleExifPanel() {
+  var panel = document.getElementById('modal-exif-panel');
+  var img = document.getElementById('modal-img');
+  var path = img.dataset.navPath;
+  if (panel.style.display !== 'none') { panel.style.display = 'none'; return; }
+  if (panel.dataset.loadedFor === path) { panel.style.display = 'block'; return; }
+  panel.innerHTML = 'Loading&hellip;';
+  panel.style.display = 'block';
+  fetch('/api/photo/exif?path=' + encodeURIComponent(path)).then(function(r) {
+    if (!r.ok) throw new Error('exif fetch failed');
+    return r.json();
+  }).then(function(d) {
+    if (img.dataset.navPath !== path) return; // user navigated away while this was in flight
+    var rows = [];
+    if (d.Width && d.Height) rows.push(d.Width + ' &times; ' + d.Height);
+    if (d.Make || d.Model) rows.push([d.Make, d.Model].filter(Boolean).join(' '));
+    if (d.DateTaken) rows.push(d.DateTaken);
+    if (d.HasGPS) {
+      var lat = d.GPSLat.toFixed(5), lon = d.GPSLon.toFixed(5);
+      rows.push('<a href="https://www.openstreetmap.org/?mlat=' + lat + '&mlon=' + lon + '&zoom=14" target="_blank" rel="noopener" style="color:#58a6ff">' + lat + ', ' + lon + '</a>');
+    }
+    if (d.SizeBytes) {
+      var sz = d.SizeBytes >= 1e6 ? (d.SizeBytes / 1e6).toFixed(1) + ' MB' : (d.SizeBytes / 1e3).toFixed(0) + ' KB';
+      rows.push(sz + ' &middot; ' + d.ModTime);
+    }
+    panel.innerHTML = rows.length ? rows.join('<br>') : 'No metadata found.';
+    panel.dataset.loadedFor = path;
+  }).catch(function() {
+    if (img.dataset.navPath === path) panel.innerHTML = 'Could not load info.';
+  });
+}
 // ---- Image zoom/pan ----
 var iz = {scale:1, fitScale:1, tx:0, ty:0, dragging:false, lx:0, ly:0, lastT:null, tapT:0, tapX:0, tapY:0,
           swiping:false, swX:0, swY:0, swLX:0, swLY:0, swT:0};
@@ -1307,6 +1341,10 @@ function openPreview(el, autoplay) {
     document.getElementById('modal-body').style.overflow = 'hidden';
     img.src = fileUrl;
     img.dataset.navPath = path;
+    // Each photo needs its own fetch; hide any panel left open from the last one.
+    var exifPanel = document.getElementById('modal-exif-panel');
+    exifPanel.style.display = 'none';
+    exifPanel.dataset.loadedFor = '';
     document.getElementById('modal-nav-prev').style.display = '';
     document.getElementById('modal-nav-next').style.display = '';
     modal.querySelector('.modal-box').classList.add('modal-photo');

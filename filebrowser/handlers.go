@@ -11,6 +11,10 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
 	"log"
 	"math"
@@ -27,6 +31,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/rwcarlsen/goexif/exif"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -321,6 +326,73 @@ func findZipAlbumArt(zipFile string) string {
 // ServeFile/ffmpeg can read. Real paths pass through untouched; zip-internal
 // paths extract into the cache. Callers keep the original path for DB keys,
 // Content-Disposition and the thumbnail cache key.
+// handlePhotoExif returns capture metadata for the photo viewer's info panel:
+// pixel dimensions (stdlib image decoders — jpeg/png/gif only, other photo
+// formats just omit them) plus EXIF camera/date/GPS fields where the file
+// carries them (jpeg/tiff only; goexif returns ErrTagNotPresent otherwise,
+// which every field below treats as "leave it blank", not a failure).
+func (a *App) handlePhotoExif(w http.ResponseWriter, r *http.Request) {
+	absPath := filepath.Clean(r.URL.Query().Get("path"))
+	if !a.isAllowedPath(r, absPath) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if classifyExt(filepath.Ext(absPath)) != "photo" {
+		http.Error(w, "not a photo", http.StatusBadRequest)
+		return
+	}
+	servePath, err := a.resolveMediaPath(r.Context(), absPath)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	info, err := os.Stat(servePath)
+	if err != nil || info.IsDir() {
+		http.NotFound(w, r)
+		return
+	}
+	f, err := os.Open(servePath)
+	if err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	defer f.Close()
+
+	out := struct {
+		Width, Height int
+		Make, Model   string
+		DateTaken     string
+		GPSLat        float64 `json:"gpsLat,omitempty"`
+		GPSLon        float64 `json:"gpsLon,omitempty"`
+		HasGPS        bool
+		SizeBytes     int64
+		ModTime       string
+	}{SizeBytes: info.Size(), ModTime: info.ModTime().Local().Format("2006-01-02 15:04")}
+
+	if x, err := exif.Decode(f); err == nil {
+		if tag, err := x.Get(exif.Make); err == nil {
+			out.Make, _ = tag.StringVal()
+		}
+		if tag, err := x.Get(exif.Model); err == nil {
+			out.Model, _ = tag.StringVal()
+		}
+		if dt, err := x.DateTime(); err == nil {
+			out.DateTaken = dt.Format("2006-01-02 15:04")
+		}
+		if lat, lon, err := x.LatLong(); err == nil {
+			out.GPSLat, out.GPSLon, out.HasGPS = lat, lon, true
+		}
+	}
+	if _, err := f.Seek(0, io.SeekStart); err == nil {
+		if cfg, _, err := image.DecodeConfig(f); err == nil {
+			out.Width, out.Height = cfg.Width, cfg.Height
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(out)
+}
+
 func (a *App) resolveMediaPath(ctx context.Context, absPath string) (string, error) {
 	if _, err := os.Stat(absPath); err == nil {
 		return absPath, nil

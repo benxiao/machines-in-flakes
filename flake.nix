@@ -555,9 +555,9 @@
               })
               (makeGoService {
                 pname = "filebrowser";
-                version = "1.22.0";
+                version = "1.23.0";
                 src = ./filebrowser;
-                vendorHash = "sha256-cCSZsNYMmjh48YiztNTpUrqmDdL1OehYBfZm3evU9l8=";
+                vendorHash = "sha256-JHAjUqvX9Yx2nyMi2m/IMMz1ZuLawLPAPZ/Tv/AfFjg=";
                 description = "File Browser";
                 listenEnvVar = "FB_LISTEN";
                 listenPort = ":10094";

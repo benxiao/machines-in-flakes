@@ -191,6 +191,7 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /recent", a.handleRecent)
 
 	mux.HandleFunc("GET /file", a.handleServeFile)
+	mux.HandleFunc("GET /api/photo/exif", a.handlePhotoExif)
 	mux.HandleFunc("GET /thumbnail", a.handleThumbnail)
 	mux.HandleFunc("GET /hls/playlist", a.handleHLSPlaylist)
 	mux.HandleFunc("GET /hls/segment", a.handleHLSSegment)
