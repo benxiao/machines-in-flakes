@@ -882,7 +882,7 @@ const baseTmpl = `<!DOCTYPE html>
     </div>
     <div class="modal-body" id="modal-body">
       <div id="modal-zoom-wrap" style="display:none;overflow:hidden;position:relative;cursor:grab;touch-action:none">
-        <img id="modal-img" src="" alt="" style="position:absolute;top:0;left:0;transform-origin:0 0;user-select:none;-webkit-user-select:none;pointer-events:none">
+        <img id="modal-img" src="" alt="" draggable="false" style="position:absolute;top:0;left:0;transform-origin:0 0;user-select:none;-webkit-user-select:none;-webkit-user-drag:none;pointer-events:none">
         <div id="modal-exif-panel" style="display:none;position:absolute;top:10px;right:10px;max-width:260px;background:rgba(13,17,23,0.92);border:1px solid var(--border);border-radius:8px;padding:12px 14px;font-size:12px;line-height:1.6;color:#fff;z-index:5"
              onclick="event.stopPropagation()" ontouchstart="event.stopPropagation()" ontouchmove="event.stopPropagation()" ontouchend="event.stopPropagation()" onwheel="event.stopPropagation()" onmousedown="event.stopPropagation()" ondblclick="event.stopPropagation()"></div>
       </div>
@@ -1239,6 +1239,12 @@ function izInit(wrap, img) {
       iz.dragging = true; iz.lx = e.clientX; iz.ly = e.clientY;
       wrap.classList.add('iz-grabbing');
     });
+    // Chromium can still start a native image drag from a mousedown over the
+    // (pointer-events:none) img, hijacking the gesture: dragstart fires,
+    // then the browser sends dragend instead of mouseup, so our own drag
+    // state never resets. Block it outright — panning is handled entirely
+    // by our own mousemove/mouseup above.
+    wrap.addEventListener('dragstart', function(e) { e.preventDefault(); });
     wrap.addEventListener('dblclick', function(e) {
       var r = wrap.getBoundingClientRect();
       izTapZoom(e.clientX - r.left, e.clientY - r.top);
