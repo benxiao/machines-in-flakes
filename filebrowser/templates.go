@@ -707,7 +707,8 @@ input.pl-vol::-moz-range-thumb { width:11px; height:11px; border-radius:50%; bac
 @media (pointer: coarse) { .pl-vol-wrap { display:none; } }
 .pl-speed-wrap { display:flex; align-items:center; gap:5px; justify-self:start; }
 .pl-speed-icon { color:var(--fg-muted); font-size:13px; cursor:default; user-select:none; }
-.pl-speed-label { color:var(--fg-muted); font-size:11px; cursor:default; user-select:none; min-width:34px; white-space:nowrap; }
+.pl-speed-label { color:var(--fg-muted); font-size:11px; cursor:pointer; user-select:none; min-width:34px; white-space:nowrap; }
+.pl-speed-label:hover { color:#58a6ff; text-decoration:underline; }
 input.pl-speed { -webkit-appearance:none; appearance:none; width:70px; height:4px; background:var(--border); border-radius:2px; outline:none; cursor:pointer; }
 input.pl-speed::-webkit-slider-thumb { -webkit-appearance:none; width:11px; height:11px; border-radius:50%; background:#58a6ff; cursor:pointer; }
 input.pl-speed::-moz-range-thumb { width:11px; height:11px; border-radius:50%; background:#58a6ff; border:none; cursor:pointer; }
@@ -3046,6 +3047,17 @@ function plSeekToPos(pos) {
   }
   _plUpdateAudioUI();
 }
+// Clicking the speed label (e.g. "normal" or "+8%") snaps straight back to
+// 1x — dragging a slider onto that exact value is fiddly. Routed through
+// the slider's own 'change' listener (via a real event) rather than
+// duplicating applySpeed's restart/save logic here.
+function plResetSpeed() {
+  var speed = document.getElementById('pl-speed');
+  if (!speed) return;
+  speed.value = 1;
+  _plPendingRate = 1;
+  speed.dispatchEvent(new Event('change'));
+}
 // ---- Bookmarks ----
 var _plBookmarkPath = null; // path the currently-rendered chip row belongs to
 function plLoadBookmarks(path) {
@@ -3496,7 +3508,11 @@ function plInitAudioUI() {
       _plUpdateAudioUI();
     };
     speed.addEventListener('input', function() {
-      _plPendingRate = parseFloat(speed.value);
+      var v = parseFloat(speed.value);
+      // Magnetic snap: a slider has no click-to-reset affordance of its own,
+      // and landing on exactly 1.0 by pixel is fiddly, so widen the target.
+      if (Math.abs(v - 1) < 0.015) { v = 1; speed.value = 1; }
+      _plPendingRate = v;
       if (!_plSpeedTimer) _plSpeedTimer = setTimeout(function() { applySpeed(false); }, 200);
       _plUpdateAudioUI();
     });
@@ -3537,7 +3553,7 @@ var PLAYLIST_STATE = {{toJSON .State}};
         <div class="pl-speed-wrap">
           <span class="pl-speed-icon">&#177;</span>
           <input type="range" class="pl-speed" id="pl-speed" value="1" min="0.7" max="1.3" step="0.01">
-          <span class="pl-speed-label" id="pl-speed-label"></span>
+          <span class="pl-speed-label" id="pl-speed-label" onclick="plResetSpeed()" title="Reset to normal speed"></span>
         </div>
         ` + plTransportHTML + `
         <div class="pl-vol-wrap">
@@ -3711,7 +3727,7 @@ var START_IDX = {{.StartIdx}};
         <div class="pl-speed-wrap">
           <span class="pl-speed-icon">&#177;</span>
           <input type="range" class="pl-speed" id="pl-speed" value="1" min="0.7" max="1.3" step="0.01">
-          <span class="pl-speed-label" id="pl-speed-label"></span>
+          <span class="pl-speed-label" id="pl-speed-label" onclick="plResetSpeed()" title="Reset to normal speed"></span>
         </div>
         ` + plTransportHTML + `
         <div class="pl-vol-wrap">
@@ -3789,7 +3805,7 @@ var PLAYLIST_STATE = null;
         <div class="pl-speed-wrap">
           <span class="pl-speed-icon">&#177;</span>
           <input type="range" class="pl-speed" id="pl-speed" value="1" min="0.7" max="1.3" step="0.01">
-          <span class="pl-speed-label" id="pl-speed-label"></span>
+          <span class="pl-speed-label" id="pl-speed-label" onclick="plResetSpeed()" title="Reset to normal speed"></span>
         </div>
         ` + plTransportHTML + `
         <div class="pl-vol-wrap">
