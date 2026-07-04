@@ -1602,6 +1602,10 @@ function openSearchFile(e, el) {
     // Zip files are browsed as virtual directories (their own path, not
     // the parent) — same as clicking one in the normal Browse view.
     window.location = '/browse?dir=' + encodeURIComponent(p);
+  } else if (el.dataset.type === 'video' || el.dataset.type === 'photo') {
+    // Land in the containing folder AND open the file's own preview
+    // (playing, for video) rather than leaving the user to find it again.
+    window.location = '/browse?dir=' + encodeURIComponent(p.slice(0, p.lastIndexOf('/'))) + '&open=' + encodeURIComponent(p);
   } else {
     window.location = '/browse?dir=' + encodeURIComponent(p.slice(0, p.lastIndexOf('/')));
   }
@@ -2404,6 +2408,22 @@ loadFavStates();
     }
   } catch(e) {}
 })();
+// Deep link from search results: ?open=<path> opens that file's preview
+// (playing, for video) once the folder listing it belongs to has rendered.
+// openPreview() itself is defined in baseTmpl's script, which comes AFTER
+// this content block in document order — every other in-page call to it is
+// lazy (an onclick handler), so this is the one spot that must wait for
+// DOMContentLoaded rather than running inline.
+document.addEventListener('DOMContentLoaded', function() {
+  var params = new URLSearchParams(window.location.search);
+  var openPath = params.get('open');
+  if (!openPath) return;
+  params.delete('open');
+  var qs = params.toString();
+  history.replaceState(null, '', window.location.pathname + (qs ? '?' + qs : ''));
+  var el = document.querySelector('[data-path="' + CSS.escape(openPath) + '"]');
+  if (el) openPreview(el, true);
+});
 </script>
 {{end}}`
 
