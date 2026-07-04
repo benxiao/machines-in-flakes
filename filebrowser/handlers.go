@@ -2964,13 +2964,24 @@ func (a *App) handleStatsPage(w http.ResponseWriter, r *http.Request) {
 	userID := uid(r)
 	ctx := r.Context()
 
-	byDay := map[string]*StatDay{}
+	// GitHub-style activity heatmap: 53 week columns ending on the current
+	// week, Monday-start rows. The window begins on the Monday on/before
+	// one year ago so every column is a complete calendar week.
+	now := time.Now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	start := today.AddDate(0, 0, -364)
+	for start.Weekday() != time.Monday {
+		start = start.AddDate(0, 0, -1)
+	}
+
+	type dayPlay struct{ video, audio int64 }
+	byDay := map[string]*dayPlay{}
 	rows, err := a.db.Query(ctx, `
 		SELECT to_char(day, 'YYYY-MM-DD'), media_type, SUM(seconds)
 		FROM play_time
-		WHERE user_id = $1 AND day >= CURRENT_DATE - 29
+		WHERE user_id = $1 AND day >= $2
 		GROUP BY day, media_type
-	`, userID)
+	`, userID, start.Format("2006-01-02"))
 	if err != nil {
 		httpErr(w, err, 500)
 		return
@@ -2983,13 +2994,13 @@ func (a *App) handleStatsPage(w http.ResponseWriter, r *http.Request) {
 		}
 		d := byDay[day]
 		if d == nil {
-			d = &StatDay{}
+			d = &dayPlay{}
 			byDay[day] = d
 		}
 		if mt == "audio" {
-			d.AudioSec += sec
+			d.audio += sec
 		} else {
-			d.VideoSec += sec
+			d.video += sec
 		}
 	}
 	rows.Close()
@@ -2998,32 +3009,65 @@ func (a *App) handleStatsPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	days := make([]StatDay, 30)
-	var maxSec int64
-	now := time.Now()
-	for i := range days {
-		d := now.AddDate(0, 0, i-29)
-		sd := StatDay{Label: d.Format("2 Jan")}
-		if v := byDay[d.Format("2006-01-02")]; v != nil {
-			sd.VideoSec, sd.AudioSec = v.VideoSec, v.AudioSec
+	var weeks []StatWeek
+	hasPlay := false
+	prevMonth := time.Month(0)
+	for d := start; !d.After(today); d = d.AddDate(0, 0, 7) {
+		wk := StatWeek{}
+		if d.Month() != prevMonth {
+			wk.Month = d.Format("Jan")
+			prevMonth = d.Month()
 		}
-		if i%5 == 4 {
-			sd.Tick = sd.Label
-		}
-		if t := sd.VideoSec + sd.AudioSec; t > maxSec {
-			maxSec = t
-		}
-		days[i] = sd
-	}
-	if maxSec > 0 {
-		for i := range days {
-			days[i].VideoPct = int(days[i].VideoSec * 100 / maxSec)
-			days[i].AudioPct = int(days[i].AudioSec * 100 / maxSec)
-			if days[i].VideoSec > 0 && days[i].VideoPct == 0 {
-				days[i].VideoPct = 1
+		for i := range 7 {
+			day := d.AddDate(0, 0, i)
+			if day.After(today) {
+				wk.Cells[i] = StatCell{Class: "hmx"}
+				continue
 			}
-			if days[i].AudioSec > 0 && days[i].AudioPct == 0 {
-				days[i].AudioPct = 1
+			var video, audio int64
+			if v := byDay[day.Format("2006-01-02")]; v != nil {
+				video, audio = v.video, v.audio
+			}
+			tot := video + audio
+			cell := StatCell{Class: "hm0", Title: day.Format("Mon 2 Jan 2006") + " — no play time"}
+			if tot > 0 {
+				hasPlay = true
+				lvl := 1
+				switch {
+				case tot >= 3*3600:
+					lvl = 4
+				case tot >= 90*60:
+					lvl = 3
+				case tot >= 30*60:
+					lvl = 2
+				}
+				hue := "v"
+				if audio > video {
+					hue = "a"
+				}
+				cell.Class = fmt.Sprintf("hm%s%d", hue, lvl)
+				var parts []string
+				if video > 0 {
+					parts = append(parts, "video "+fmtDurStr(video))
+				}
+				if audio > 0 {
+					parts = append(parts, "audio "+fmtDurStr(audio))
+				}
+				cell.Title = day.Format("Mon 2 Jan 2006") + " — " + strings.Join(parts, " · ")
+			}
+			wk.Cells[i] = cell
+		}
+		weeks = append(weeks, wk)
+	}
+	// The window can open mid-month, putting the first label a week or two
+	// before the next month's; drop it rather than let them overlap.
+	for i := range weeks {
+		if weeks[i].Month == "" {
+			continue
+		}
+		for j := i + 1; j <= i+2 && j < len(weeks); j++ {
+			if weeks[j].Month != "" {
+				weeks[i].Month = ""
 			}
 		}
 	}
@@ -3085,7 +3129,7 @@ func (a *App) handleStatsPage(w http.ResponseWriter, r *http.Request) {
 
 	render(w, "stats", StatsPage{
 		ActiveTab: "stats", IsAdmin: isAdmin(r),
-		Days: days, HasPlay: maxSec > 0, Totals: t,
+		Weeks: weeks, HasPlay: hasPlay, Totals: t,
 		TopItems: top, RecentDone: done,
 	})
 }

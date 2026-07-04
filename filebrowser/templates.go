@@ -154,13 +154,26 @@ type RecentPage struct {
 	Items     []RecentItem
 }
 
-type StatDay struct {
-	Label    string // e.g. "02 Jan", used in hover title
-	Tick     string // axis label, set on every 5th day only
-	VideoSec int64
-	AudioSec int64
-	VideoPct int // bar segment height as % of the tallest day
-	AudioPct int
+type StatCell struct {
+	Class string // hm0 = no play, hmv1..4 / hma1..4 = intensity with dominant hue, hmx = future
+	Title string // e.g. "Mon 2 Jan 2026 — video 1h 20m · audio 45m"
+}
+
+type StatWeek struct {
+	Cells [7]StatCell // Monday..Sunday
+	Month string      // month label, set on the first week whose Monday enters a new month
+}
+
+func fmtDurStr(sec int64) string {
+	h := sec / 3600
+	m := (sec % 3600) / 60
+	if h > 0 {
+		return fmt.Sprintf("%dh %dm", h, m)
+	}
+	if m > 0 {
+		return fmt.Sprintf("%dm", m)
+	}
+	return fmt.Sprintf("%ds", sec)
 }
 
 type StatsTotals struct {
@@ -173,7 +186,7 @@ type StatsTotals struct {
 type StatsPage struct {
 	ActiveTab  string
 	IsAdmin    bool
-	Days       []StatDay
+	Weeks      []StatWeek
 	HasPlay    bool // any nonzero day in the chart window
 	Totals     StatsTotals
 	TopItems   []PlaylistItem
@@ -275,17 +288,7 @@ func initTemplates() {
 		"playURL": func(path string) template.URL {
 			return template.URL("/folder/play?file=" + url.QueryEscape(path))
 		},
-		"fmtDur": func(sec int64) string {
-			h := sec / 3600
-			m := (sec % 3600) / 60
-			if h > 0 {
-				return fmt.Sprintf("%dh %dm", h, m)
-			}
-			if m > 0 {
-				return fmt.Sprintf("%dm", m)
-			}
-			return fmt.Sprintf("%ds", sec)
-		},
+		"fmtDur": fmtDurStr,
 	}
 	base := template.Must(template.New("base").Funcs(funcMap).Parse(baseTmpl))
 	add := func(name, content string) {
@@ -689,6 +692,34 @@ input.pl-vol::-moz-range-thumb { width:11px; height:11px; border-radius:50%; bac
 input.pl-speed { -webkit-appearance:none; appearance:none; width:70px; height:4px; background:var(--border); border-radius:2px; outline:none; cursor:pointer; }
 input.pl-speed::-webkit-slider-thumb { -webkit-appearance:none; width:11px; height:11px; border-radius:50%; background:#58a6ff; cursor:pointer; }
 input.pl-speed::-moz-range-thumb { width:11px; height:11px; border-radius:50%; background:#58a6ff; border:none; cursor:pointer; }
+/* Stats page */
+.stat-cards { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:20px; }
+.stat-card { background:var(--bg-panel); border:1px solid var(--border); border-radius:8px; padding:12px 16px; flex:1; min-width:130px; }
+.stat-card-label { font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color:var(--fg-muted); margin-bottom:6px; white-space:nowrap; }
+.stat-card-video { color:#58a6ff; font-size:14px; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.stat-card-audio { color:#bc60ff; font-size:14px; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.stats-panel { background:var(--bg-panel); border:1px solid var(--border); border-radius:8px; padding:16px; margin-bottom:20px; }
+/* GitHub-style activity heatmap: week columns, Monday-start day rows */
+.hm-scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; padding-bottom:4px; }
+.hm-inner { display:inline-flex; flex-direction:column; }
+.hm-months { display:flex; gap:3px; margin-left:30px; margin-bottom:4px; font-size:10px; color:var(--fg-muted); }
+.hm-months > div { width:11px; flex-shrink:0; white-space:nowrap; overflow:visible; }
+.hm-dow { display:flex; flex-direction:column; gap:3px; width:30px; flex-shrink:0; font-size:9px; color:var(--fg-muted); }
+.hm-dow > span { height:11px; line-height:11px; }
+.hm-grid { display:flex; gap:3px; }
+.hm-col { display:flex; flex-direction:column; gap:3px; }
+.hm-cell { width:11px; height:11px; border-radius:2px; background:var(--surface-hover); flex-shrink:0; cursor:pointer; }
+.hm-cell.hmx { visibility:hidden; }
+.hm-cell.hmv1 { background:rgba(88,166,255,0.25); }
+.hm-cell.hmv2 { background:rgba(88,166,255,0.45); }
+.hm-cell.hmv3 { background:rgba(88,166,255,0.7); }
+.hm-cell.hmv4 { background:#58a6ff; }
+.hm-cell.hma1 { background:rgba(188,96,255,0.25); }
+.hm-cell.hma2 { background:rgba(188,96,255,0.45); }
+.hm-cell.hma3 { background:rgba(188,96,255,0.7); }
+.hm-cell.hma4 { background:#bc60ff; }
+.hm-legend { display:flex; align-items:center; gap:6px; margin-top:10px; font-size:11px; color:var(--fg-muted); flex-wrap:wrap; }
+.hm-legend .hm-cell { cursor:default; }
 @media (max-width: 640px) {
   main { padding: 12px; }
   header { padding: 10px 16px; flex-wrap: wrap; }
@@ -768,8 +799,6 @@ input.pl-speed::-moz-range-thumb { width:11px; height:11px; border-radius:50%; b
   input.pl-speed { width:140px; }
   /* Selection bar wraps to multiple rows with admin buttons */
   .sel-spacer { height:130px; }
-  /* Stats chart: 30 tick labels overlap on narrow screens; keep every 10th */
-  .stats-ticks > div:not(:nth-child(10n)) { visibility:hidden; }
 }
 `
 
@@ -4278,53 +4307,61 @@ document.querySelectorAll('.path-size-cell').forEach(function(cell) {
 
 const statsTmpl = `{{define "content"}}
 <h2 style="margin:0 0 2px">Stats</h2>
-<div class="summary" style="margin-bottom:16px">Play time and most played, last 30 days</div>
+<div class="summary" style="margin-bottom:16px">Play time and most played</div>
 
-<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px">
-  <div style="background:var(--bg-panel);border:1px solid var(--border);border-radius:6px;padding:12px 16px;min-width:120px">
-    <div class="muted" style="font-size:12px;margin-bottom:6px">Today</div>
-    <div style="color:#58a6ff;font-size:14px">&#9654; {{fmtDur .Totals.TodayVideo}}</div>
-    <div style="color:#bc60ff;font-size:14px">&#9834; {{fmtDur .Totals.TodayAudio}}</div>
+<div class="stat-cards">
+  <div class="stat-card">
+    <div class="stat-card-label">Today</div>
+    <div class="stat-card-video">&#9654; {{fmtDur .Totals.TodayVideo}}</div>
+    <div class="stat-card-audio">&#9834; {{fmtDur .Totals.TodayAudio}}</div>
   </div>
-  <div style="background:var(--bg-panel);border:1px solid var(--border);border-radius:6px;padding:12px 16px;min-width:120px">
-    <div class="muted" style="font-size:12px;margin-bottom:6px">Last 7 days</div>
-    <div style="color:#58a6ff;font-size:14px">&#9654; {{fmtDur .Totals.WeekVideo}}</div>
-    <div style="color:#bc60ff;font-size:14px">&#9834; {{fmtDur .Totals.WeekAudio}}</div>
+  <div class="stat-card">
+    <div class="stat-card-label">Last 7 days</div>
+    <div class="stat-card-video">&#9654; {{fmtDur .Totals.WeekVideo}}</div>
+    <div class="stat-card-audio">&#9834; {{fmtDur .Totals.WeekAudio}}</div>
   </div>
-  <div style="background:var(--bg-panel);border:1px solid var(--border);border-radius:6px;padding:12px 16px;min-width:120px">
-    <div class="muted" style="font-size:12px;margin-bottom:6px">Last 30 days</div>
-    <div style="color:#58a6ff;font-size:14px">&#9654; {{fmtDur .Totals.MonthVideo}}</div>
-    <div style="color:#bc60ff;font-size:14px">&#9834; {{fmtDur .Totals.MonthAudio}}</div>
+  <div class="stat-card">
+    <div class="stat-card-label">Last 30 days</div>
+    <div class="stat-card-video">&#9654; {{fmtDur .Totals.MonthVideo}}</div>
+    <div class="stat-card-audio">&#9834; {{fmtDur .Totals.MonthAudio}}</div>
   </div>
-  <div style="background:var(--bg-panel);border:1px solid var(--border);border-radius:6px;padding:12px 16px;min-width:120px">
-    <div class="muted" style="font-size:12px;margin-bottom:6px">All time</div>
-    <div style="color:#58a6ff;font-size:14px">&#9654; {{fmtDur .Totals.AllVideo}}</div>
-    <div style="color:#bc60ff;font-size:14px">&#9834; {{fmtDur .Totals.AllAudio}}</div>
+  <div class="stat-card">
+    <div class="stat-card-label">All time</div>
+    <div class="stat-card-video">&#9654; {{fmtDur .Totals.AllVideo}}</div>
+    <div class="stat-card-audio">&#9834; {{fmtDur .Totals.AllAudio}}</div>
   </div>
 </div>
 
 {{if .HasPlay}}
-<div style="background:var(--bg-panel);border:1px solid var(--border);border-radius:6px;padding:16px;margin-bottom:20px">
-  <div style="display:flex;align-items:flex-end;height:180px;gap:3px">
-    {{range .Days}}
-    <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%;min-width:0" title="{{.Label}} — video: {{fmtDur .VideoSec}}, audio: {{fmtDur .AudioSec}}">
-      <div style="height:{{.AudioPct}}%;background:#bc60ff;border-radius:2px 2px 0 0"></div>
-      <div style="height:{{.VideoPct}}%;background:#58a6ff"></div>
+<div class="stats-panel">
+  <h3 style="margin:0 0 12px">Activity</h3>
+  <div class="hm-scroll">
+    <div class="hm-inner">
+      <div class="hm-months">{{range .Weeks}}<div>{{.Month}}</div>{{end}}</div>
+      <div style="display:flex">
+        <div class="hm-dow"><span>Mon</span><span></span><span>Wed</span><span></span><span>Fri</span><span></span><span></span></div>
+        <div class="hm-grid">
+          {{range .Weeks}}<div class="hm-col">{{range .Cells}}<div class="hm-cell {{.Class}}" title="{{.Title}}" onclick="hmShow(this)"></div>{{end}}</div>{{end}}
+        </div>
+      </div>
     </div>
-    {{end}}
   </div>
-  <div class="stats-ticks" style="display:flex;gap:3px;margin-top:6px">
-    {{range .Days}}
-    <div style="flex:1;text-align:center;font-size:9px;color:var(--fg-muted);white-space:nowrap;min-width:0">{{.Tick}}</div>
-    {{end}}
-  </div>
-  <div style="display:flex;gap:16px;margin-top:10px;font-size:12px">
-    <span style="color:#58a6ff">&#9632; Video</span>
-    <span style="color:#bc60ff">&#9632; Audio</span>
+  <div id="hm-caption" class="muted" style="font-size:12px;min-height:17px;margin-top:8px"></div>
+  <div class="hm-legend">
+    <span style="color:#58a6ff">Video</span>
+    <div class="hm-cell hmv1"></div><div class="hm-cell hmv2"></div><div class="hm-cell hmv3"></div><div class="hm-cell hmv4"></div>
+    <span style="margin-left:10px;color:#bc60ff">Audio</span>
+    <div class="hm-cell hma1"></div><div class="hm-cell hma2"></div><div class="hm-cell hma3"></div><div class="hm-cell hma4"></div>
+    <span style="margin-left:10px">less &#8594; more &middot; hue = what you played most that day</span>
   </div>
 </div>
+<script>
+function hmShow(el) { document.getElementById('hm-caption').textContent = el.title; }
+// Start scrolled to the most recent weeks (right edge) on narrow screens.
+(function() { var s = document.querySelector('.hm-scroll'); if (s) s.scrollLeft = s.scrollWidth; })();
+</script>
 {{else}}
-<p class="muted">No play time recorded in the last 30 days.</p>
+<p class="muted">No play time recorded in the last year.</p>
 {{end}}
 
 <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start">
