@@ -1592,6 +1592,10 @@ function openSearchFile(e, el) {
   var p = el.dataset.path;
   if (el.dataset.type === 'audio') {
     window.location = '/folder/play?file=' + encodeURIComponent(p);
+  } else if (el.dataset.type === 'archive') {
+    // Zip files are browsed as virtual directories (their own path, not
+    // the parent) — same as clicking one in the normal Browse view.
+    window.location = '/browse?dir=' + encodeURIComponent(p);
   } else {
     window.location = '/browse?dir=' + encodeURIComponent(p.slice(0, p.lastIndexOf('/')));
   }
