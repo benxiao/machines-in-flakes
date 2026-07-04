@@ -680,6 +680,11 @@ input:focus, select:focus { outline: none; border-color: #58a6ff; }
 /* Custom playlist audio player */
 .pl-audio-ui { padding:12px 14px; background:var(--bg); border-radius:8px; border:1px solid var(--border); margin-bottom:10px; box-sizing:border-box; width:100%; overflow:hidden; }
 .pl-seek-wrap { width:100%; margin-bottom:10px; }
+.pl-bookmarks-row { display:flex; gap:6px; overflow-x:auto; -webkit-overflow-scrolling:touch; margin:-2px 0 8px; padding-bottom:2px; }
+.pl-bookmark-chip { display:flex; align-items:center; gap:5px; flex-shrink:0; background:var(--surface-hover); border:1px solid var(--border); border-radius:12px; padding:3px 6px 3px 10px; font-size:11px; color:var(--fg-muted); cursor:pointer; white-space:nowrap; }
+.pl-bookmark-chip:hover { border-color:#bc60ff; color:var(--fg); }
+.pl-bookmark-chip .pl-bm-del { color:var(--fg-muted); opacity:0.5; padding:0 2px; }
+.pl-bookmark-chip .pl-bm-del:hover { opacity:1; color:#f85149; }
 input.pl-seek { -webkit-appearance:none; appearance:none; width:100%; height:4px; background:var(--border); border-radius:2px; outline:none; cursor:pointer; display:block; margin-bottom:5px; }
 input.pl-seek::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; border-radius:50%; background:#bc60ff; cursor:pointer; }
 input.pl-seek::-moz-range-thumb { width:14px; height:14px; border-radius:50%; background:#bc60ff; border:none; cursor:pointer; }
@@ -2634,6 +2639,7 @@ const plTransportHTML = `<div class="pl-transport-btns">
           <button class="pl-nav-btn" onclick="plNext()" title="Next">&#9654;&#9654;</button>
           <button id="pl-repeat-btn" class="pl-mode-btn" onclick="plCycleRepeat()" title="Repeat">&#128257;</button>
           <button id="pl-sleep-btn" class="pl-mode-btn" onclick="plCycleSleep()" title="Sleep timer">&#9790;</button>
+          <button id="pl-bookmark-btn" class="pl-mode-btn" onclick="plAddBookmark()" title="Bookmark this position">&#128278;</button>
         </div>`
 
 const plSharedJS = `
@@ -3018,6 +3024,65 @@ function plTrackPos() {
   var sp = st.speed || 1, off = b.off || 0;
   return {idx: b.idx, pos: Math.max(0, cur - b.start) * sp + off, dur: (b.dur || 0) * sp + off, start: b.start, off: off, sp: sp};
 }
+// Seek the active audio element to a target position given in real
+// source-seconds (what plTrackPos() returns, and what bookmarks store) —
+// shared by the seek slider and bookmark jumps.
+function plSeekToPos(pos) {
+  var a = document.getElementById('pl-audio');
+  var tp = plTrackPos();
+  if (tp && tp.dur > 0) {
+    if (pos < tp.off) {
+      // Before the stream's ss start point — that part was never fetched.
+      startPlaylistItem(tp.idx, pos, true);
+      return;
+    }
+    var target = tp.start + (pos - tp.off) / tp.sp;
+    var evicted = false;
+    try { evicted = a.buffered.length > 0 && target < a.buffered.start(0); } catch(e) {}
+    if (evicted) { startPlaylistItem(tp.idx, pos, true); }
+    else { a.currentTime = target; }
+  } else if (a.duration && isFinite(a.duration)) {
+    a.currentTime = pos;
+  }
+  _plUpdateAudioUI();
+}
+// ---- Bookmarks ----
+var _plBookmarkPath = null; // path the currently-rendered chip row belongs to
+function plLoadBookmarks(path) {
+  _plBookmarkPath = path;
+  var row = document.getElementById('pl-bookmarks-row');
+  if (!row) return;
+  fetch('/api/bookmarks?path=' + encodeURIComponent(path)).then(function(r) { return r.json(); }).then(function(marks) {
+    if (_plBookmarkPath !== path || !row.isConnected) return;
+    if (!marks || !marks.length) { row.style.display = 'none'; row.innerHTML = ''; return; }
+    row.innerHTML = marks.map(function(b) {
+      return '<span class="pl-bookmark-chip" onclick="plJumpBookmark(' + b.position_sec + ')">' +
+        fmtTime(b.position_sec) + ' ' + escHtml(b.label) +
+        '<span class="pl-bm-del" onclick="event.stopPropagation();plDeleteBookmark(' + b.id + ')">&times;</span></span>';
+    }).join('');
+    row.style.display = 'flex';
+  }).catch(function(){});
+}
+function plAddBookmark() {
+  var path = _plBookmarkPath;
+  if (!path) return;
+  var tp = plTrackPos();
+  var a = document.getElementById('pl-audio');
+  var pos = tp ? tp.pos : (a.currentTime || 0);
+  var label = prompt('Bookmark label:', fmtTime(pos));
+  if (label === null) return;
+  fetch('/api/bookmarks', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({path: path, label: label, position_sec: pos})
+  }).then(function(r) { if (r.ok) plLoadBookmarks(path); });
+}
+function plJumpBookmark(pos) { plSeekToPos(pos); }
+function plDeleteBookmark(id) {
+  var path = _plBookmarkPath;
+  fetch('/api/bookmarks/' + id + '/delete', {method: 'POST'}).then(function(r) { if (r.ok && path) plLoadBookmarks(path); });
+}
+// ---- End bookmarks ----
 function plMseTick() {
   var st = _mse;
   if (!st || !st.sb) return;
@@ -3174,6 +3239,8 @@ function startPlaylistItem(idx, seekTo, autoplay) {
   var v = document.getElementById('pl-video'), a = document.getElementById('pl-audio');
   document.getElementById('pl-title').textContent = item.Name;
   document.getElementById('pl-badge').textContent = seekTo > 1 ? 'Resumed from ' + fmtTime(seekTo) : '';
+  if (item.FileType === 'audio') { plLoadBookmarks(item.Path); }
+  else { _plBookmarkPath = null; var bmRow = document.getElementById('pl-bookmarks-row'); if (bmRow) { bmRow.style.display = 'none'; bmRow.innerHTML = ''; } }
   if (v.hlsInstance) { v.hlsInstance.destroy(); v.hlsInstance = null; }
   v.pause(); v.src = ''; v.style.display = 'none';
   var media;
@@ -3382,24 +3449,8 @@ function plInitAudioUI() {
   if (seek) {
     seek.addEventListener('input', function() {
       var tp = plTrackPos();
-      if (tp && tp.dur > 0) {
-        var pos = parseFloat(seek.value) / 100 * tp.dur;  // real source-seconds
-        if (pos < tp.off) {
-          // Before the stream's ss start point — that part was never fetched.
-          startPlaylistItem(tp.idx, pos, true);
-          _plUpdateAudioUI();
-          return;
-        }
-        var target = tp.start + (pos - tp.off) / tp.sp;   // element-timeline seconds
-        var evicted = false;
-        try { evicted = a.buffered.length > 0 && target < a.buffered.start(0); } catch(e) {}
-        if (evicted) { startPlaylistItem(tp.idx, pos, true); }
-        else { a.currentTime = target; }
-        _plUpdateAudioUI();
-      } else if (a.duration && isFinite(a.duration)) {
-        a.currentTime = parseFloat(seek.value) / 100 * a.duration;
-        _plUpdateAudioUI();
-      }
+      var dur = tp && tp.dur > 0 ? tp.dur : ((a.duration && isFinite(a.duration)) ? a.duration : 0);
+      if (dur > 0) plSeekToPos(parseFloat(seek.value) / 100 * dur);
     });
   }
   var vol = document.getElementById('pl-vol');
@@ -3480,6 +3531,7 @@ var PLAYLIST_STATE = {{toJSON .State}};
       <div class="pl-seek-wrap">
         <input type="range" class="pl-seek" id="pl-seek" value="0" min="0" max="100" step="0.1">
         <div class="pl-time-row"><span id="pl-time-cur">0:00</span><span id="pl-time-dur">--:--</span></div>
+        <div id="pl-bookmarks-row" class="pl-bookmarks-row" style="display:none"></div>
       </div>
       <div class="pl-transport">
         <div class="pl-speed-wrap">
@@ -3653,6 +3705,7 @@ var START_IDX = {{.StartIdx}};
       <div class="pl-seek-wrap">
         <input type="range" class="pl-seek" id="pl-seek" value="0" min="0" max="100" step="0.1">
         <div class="pl-time-row"><span id="pl-time-cur">0:00</span><span id="pl-time-dur">--:--</span></div>
+        <div id="pl-bookmarks-row" class="pl-bookmarks-row" style="display:none"></div>
       </div>
       <div class="pl-transport">
         <div class="pl-speed-wrap">
@@ -3730,6 +3783,7 @@ var PLAYLIST_STATE = null;
       <div class="pl-seek-wrap">
         <input type="range" class="pl-seek" id="pl-seek" value="0" min="0" max="100" step="0.1">
         <div class="pl-time-row"><span id="pl-time-cur">0:00</span><span id="pl-time-dur">--:--</span></div>
+        <div id="pl-bookmarks-row" class="pl-bookmarks-row" style="display:none"></div>
       </div>
       <div class="pl-transport">
         <div class="pl-speed-wrap">

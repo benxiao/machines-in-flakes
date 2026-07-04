@@ -112,6 +112,15 @@ CREATE TABLE IF NOT EXISTS folder_play_time (
 	seconds    BIGINT NOT NULL DEFAULT 0,
 	PRIMARY KEY (user_id, media_type, folder)
 );
+CREATE TABLE IF NOT EXISTS track_bookmarks (
+	id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+	user_id      BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	path         TEXT NOT NULL,
+	label        TEXT NOT NULL,
+	position_sec DOUBLE PRECISION NOT NULL,
+	created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS track_bookmarks_path ON track_bookmarks (user_id, path);
 `
 
 const migrations = `
@@ -217,6 +226,9 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/folder/playlist-add", a.handleFolderPlaylistAdd)
 	mux.HandleFunc("GET /video/position", a.handleGetVideoPosition)
 	mux.HandleFunc("POST /video/position", a.handleSaveVideoPosition)
+	mux.HandleFunc("GET /api/bookmarks", a.handleListBookmarks)
+	mux.HandleFunc("POST /api/bookmarks", a.handleAddBookmark)
+	mux.HandleFunc("POST /api/bookmarks/{id}/delete", a.handleDeleteBookmark)
 	mux.HandleFunc("GET /play/stats", a.handlePlayStats)
 	mux.HandleFunc("GET /settings", a.handleSettingsPage)
 	mux.HandleFunc("GET /api/path-size", a.handlePathSize)

@@ -2113,6 +2113,87 @@ func (a *App) handleGetVideoPosition(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+type trackBookmark struct {
+	ID          int64   `json:"id"`
+	Label       string  `json:"label"`
+	PositionSec float64 `json:"position_sec"`
+}
+
+func (a *App) handleListBookmarks(w http.ResponseWriter, r *http.Request) {
+	absPath := filepath.Clean(r.URL.Query().Get("path"))
+	if !a.isAllowedPath(r, absPath) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	rows, err := a.db.Query(r.Context(), `
+		SELECT id, label, position_sec FROM track_bookmarks
+		WHERE user_id = $1 AND path = $2 ORDER BY position_sec ASC
+	`, uid(r), absPath)
+	if err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	defer rows.Close()
+	marks := []trackBookmark{}
+	for rows.Next() {
+		var b trackBookmark
+		if rows.Scan(&b.ID, &b.Label, &b.PositionSec) == nil {
+			marks = append(marks, b)
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(marks)
+}
+
+func (a *App) handleAddBookmark(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Path        string  `json:"path"`
+		Label       string  `json:"label"`
+		PositionSec float64 `json:"position_sec"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	absPath := filepath.Clean(req.Path)
+	if !a.isAllowedPath(r, absPath) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if req.PositionSec < 0 {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	label := strings.TrimSpace(req.Label)
+	if label == "" {
+		label = fmtDurStr(int64(req.PositionSec))
+	}
+	var id int64
+	err := a.db.QueryRow(r.Context(), `
+		INSERT INTO track_bookmarks (user_id, path, label, position_sec) VALUES ($1, $2, $3, $4)
+		RETURNING id
+	`, uid(r), absPath, label, req.PositionSec).Scan(&id)
+	if err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(trackBookmark{ID: id, Label: label, PositionSec: req.PositionSec})
+}
+
+func (a *App) handleDeleteBookmark(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if _, err := a.db.Exec(r.Context(), `DELETE FROM track_bookmarks WHERE id = $1 AND user_id = $2`, id, uid(r)); err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // folderKeyFor names the top-level folder a path groups under for the "top
 // folders" stat: the first path segment below whichever allowed root most
 // specifically contains it (e.g. the composer under a Classical music root),
