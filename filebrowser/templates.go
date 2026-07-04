@@ -878,6 +878,10 @@ var DEFAULT_VOL = 1; if (!window.matchMedia('(pointer: coarse)').matches) { try 
 // not gated behind the coarse-pointer check.
 var PL_SPEED_MIN = 0.7, PL_SPEED_MAX = 1.3, PL_SPEED_STEP = 0.01;
 var DEFAULT_SPEED = 1; try { var _ds = parseFloat(localStorage.getItem('fb_default_speed')); if (!isNaN(_ds)) DEFAULT_SPEED = Math.max(PL_SPEED_MIN, Math.min(PL_SPEED_MAX, _ds)); } catch(e) {}
+// Pitch mode for non-1x speed: true = browser time-stretch (keeps pitch but
+// its WSOLA algorithm warbles on sustained tones), false = plain resampling
+// (artifact-free but pitch shifts with speed, tape-style).
+var PRESERVE_PITCH = true; try { PRESERVE_PITCH = localStorage.getItem('fb_preserve_pitch') !== '0'; } catch(e) {}
 function hlsParams() {
   try {
     var ls = localStorage;
@@ -2474,6 +2478,30 @@ const plTransportHTML = `<div class="pl-transport-btns">
         </div>`
 
 const plSharedJS = `
+// Speed-slider drag state: value shown on the slider that hasn't been applied
+// to the media element yet (playbackRate assignment is throttled — see the
+// pl-speed input handler).
+var _plPendingRate = null;
+var _plSpeedTimer = null;
+function _plApplyPitch(el) {
+  if (!el) return;
+  if (el.preservesPitch !== undefined) { if (el.preservesPitch !== PRESERVE_PITCH) el.preservesPitch = PRESERVE_PITCH; }
+  else if (el.webkitPreservesPitch !== undefined) { el.webkitPreservesPitch = PRESERVE_PITCH; }
+}
+function _plUpdatePitchBtn() {
+  var b = document.getElementById('pl-pitch-btn');
+  if (!b) return;
+  b.classList.toggle('active', PRESERVE_PITCH);
+  b.title = PRESERVE_PITCH
+    ? 'Pitch: preserved via time-stretch (can sound grainy off 1x) — tap for tape-style'
+    : 'Pitch: follows speed (tape-style, artifact-free) — tap to preserve pitch';
+}
+function plTogglePitch() {
+  PRESERVE_PITCH = !PRESERVE_PITCH;
+  try { localStorage.setItem('fb_preserve_pitch', PRESERVE_PITCH ? '1' : '0'); } catch(e) {}
+  _plApplyPitch(document.getElementById('pl-audio'));
+  _plUpdatePitchBtn();
+}
 function plPlay(el) { var p = el.play(); if (p && p.catch) p.catch(function(e){ plLog('play rejected: ' + e.name); }); }
 // --- Shuffle & repeat ---
 var plShuffle = false; try { plShuffle = localStorage.getItem('fb_pl_shuffle') === '1'; } catch(e) {}
@@ -3070,8 +3098,11 @@ function _plUpdateAudioUI() {
   var speed = document.getElementById('pl-speed');
   if (speed) {
     // Snap to the step and round off binary floating-point noise (0.8 + 3*0.02
-    // is not exactly 0.86 in JS floats).
-    var rate = Math.round(Math.round(a.playbackRate / PL_SPEED_STEP) * PL_SPEED_STEP * 100) / 100;
+    // is not exactly 0.86 in JS floats). While a drag is in flight the applied
+    // playbackRate lags the thumb (throttled below) — render from the pending
+    // value so timeupdate ticks don't yank the thumb back mid-drag.
+    var rate = _plPendingRate !== null ? _plPendingRate :
+      Math.round(Math.round(a.playbackRate / PL_SPEED_STEP) * PL_SPEED_STEP * 100) / 100;
     speed.value = rate;
     // Bipolar control: fill the band between the center (1x / normal speed)
     // and wherever the thumb sits, rather than volume's fill-from-left, so
@@ -3097,11 +3128,14 @@ function plInitAudioUI() {
   ['timeupdate','play','pause','loadedmetadata','durationchange'].forEach(function(ev) {
     a.addEventListener(ev, _plUpdateAudioUI);
   });
+  _plApplyPitch(a);
+  _plUpdatePitchBtn();
   // playbackRate set at track-start time doesn't survive: the MSE branch
   // reassigns a.src to a new MediaSource object URL afterward (plMseStart),
   // which resets playbackRate to 1 — re-assert it once the new track's
   // metadata is actually loaded, regardless of which loading path was used.
-  a.addEventListener('loadedmetadata', function() { a.playbackRate = DEFAULT_SPEED; _plUpdateAudioUI(); });
+  // (preservesPitch survives src changes, but re-asserting is free.)
+  a.addEventListener('loadedmetadata', function() { a.playbackRate = DEFAULT_SPEED; _plApplyPitch(a); _plUpdateAudioUI(); });
   if (seek) {
     seek.addEventListener('input', function() {
       var tp = plTrackPos();
@@ -3134,13 +3168,27 @@ function plInitAudioUI() {
   }
   var speed = document.getElementById('pl-speed');
   if (speed) {
-    speed.addEventListener('input', function() {
-      var rate = parseFloat(speed.value);
+    // Every playbackRate assignment makes the browser's pitch-preserving
+    // time-stretcher re-seed, which is audible as a glitch — a drag fires
+    // 'input' per 0.01 step, dozens of times a second, i.e. a crackle storm.
+    // Keep the label/gradient live from the pending value, but apply the
+    // rate to the element at most once per 200ms, and immediately on release.
+    var applySpeed = function() {
+      if (_plSpeedTimer) { clearTimeout(_plSpeedTimer); _plSpeedTimer = null; }
+      if (_plPendingRate === null) return;
+      var rate = _plPendingRate;
+      _plPendingRate = null;
       a.playbackRate = rate;
       DEFAULT_SPEED = rate;
       try { localStorage.setItem('fb_default_speed', rate); } catch(e) {}
       _plUpdateAudioUI();
+    };
+    speed.addEventListener('input', function() {
+      _plPendingRate = parseFloat(speed.value);
+      if (!_plSpeedTimer) _plSpeedTimer = setTimeout(applySpeed, 200);
+      _plUpdateAudioUI();
     });
+    speed.addEventListener('change', applySpeed);
   }
 }
 `
@@ -3177,6 +3225,7 @@ var PLAYLIST_STATE = {{toJSON .State}};
           <span class="pl-speed-icon">&#177;</span>
           <input type="range" class="pl-speed" id="pl-speed" value="1" min="0.7" max="1.3" step="0.01">
           <span class="pl-speed-label" id="pl-speed-label"></span>
+          <button id="pl-pitch-btn" class="pl-mode-btn" onclick="plTogglePitch()">&#9835;</button>
         </div>
         ` + plTransportHTML + `
         <div class="pl-vol-wrap">
@@ -3350,6 +3399,7 @@ var START_IDX = {{.StartIdx}};
           <span class="pl-speed-icon">&#177;</span>
           <input type="range" class="pl-speed" id="pl-speed" value="1" min="0.7" max="1.3" step="0.01">
           <span class="pl-speed-label" id="pl-speed-label"></span>
+          <button id="pl-pitch-btn" class="pl-mode-btn" onclick="plTogglePitch()">&#9835;</button>
         </div>
         ` + plTransportHTML + `
         <div class="pl-vol-wrap">
@@ -3427,6 +3477,7 @@ var PLAYLIST_STATE = null;
           <span class="pl-speed-icon">&#177;</span>
           <input type="range" class="pl-speed" id="pl-speed" value="1" min="0.7" max="1.3" step="0.01">
           <span class="pl-speed-label" id="pl-speed-label"></span>
+          <button id="pl-pitch-btn" class="pl-mode-btn" onclick="plTogglePitch()">&#9835;</button>
         </div>
         ` + plTransportHTML + `
         <div class="pl-vol-wrap">
