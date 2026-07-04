@@ -878,10 +878,6 @@ var DEFAULT_VOL = 1; if (!window.matchMedia('(pointer: coarse)').matches) { try 
 // not gated behind the coarse-pointer check.
 var PL_SPEED_MIN = 0.7, PL_SPEED_MAX = 1.3, PL_SPEED_STEP = 0.01;
 var DEFAULT_SPEED = 1; try { var _ds = parseFloat(localStorage.getItem('fb_default_speed')); if (!isNaN(_ds)) DEFAULT_SPEED = Math.max(PL_SPEED_MIN, Math.min(PL_SPEED_MAX, _ds)); } catch(e) {}
-// Pitch mode for non-1x speed: true = browser time-stretch (keeps pitch but
-// its WSOLA algorithm warbles on sustained tones), false = plain resampling
-// (artifact-free but pitch shifts with speed, tape-style).
-var PRESERVE_PITCH = true; try { PRESERVE_PITCH = localStorage.getItem('fb_preserve_pitch') !== '0'; } catch(e) {}
 function hlsParams() {
   try {
     var ls = localStorage;
@@ -2483,36 +2479,6 @@ const plSharedJS = `
 // pl-speed input handler).
 var _plPendingRate = null;
 var _plSpeedTimer = null;
-function _plApplyPitch(el) {
-  if (!el) return;
-  if (el.preservesPitch !== undefined) { if (el.preservesPitch !== PRESERVE_PITCH) el.preservesPitch = PRESERVE_PITCH; }
-  else if (el.webkitPreservesPitch !== undefined) { el.webkitPreservesPitch = PRESERVE_PITCH; }
-}
-function _plUpdatePitchBtn() {
-  var b = document.getElementById('pl-pitch-btn');
-  if (!b) return;
-  b.classList.toggle('active', PRESERVE_PITCH);
-  b.title = PRESERVE_PITCH
-    ? 'Pitch: preserved via time-stretch (can sound grainy off 1x) — tap for tape-style'
-    : 'Pitch: follows speed (tape-style, artifact-free) — tap to preserve pitch';
-}
-function plTogglePitch() {
-  PRESERVE_PITCH = !PRESERVE_PITCH;
-  try { localStorage.setItem('fb_preserve_pitch', PRESERVE_PITCH ? '1' : '0'); } catch(e) {}
-  var a = document.getElementById('pl-audio');
-  _plApplyPitch(a);
-  _plUpdatePitchBtn();
-  // Pitch mode decides whether the MSE stream is server-stretched: switching
-  // it at non-1x speed means the current stream is the wrong format.
-  var wantStretch = plServerStretch() ? DEFAULT_SPEED : 1;
-  if (_mse && _mse.speed !== wantStretch) {
-    var tp = plTrackPos();
-    plLog('pitch restart ' + _mse.speed + ' -> ' + wantStretch);
-    startPlaylistItem(tp ? tp.idx : plCurrentIdx, tp ? tp.pos : 0, a ? !a.paused : true);
-  } else if (a) {
-    a.playbackRate = _plElementRate();
-  }
-}
 function plPlay(el) { var p = el.play(); if (p && p.catch) p.catch(function(e){ plLog('play rejected: ' + e.name); }); }
 // --- Shuffle & repeat ---
 var plShuffle = false; try { plShuffle = localStorage.getItem('fb_pl_shuffle') === '1'; } catch(e) {}
@@ -2602,11 +2568,11 @@ function plMseOk() {
   var lt = true; try { lt = localStorage.getItem('fb_lossless_transcode_enabled') !== '0'; } catch(e) {}
   return _PL_MSE && lt;
 }
-// Server-side time-stretch: on the MSE path, pitch-preserved speed is done by
-// ffmpeg (rubberband) instead of the browser's real-time WSOLA stretcher,
-// which warbles on sustained tones. Tape mode (pitch off) stays client-side.
+// Server-side time-stretch: on the MSE path, non-1x speed is done by ffmpeg
+// (rubberband) instead of the browser's real-time WSOLA stretcher, which
+// warbles on sustained tones.
 function plServerStretch() {
-  return plMseOk() && PRESERVE_PITCH && Math.abs(DEFAULT_SPEED - 1) >= 0.01;
+  return plMseOk() && Math.abs(DEFAULT_SPEED - 1) >= 0.01;
 }
 // The rate the <audio> element itself should run at: 1 when the current MSE
 // stream is already tempo-stretched server-side, the user speed otherwise.
@@ -3181,14 +3147,11 @@ function plInitAudioUI() {
   ['timeupdate','play','pause','loadedmetadata','durationchange'].forEach(function(ev) {
     a.addEventListener(ev, _plUpdateAudioUI);
   });
-  _plApplyPitch(a);
-  _plUpdatePitchBtn();
   // playbackRate set at track-start time doesn't survive: the MSE branch
   // reassigns a.src to a new MediaSource object URL afterward (plMseStart),
   // which resets playbackRate to 1 — re-assert it once the new track's
   // metadata is actually loaded, regardless of which loading path was used.
-  // (preservesPitch survives src changes, but re-asserting is free.)
-  a.addEventListener('loadedmetadata', function() { a.playbackRate = _plElementRate(); _plApplyPitch(a); _plUpdateAudioUI(); });
+  a.addEventListener('loadedmetadata', function() { a.playbackRate = _plElementRate(); _plUpdateAudioUI(); });
   if (seek) {
     seek.addEventListener('input', function() {
       var tp = plTrackPos();
@@ -3236,7 +3199,7 @@ function plInitAudioUI() {
       if (_plSpeedTimer) { clearTimeout(_plSpeedTimer); _plSpeedTimer = null; }
       if (_plPendingRate === null) return;
       var rate = _plPendingRate;
-      var wantStretch = (plMseOk() && PRESERVE_PITCH && Math.abs(rate - 1) >= 0.01) ? rate : 1;
+      var wantStretch = (plMseOk() && Math.abs(rate - 1) >= 0.01) ? rate : 1;
       var needRestart = _mse && _mse.speed !== wantStretch;
       // A server-stretch change means a stream re-fetch + ffmpeg re-encode:
       // only do that on release ('change'), never per throttled drag step —
@@ -3296,7 +3259,6 @@ var PLAYLIST_STATE = {{toJSON .State}};
           <span class="pl-speed-icon">&#177;</span>
           <input type="range" class="pl-speed" id="pl-speed" value="1" min="0.7" max="1.3" step="0.01">
           <span class="pl-speed-label" id="pl-speed-label"></span>
-          <button id="pl-pitch-btn" class="pl-mode-btn" onclick="plTogglePitch()">&#9835;</button>
         </div>
         ` + plTransportHTML + `
         <div class="pl-vol-wrap">
@@ -3470,7 +3432,6 @@ var START_IDX = {{.StartIdx}};
           <span class="pl-speed-icon">&#177;</span>
           <input type="range" class="pl-speed" id="pl-speed" value="1" min="0.7" max="1.3" step="0.01">
           <span class="pl-speed-label" id="pl-speed-label"></span>
-          <button id="pl-pitch-btn" class="pl-mode-btn" onclick="plTogglePitch()">&#9835;</button>
         </div>
         ` + plTransportHTML + `
         <div class="pl-vol-wrap">
@@ -3548,7 +3509,6 @@ var PLAYLIST_STATE = null;
           <span class="pl-speed-icon">&#177;</span>
           <input type="range" class="pl-speed" id="pl-speed" value="1" min="0.7" max="1.3" step="0.01">
           <span class="pl-speed-label" id="pl-speed-label"></span>
-          <button id="pl-pitch-btn" class="pl-mode-btn" onclick="plTogglePitch()">&#9835;</button>
         </div>
         ` + plTransportHTML + `
         <div class="pl-vol-wrap">
