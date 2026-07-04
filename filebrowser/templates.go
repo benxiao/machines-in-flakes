@@ -678,6 +678,7 @@ input.pl-seek::-moz-range-thumb { width:14px; height:14px; border-radius:50%; ba
 .pl-mode-btn { background:transparent; border:none; border-radius:6px; width:32px; height:32px; cursor:pointer; font-size:15px; opacity:0.35; padding:0; line-height:1; }
 .pl-mode-btn:hover { background:var(--surface-hover); }
 .pl-mode-btn.active { opacity:1; background:rgba(188,96,255,0.15); }
+#pl-sleep-btn.active { font-size:11px; color:#bc60ff; }
 #pl-play-btn { background:var(--surface-hover); border:1px solid var(--border); border-radius:50%; width:44px; height:44px; cursor:pointer; color:var(--fg); font-size:16px; display:flex; align-items:center; justify-content:center; padding:0; line-height:1; }
 #pl-play-btn:hover { background:var(--border); border-color:#bc60ff; }
 .pl-vol-wrap { display:flex; align-items:center; gap:5px; justify-self:end; }
@@ -2565,6 +2566,7 @@ const plTransportHTML = `<div class="pl-transport-btns">
           <button id="pl-play-btn" onclick="plTogglePlay()" title="Play / Pause">&#9654;</button>
           <button class="pl-nav-btn" onclick="plNext()" title="Next">&#9654;&#9654;</button>
           <button id="pl-repeat-btn" class="pl-mode-btn" onclick="plCycleRepeat()" title="Repeat">&#128257;</button>
+          <button id="pl-sleep-btn" class="pl-mode-btn" onclick="plCycleSleep()" title="Sleep timer">&#9790;</button>
         </div>`
 
 const plSharedJS = `
@@ -2647,6 +2649,68 @@ function plToggleShuffle() {
   _plModeChanged();
   plLog('shuffle ' + plShuffle);
 }
+// ---- Sleep timer ----
+// Deadline lives in localStorage so it survives page navigation; only the
+// page whose timer was running when it expires pauses the audio (_plSleepArmed).
+var _plSleepArmed = false, _plSleepVol0 = null;
+function _plSleepRemainMs() {
+  var u = 0; try { u = parseInt(localStorage.getItem('fb_sleep_until') || '0', 10); } catch(e) {}
+  return u - Date.now();
+}
+function plCycleSleep() {
+  var cur = 0;
+  if (_plSleepRemainMs() > 0) { try { cur = parseInt(localStorage.getItem('fb_sleep_len') || '0', 10); } catch(e) {} }
+  var next = cur === 0 ? 15 : cur === 15 ? 30 : cur === 30 ? 60 : 0;
+  try {
+    if (next) {
+      localStorage.setItem('fb_sleep_until', String(Date.now() + next * 60000));
+      localStorage.setItem('fb_sleep_len', String(next));
+    } else {
+      localStorage.removeItem('fb_sleep_until');
+      localStorage.removeItem('fb_sleep_len');
+    }
+  } catch(e) {}
+  var a = document.getElementById('pl-audio');
+  if (!next && a && _plSleepVol0 !== null) { a.volume = _plSleepVol0; _plSleepVol0 = null; }
+  plLog('sleep timer ' + (next ? next + 'm' : 'off'));
+  _plSleepUpdate();
+}
+function _plSleepUpdate() {
+  var btn = document.getElementById('pl-sleep-btn');
+  if (!btn) return;
+  var rem = _plSleepRemainMs();
+  var a = document.getElementById('pl-audio');
+  if (rem <= 0) {
+    if (_plSleepArmed) {
+      _plSleepArmed = false;
+      if (a) {
+        a.pause();
+        if (_plSleepVol0 !== null) { a.volume = _plSleepVol0; _plSleepVol0 = null; }
+      }
+      plLog('sleep timer expired — paused');
+    }
+    btn.classList.remove('active');
+    btn.innerHTML = '&#9790;';
+    btn.title = 'Sleep timer';
+    try {
+      if (localStorage.getItem('fb_sleep_until')) {
+        localStorage.removeItem('fb_sleep_until');
+        localStorage.removeItem('fb_sleep_len');
+      }
+    } catch(e) {}
+    return;
+  }
+  _plSleepArmed = true;
+  btn.classList.add('active');
+  btn.textContent = Math.ceil(rem / 60000) + 'm';
+  btn.title = 'Sleep timer: pause in ' + Math.ceil(rem / 60000) + ' min (tap to change)';
+  // Fade out over the final 10 seconds.
+  if (a && !a.paused && rem < 10000) {
+    if (_plSleepVol0 === null) _plSleepVol0 = a.volume;
+    a.volume = _plSleepVol0 * Math.max(0.03, rem / 10000);
+  }
+}
+// ---- End sleep timer ----
 function plCycleRepeat() {
   plRepeat = plRepeat === 'off' ? 'all' : (plRepeat === 'all' ? 'one' : 'off');
   try { localStorage.setItem('fb_pl_repeat', plRepeat); } catch(e) {}
@@ -3238,6 +3302,8 @@ function plInitAudioUI() {
   var seek = document.getElementById('pl-seek');
   if (!a) return;
   plModeBtns();
+  setInterval(_plSleepUpdate, 1000);
+  _plSleepUpdate();
   ['timeupdate','play','pause','loadedmetadata','durationchange'].forEach(function(ev) {
     a.addEventListener(ev, _plUpdateAudioUI);
   });
