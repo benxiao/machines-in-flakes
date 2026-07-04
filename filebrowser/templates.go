@@ -872,7 +872,7 @@ const baseTmpl = `<!DOCTYPE html>
     <div id="modal-pdf-controls" style="display:none;justify-content:center;align-items:center;gap:12px;padding:10px;background:var(--bg);border-top:1px solid var(--border);flex-shrink:0">
       <button id="modal-pdf-md-btn" class="btn btn-edit btn-sm" onclick="copyPDFMarkdown()">&#128203; Copy as Markdown</button>
     </div>
-    <div id="modal-iz-hint" style="display:none;color:var(--fg-muted);font-size:11px;text-align:center;flex-shrink:0;background:var(--bg);border-top:1px solid var(--surface-hover)"><span class="iz-hint-mouse">Scroll to zoom &middot; drag to pan &middot; double-click to zoom&thinsp;/&thinsp;fit</span><span class="iz-hint-touch">Pinch to zoom &middot; drag to pan &middot; double-tap to zoom&thinsp;/&thinsp;fit</span></div>
+    <div id="modal-iz-hint" style="display:none;color:var(--fg-muted);font-size:11px;text-align:center;flex-shrink:0;background:var(--bg);border-top:1px solid var(--surface-hover)"><span class="iz-hint-mouse">Scroll to zoom &middot; drag to pan &middot; double-click to zoom&thinsp;/&thinsp;fit</span><span class="iz-hint-touch">Pinch to zoom &middot; swipe for next&thinsp;/&thinsp;prev &middot; double-tap to zoom&thinsp;/&thinsp;fit</span></div>
     <div id="modal-photo-controls" style="display:none;justify-content:center;align-items:center;gap:12px;background:var(--bg);border-top:1px solid var(--border);flex-shrink:0">
       <button id="modal-slideshow-btn" class="btn btn-edit btn-sm" onclick="toggleSlideshow()">&#9654; Slideshow</button>
     </div>
@@ -1125,7 +1125,8 @@ function toggleSlideshow() {
   btn.classList.add('btn-edit');
 }
 // ---- Image zoom/pan ----
-var iz = {scale:1, fitScale:1, tx:0, ty:0, dragging:false, lx:0, ly:0, lastT:null, tapT:0, tapX:0, tapY:0};
+var iz = {scale:1, fitScale:1, tx:0, ty:0, dragging:false, lx:0, ly:0, lastT:null, tapT:0, tapX:0, tapY:0,
+          swiping:false, swX:0, swY:0, swLX:0, swLY:0, swT:0};
 function izApply() {
   document.getElementById('modal-img').style.transform = 'translate('+iz.tx+'px,'+iz.ty+'px) scale('+iz.scale+')';
 }
@@ -1199,9 +1200,24 @@ function izInit(wrap, img) {
           var r = wrap.getBoundingClientRect();
           izTapZoom(t.clientX - r.left, t.clientY - r.top);
         } else { iz.tapT = now; iz.tapX = t.clientX; iz.tapY = t.clientY; }
-      } else iz.tapT = 0;
+        // At fit scale a single finger swipes between photos (checked after
+        // the tap logic above, so a double-tap that just zoomed in won't arm).
+        iz.swiping = Math.abs(iz.scale - iz.fitScale) < 0.01;
+        iz.swX = iz.swLX = t.clientX; iz.swY = iz.swLY = t.clientY; iz.swT = now;
+      } else { iz.tapT = 0; iz.swiping = false; }
       iz.lastT = Array.from(e.touches).map(function(t){return {clientX:t.clientX,clientY:t.clientY};});
     }, {passive:false});
+    wrap.addEventListener('touchend', function(e) {
+      iz.lastT = Array.from(e.touches).map(function(t){return {clientX:t.clientX,clientY:t.clientY};});
+      if (!iz.swiping || e.touches.length) return;
+      var dx = iz.swLX - iz.swX, dy = iz.swLY - iz.swY, dt = Date.now() - iz.swT;
+      iz.swiping = false;
+      // Fast, mostly-horizontal flick → prev/next; anything else springs back.
+      if (Math.abs(dx) > 70 && Math.abs(dx) > 2 * Math.abs(dy) && dt < 600) {
+        iz.tapT = 0;
+        modalNavPhoto(dx < 0 ? 1 : -1);
+      } else if (dx || dy) izFit();
+    });
     wrap.addEventListener('touchmove', function(e) {
       e.preventDefault();
       var r = wrap.getBoundingClientRect(), lt = iz.lastT;
@@ -1215,8 +1231,14 @@ function izInit(wrap, img) {
         iz.ty += my - ((lt[0].clientY + lt[1].clientY) / 2 - r.top);
         izApply();
       } else if (e.touches.length === 1 && lt && lt.length === 1) {
-        iz.tx += e.touches[0].clientX - lt[0].clientX;
-        iz.ty += e.touches[0].clientY - lt[0].clientY;
+        if (iz.swiping) {
+          // Carousel-style feedback: follow the finger horizontally only.
+          iz.tx += e.touches[0].clientX - lt[0].clientX;
+          iz.swLX = e.touches[0].clientX; iz.swLY = e.touches[0].clientY;
+        } else {
+          iz.tx += e.touches[0].clientX - lt[0].clientX;
+          iz.ty += e.touches[0].clientY - lt[0].clientY;
+        }
         izApply();
       }
       iz.lastT = Array.from(e.touches).map(function(t){return {clientX:t.clientX,clientY:t.clientY};});

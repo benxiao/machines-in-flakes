@@ -555,7 +555,7 @@
               })
               (makeGoService {
                 pname = "filebrowser";
-                version = "1.20.0";
+                version = "1.21.0";
                 src = ./filebrowser;
                 vendorHash = "sha256-cCSZsNYMmjh48YiztNTpUrqmDdL1OehYBfZm3evU9l8=";
                 description = "File Browser";
