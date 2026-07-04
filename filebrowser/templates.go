@@ -149,9 +149,10 @@ type RecentItem struct {
 }
 
 type RecentPage struct {
-	ActiveTab string
-	IsAdmin   bool
-	Items     []RecentItem
+	ActiveTab  string
+	IsAdmin    bool
+	Items      []RecentItem
+	Continuing []RecentItem // subset of Items with a saved mid-file position, newest first
 }
 
 type StatCell struct {
@@ -289,6 +290,7 @@ func initTemplates() {
 			return template.URL("/folder/play?file=" + url.QueryEscape(path))
 		},
 		"fmtDur": fmtDurStr,
+		"fmtPos": func(sec float64) string { return fmtDurStr(int64(sec)) },
 	}
 	base := template.Must(template.New("base").Funcs(funcMap).Parse(baseTmpl))
 	add := func(name, content string) {
@@ -479,6 +481,9 @@ tr:hover td { background: var(--bg-panel); }
 .grid-icon { width:88px; height:66px; display:flex; align-items:center; justify-content:center; margin-bottom:6px; flex-shrink:0; }
 .grid-name { font-size:12px; line-height:1.3; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; max-width:104px; width:100%; word-break:break-word; }
 .grid-plays { position:absolute; top:6px; right:6px; font-size:10px; background:rgba(0,0,0,0.6); color:#fff; border-radius:4px; padding:1px 4px; }
+.continue-row { display:flex; gap:10px; overflow-x:auto; -webkit-overflow-scrolling:touch; padding-bottom:4px; margin-bottom:20px; }
+.continue-row .grid-card { flex:0 0 104px; }
+.continue-resume { font-size:10px; color:var(--fg-muted); margin-top:2px; }
 .grid-chk { position:absolute; top:6px; left:6px; opacity:0; transition:opacity 0.1s; }
 .grid-card.grid-checked .grid-chk { opacity:1; }
 .grid-card.grid-checked { border-color:#58a6ff; background:var(--surface-active); }
@@ -1415,24 +1420,10 @@ function openPreview(el, autoplay) {
       seekforward:  function(){ seekActiveMedia(15); }
     });
     bindMediaSessionState(audio);
-    audio.dataset.resumePath = path;
-    audio._lastSave = 0;
-    audio.addEventListener('timeupdate', function onTU() {
-      if (audio.dataset.resumePath !== path) { audio.removeEventListener('timeupdate', onTU); return; }
-      var now = Date.now();
-      if (now - (audio._lastSave || 0) > 5000 && audio.currentTime > 1) {
-        audio._lastSave = now;
-        saveVideoPos(path, audio.currentTime, false);
-      }
-    });
-    audio.addEventListener('ended', function() {
+    attachMediaResume(audio, path, badge, 'played', function() {
       plLog('preview ended, advancing=' + !!_na);
-      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
-      saveVideoPos(path, 0, true);
-      audio.currentTime = 0;
-      badge.textContent = '';
       if (_na) openPreview({dataset: _na}, true);
-    }, {once: true});
+    });
   } else if (type === 'pdf') {
     pdf.src = fileUrl;
     pdf.dataset.mdPath = path;
@@ -2403,6 +2394,36 @@ const recentTmpl = `{{define "content"}}
     <button id="btn-grid" class="btn-view" onclick="setView('grid')" title="Grid view">&#8859; Grid</button>
   </div>
 </div>
+{{if .Continuing}}
+<h3 style="margin:0 0 8px">Continue watching &amp; listening</h3>
+<div class="continue-row">
+{{range .Continuing}}
+<div class="grid-card" data-dir="{{.Dir}}" onclick="browseDir(this)">
+  {{if eq .FileType "video"}}
+  <div class="grid-thumb">
+    <img src="{{thumbURL .Path}}" loading="lazy" alt="" style="width:100%;height:100%;object-fit:cover;display:block"
+         onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+    <div style="display:none;width:100%;height:100%;align-items:center;justify-content:center">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="17" y1="7" x2="22" y2="7"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="2" y1="17" x2="7" y2="17"/></svg>
+    </div>
+  </div>
+  {{else if .AlbumArt}}
+  <div class="grid-thumb">
+    <img src="{{thumbURL .AlbumArt}}" loading="lazy" alt="" style="width:100%;height:100%;object-fit:cover;display:block"
+         onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+    <div style="display:none;width:100%;height:100%;align-items:center;justify-content:center">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="#bc60ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+    </div>
+  </div>
+  {{else}}
+  <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="#bc60ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>
+  {{end}}
+  <div class="grid-name">{{.Filename}}</div>
+  <div class="continue-resume">&#9654; {{fmtPos .PositionSec}}</div>
+</div>
+{{end}}
+</div>
+{{end}}
 {{if not .Items}}
 <p class="muted">Nothing played yet. Browse to a video or audio file to get started.</p>
 {{else}}

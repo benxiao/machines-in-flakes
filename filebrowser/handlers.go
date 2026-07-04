@@ -696,7 +696,18 @@ func (a *App) handleRecent(w http.ResponseWriter, r *http.Request) {
 			AlbumArt:    art,
 		})
 	}
-	render(w, "recent", RecentPage{ActiveTab: "recent", IsAdmin: isAdmin(r), Items: items})
+	var continuing []RecentItem
+	for _, it := range items {
+		// >30s in: skip files barely started, which are noise more often
+		// than a genuine "I meant to come back to this".
+		if it.PositionSec > 30 {
+			continuing = append(continuing, it)
+		}
+		if len(continuing) == 8 {
+			break
+		}
+	}
+	render(w, "recent", RecentPage{ActiveTab: "recent", IsAdmin: isAdmin(r), Items: items, Continuing: continuing})
 }
 
 
@@ -2081,11 +2092,6 @@ func (a *App) handleGetVideoPosition(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
-	if classifyExt(filepath.Ext(absPath)) == "audio" {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(videoPositionResp{})
-		return
-	}
 	var resp videoPositionResp
 	err := a.db.QueryRow(r.Context(),
 		`SELECT position_sec, watch_count FROM video_positions WHERE user_id = $1 AND path = $2`, uid(r), absPath,
@@ -2134,19 +2140,9 @@ func (a *App) handleSaveVideoPosition(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
+	mediaType := "video"
 	if classifyExt(filepath.Ext(absPath)) == "audio" {
-		a.accumulatePlayTime(r.Context(), uid(r), req.DeltaSec, "audio")
-		if req.Completed {
-			a.db.Exec(r.Context(), `
-				INSERT INTO video_positions (user_id, path, position_sec, watch_count, updated_at)
-				VALUES ($1, $2, 0, 1, now())
-				ON CONFLICT (user_id, path) DO UPDATE
-				  SET watch_count = video_positions.watch_count + 1,
-				      updated_at  = now()
-			`, uid(r), absPath)
-		}
-		w.WriteHeader(http.StatusNoContent)
-		return
+		mediaType = "audio"
 	}
 	var err error
 	if req.Completed {
@@ -2171,7 +2167,7 @@ func (a *App) handleSaveVideoPosition(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, err, 500)
 		return
 	}
-	a.accumulatePlayTime(r.Context(), uid(r), req.DeltaSec, "video")
+	a.accumulatePlayTime(r.Context(), uid(r), req.DeltaSec, mediaType)
 	w.WriteHeader(http.StatusNoContent)
 }
 
