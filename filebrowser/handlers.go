@@ -1768,7 +1768,17 @@ func (a *App) handleSavePlaylistState(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, err, 500)
 		return
 	}
-	a.accumulatePlayTime(r.Context(), uid(r), req.DeltaSec, req.MediaType)
+	var folder string
+	if req.DeltaSec > 0 {
+		var path string
+		if err := a.db.QueryRow(r.Context(),
+			`SELECT path FROM playlist_items WHERE playlist_id = $1 ORDER BY position LIMIT 1 OFFSET $2`,
+			id, req.CurrentIndex,
+		).Scan(&path); err == nil {
+			folder = folderKeyFor(path, a.allowedRoots(r))
+		}
+	}
+	a.accumulatePlayTime(r.Context(), uid(r), req.DeltaSec, req.MediaType, folder)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -2103,7 +2113,31 @@ func (a *App) handleGetVideoPosition(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-func (a *App) accumulatePlayTime(ctx context.Context, userID int64, deltaSec int, mediaType string) {
+// folderKeyFor names the top-level folder a path groups under for the "top
+// folders" stat: the first path segment below whichever allowed root most
+// specifically contains it (e.g. the composer under a Classical music root),
+// or the root's own name if the file sits directly inside it.
+func folderKeyFor(absPath string, roots []string) string {
+	var best string
+	for _, root := range roots {
+		if underRoot(absPath, root) && len(root) > len(best) {
+			best = root
+		}
+	}
+	if best == "" {
+		return ""
+	}
+	rel := strings.TrimPrefix(absPath, best+"/")
+	if rel == absPath {
+		return filepath.Base(best)
+	}
+	if i := strings.IndexByte(rel, '/'); i >= 0 {
+		return rel[:i]
+	}
+	return filepath.Base(best)
+}
+
+func (a *App) accumulatePlayTime(ctx context.Context, userID int64, deltaSec int, mediaType, folder string) {
 	if deltaSec <= 0 || deltaSec > 30 {
 		return
 	}
@@ -2114,6 +2148,12 @@ func (a *App) accumulatePlayTime(ctx context.Context, userID int64, deltaSec int
 		INSERT INTO play_time (user_id, day, media_type, seconds) VALUES ($1, CURRENT_DATE, $2, $3)
 		ON CONFLICT (user_id, day, media_type) DO UPDATE SET seconds = play_time.seconds + EXCLUDED.seconds
 	`, userID, mediaType, deltaSec)
+	if folder != "" {
+		a.db.Exec(ctx, `
+			INSERT INTO folder_play_time (user_id, media_type, folder, seconds) VALUES ($1, $2, $3, $4)
+			ON CONFLICT (user_id, media_type, folder) DO UPDATE SET seconds = folder_play_time.seconds + EXCLUDED.seconds
+		`, userID, mediaType, folder, deltaSec)
+	}
 }
 
 func (a *App) handlePlayStats(w http.ResponseWriter, r *http.Request) {
@@ -2167,7 +2207,7 @@ func (a *App) handleSaveVideoPosition(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, err, 500)
 		return
 	}
-	a.accumulatePlayTime(r.Context(), uid(r), req.DeltaSec, mediaType)
+	a.accumulatePlayTime(r.Context(), uid(r), req.DeltaSec, mediaType, folderKeyFor(absPath, a.allowedRoots(r)))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -3195,10 +3235,33 @@ func (a *App) handleStatsPage(w http.ResponseWriter, r *http.Request) {
 		rows.Close()
 	}
 
+	var folders []FolderStat
+	if rows, err := a.db.Query(ctx, `
+		SELECT media_type, folder, seconds FROM folder_play_time
+		WHERE user_id = $1 ORDER BY seconds DESC LIMIT 12
+	`, userID); err == nil {
+		for rows.Next() {
+			var f FolderStat
+			if rows.Scan(&f.MediaType, &f.Folder, &f.Seconds) == nil {
+				folders = append(folders, f)
+			}
+		}
+		rows.Close()
+	}
+	if len(folders) > 0 {
+		max := folders[0].Seconds
+		for i := range folders {
+			folders[i].Pct = int(folders[i].Seconds * 100 / max)
+			if folders[i].Pct == 0 {
+				folders[i].Pct = 1
+			}
+		}
+	}
+
 	render(w, "stats", StatsPage{
 		ActiveTab: "stats", IsAdmin: isAdmin(r),
 		Weeks: weeks, HasPlay: hasPlay, Totals: t,
-		TopItems: top, RecentDone: done,
+		TopItems: top, RecentDone: done, TopFolders: folders,
 	})
 }
 

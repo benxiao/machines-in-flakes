@@ -192,6 +192,14 @@ type StatsPage struct {
 	Totals     StatsTotals
 	TopItems   []PlaylistItem
 	RecentDone []RecentItem
+	TopFolders []FolderStat
+}
+
+type FolderStat struct {
+	Folder    string
+	MediaType string
+	Seconds   int64
+	Pct       int // bar width as % of the largest folder shown
 }
 
 type FavoritesPage struct {
@@ -4509,6 +4517,23 @@ function hmShow(el) { document.getElementById('hm-caption').textContent = el.tit
 </script>
 {{else}}
 <p class="muted">No play time recorded in the last year.</p>
+{{end}}
+
+{{if .TopFolders}}
+<div class="stats-panel">
+  <h3 style="margin:0 0 12px">Top folders</h3>
+  <div style="display:flex;flex-direction:column;gap:8px">
+  {{range .TopFolders}}
+  <div style="display:flex;align-items:center;gap:10px">
+    <div style="width:150px;flex-shrink:0;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{.Folder}}">{{.Folder}}</div>
+    <div style="flex:1;background:var(--surface-hover);border-radius:3px;height:14px;overflow:hidden">
+      <div style="height:100%;width:{{.Pct}}%;background:{{if eq .MediaType "audio"}}#bc60ff{{else}}#58a6ff{{end}};border-radius:3px"></div>
+    </div>
+    <div style="width:64px;flex-shrink:0;font-size:12px;text-align:right;color:var(--fg-muted)">{{fmtDur .Seconds}}</div>
+  </div>
+  {{end}}
+  </div>
+</div>
 {{end}}
 
 <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start">

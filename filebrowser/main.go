@@ -105,6 +105,13 @@ CREATE TABLE IF NOT EXISTS trash_items (
 	deleted_by    BIGINT REFERENCES users(id) ON DELETE SET NULL,
 	deleted_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS folder_play_time (
+	user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	media_type TEXT NOT NULL DEFAULT 'video',
+	folder     TEXT NOT NULL,
+	seconds    BIGINT NOT NULL DEFAULT 0,
+	PRIMARY KEY (user_id, media_type, folder)
+);
 `
 
 const migrations = `
