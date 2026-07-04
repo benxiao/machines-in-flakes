@@ -533,7 +533,7 @@ form.inline { display: inline; margin: 0; }
 .form-page { max-width: 580px; }
 .form-group { margin-bottom: 16px; }
 label { display: block; font-size: 13px; color: var(--fg-muted); margin-bottom: 4px; }
-input[type=text], select {
+input[type=text], input[type=number], input[type=password], select {
   width: 100%;
   padding: 7px 10px;
   background: var(--bg);
@@ -718,7 +718,7 @@ input.pl-speed::-moz-range-thumb { width:11px; height:11px; border-radius:50%; b
   /* View toggle: compact */
   .btn-view { padding: 4px 8px; font-size: 12px; }
   /* Prevent iOS auto-zoom on form inputs */
-  input[type=text], input[type=password], select { font-size: 16px; }
+  input[type=text], input[type=number], input[type=password], select { font-size: 16px; }
   /* Search: full-width fixed panel on mobile */
   .header-search { max-width:none; }
   .search-panel { position:fixed; top:80px; left:0; right:0; border-radius:0 0 8px 8px; }
@@ -755,7 +755,13 @@ input.pl-speed::-moz-range-thumb { width:11px; height:11px; border-radius:50%; b
   /* HTML5 drag doesn't work on touch; reclaim the row space */
   .pl-drag { display:none; }
   .pl-mode-btn { width:40px; height:40px; font-size:17px; }
-  .pl-transport-btns { gap:10px; }
+  /* Stack the player transport: buttons row on top, speed slider centered below
+     (volume is already hidden on touch). One grid row each, instead of the
+     desktop 1fr-auto-1fr columns that collide at phone widths. */
+  .pl-transport { grid-template-columns:1fr; row-gap:14px; justify-items:center; }
+  .pl-transport-btns { order:-1; gap:16px; }
+  .pl-speed-wrap { justify-self:center; }
+  input.pl-speed { width:140px; }
   /* Selection bar wraps to multiple rows with admin buttons */
   .sel-spacer { height:130px; }
   /* Stats chart: 30 tick labels overlap on narrow screens; keep every 10th */
@@ -1523,7 +1529,7 @@ const browseTmpl = `{{define "content"}}
         {{else}}<a href="{{browseURL $b.Path}}">{{$b.Name}}</a>{{end}}
         {{end}}
       </div>
-      <div style="display:flex;gap:8px;align-items:center">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         {{if and .IsAdmin (not .InZip)}}<label class="btn btn-primary btn-sm" id="upload-btn" style="cursor:pointer;margin:0" title="Upload files to this folder">&#8679; Upload<input type="file" id="upload-input" multiple style="display:none" onchange="uploadFiles(this.files)"></label><span id="upload-status" style="display:none;color:var(--fg-muted);font-size:13px;white-space:nowrap"></span>{{end}}
         {{if and .IsAdmin (not .InZip)}}<button id="btn-new-folder" class="btn btn-primary btn-sm" onclick="createFolder()" title="Create a new subdirectory in this folder">+ New Folder</button>{{end}}
         <button id="btn-play-all" class="btn btn-primary btn-sm" onclick="playFolderAll()" style="display:none" title="Play all media in this folder in a loop">&#9654; Loop</button>
@@ -3836,14 +3842,16 @@ function renderDupResult(data) {
     box.appendChild(header);
     g.Paths.forEach(function(p, pi) {
       var row = document.createElement('label');
-      row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 12px;font-size:13px;border-top:1px solid var(--surface-hover)';
+      row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 12px;font-size:13px;border-top:1px solid var(--surface-hover);min-width:0';
       var cb = document.createElement('input');
       cb.type = 'checkbox';
       cb.className = 'dup-check';
       cb.value = p;
       cb.checked = pi > 0;
+      cb.style.flexShrink = '0';
       row.appendChild(cb);
       var span = document.createElement('span');
+      span.style.cssText = 'min-width:0;overflow-wrap:anywhere';
       span.textContent = p;
       row.appendChild(span);
       box.appendChild(row);
