@@ -2499,8 +2499,19 @@ function _plUpdatePitchBtn() {
 function plTogglePitch() {
   PRESERVE_PITCH = !PRESERVE_PITCH;
   try { localStorage.setItem('fb_preserve_pitch', PRESERVE_PITCH ? '1' : '0'); } catch(e) {}
-  _plApplyPitch(document.getElementById('pl-audio'));
+  var a = document.getElementById('pl-audio');
+  _plApplyPitch(a);
   _plUpdatePitchBtn();
+  // Pitch mode decides whether the MSE stream is server-stretched: switching
+  // it at non-1x speed means the current stream is the wrong format.
+  var wantStretch = plServerStretch() ? DEFAULT_SPEED : 1;
+  if (_mse && _mse.speed !== wantStretch) {
+    var tp = plTrackPos();
+    plLog('pitch restart ' + _mse.speed + ' -> ' + wantStretch);
+    startPlaylistItem(tp ? tp.idx : plCurrentIdx, tp ? tp.pos : 0, a ? !a.paused : true);
+  } else if (a) {
+    a.playbackRate = _plElementRate();
+  }
 }
 function plPlay(el) { var p = el.play(); if (p && p.catch) p.catch(function(e){ plLog('play rejected: ' + e.name); }); }
 // --- Shuffle & repeat ---
@@ -2591,6 +2602,17 @@ function plMseOk() {
   var lt = true; try { lt = localStorage.getItem('fb_lossless_transcode_enabled') !== '0'; } catch(e) {}
   return _PL_MSE && lt;
 }
+// Server-side time-stretch: on the MSE path, pitch-preserved speed is done by
+// ffmpeg (rubberband) instead of the browser's real-time WSOLA stretcher,
+// which warbles on sustained tones. Tape mode (pitch off) stays client-side.
+function plServerStretch() {
+  return plMseOk() && PRESERVE_PITCH && Math.abs(DEFAULT_SPEED - 1) >= 0.01;
+}
+// The rate the <audio> element itself should run at: 1 when the current MSE
+// stream is already tempo-stretched server-side, the user speed otherwise.
+function _plElementRate() {
+  return (_mse && _mse.speed && _mse.speed !== 1) ? 1 : DEFAULT_SPEED;
+}
 var _plPreload = {path: null, blobUrl: null, blob: null, ctrl: null};
 var _plPreloadSkip = {};
 var _plActiveBlobUrl = null;
@@ -2598,7 +2620,10 @@ function plAudioUrl(item) {
   var _ltEnabled = true; try { _ltEnabled = localStorage.getItem('fb_lossless_transcode_enabled') !== '0'; } catch(e) {}
   var _kbps = '256'; try { _kbps = localStorage.getItem('fb_lossless_audio_kbps') || '256'; } catch(e) {}
   var tUrl = '/transcode/stream?path=' + encodeURIComponent(item.Path) + '&audio_kbps=' + _kbps;
-  if (plMseOk()) return tUrl;
+  if (plMseOk()) {
+    if (plServerStretch()) tUrl += '&speed=' + DEFAULT_SPEED;
+    return tUrl;
+  }
   var _losslessP = {'.flac':1,'.wav':1,'.aiff':1,'.alac':1,'.ape':1};
   var _extP = item.Path.slice(item.Path.lastIndexOf('.')).toLowerCase();
   if (MOBILE && !!_losslessP[_extP] && _ltEnabled) return tUrl;
@@ -2675,6 +2700,10 @@ var _mse = null;
 function plMseTeardown() {
   if (!_mse) return;
   if (_mse.objUrl) { try { URL.revokeObjectURL(_mse.objUrl); } catch(e) {} }
+  // Abort any in-flight stream fetch: a stretched fetch keeps a server-side
+  // ffmpeg encode running for the whole track if left to complete, so a
+  // speed change would otherwise leave zombie encodes stacking up.
+  if (_mse.fetchCtrl) { try { _mse.fetchCtrl.abort(); } catch(e) {} _mse.fetchCtrl = null; }
   _mse = null;
 }
 function _mseInfo() {
@@ -2699,7 +2728,12 @@ function plMseFetch(st, url, tag, cb) {
   }
   function direct() {
     plLog('mse fetch direct ' + tag);
-    fetch(url).then(function(r){ if (!r.ok) throw new Error('http ' + r.status); return r.arrayBuffer(); }).then(cb, function(){ cb(null); });
+    var ctrl = null;
+    try { ctrl = new AbortController(); st.fetchCtrl = ctrl; } catch(e) {}
+    fetch(url, ctrl ? {signal: ctrl.signal} : undefined)
+      .then(function(r){ if (!r.ok) throw new Error('http ' + r.status); return r.arrayBuffer(); })
+      .then(function(buf){ if (st.fetchCtrl === ctrl) st.fetchCtrl = null; cb(buf); },
+            function(){ if (st.fetchCtrl === ctrl) st.fetchCtrl = null; cb(null); });
   }
   if (_plPreload.path === url && _plPreload.blob) { take(); return; }
   if (_plPreload.path === url && _plPreload.ctrl) {
@@ -2747,13 +2781,18 @@ function _msePump(st) {
     }
   }
 }
-function plMseAppendTrack(st, idx, onBuffered) {
+function plMseAppendTrack(st, idx, onBuffered, ssReal) {
   if (!PLAYLIST_ITEMS.length) return;
   idx = ((idx % PLAYLIST_ITEMS.length) + PLAYLIST_ITEMS.length) % PLAYLIST_ITEMS.length;
   var item = PLAYLIST_ITEMS[idx];
   if (item.FileType !== 'audio') { st.noMore = true; plLog('mse noMore: idx=' + idx + ' is ' + item.FileType); return; }
   st.fetchingIdx = idx;
-  plMseFetch(st, plAudioUrl(item), 'idx=' + idx, function(buf) {
+  var url = plAudioUrl(item);
+  // ss = start offset in source seconds: the server only encodes the
+  // remainder, so speed changes / resumes mid-track don't wait for a
+  // full-track re-encode. The skipped part is simply not in the buffer.
+  if (ssReal > 0) url += '&ss=' + ssReal.toFixed(3);
+  plMseFetch(st, url, 'idx=' + idx, function(buf) {
     if (_mse !== st) return;
     st.fetchingIdx = -1;
     if (!buf || !buf.byteLength) {
@@ -2761,7 +2800,7 @@ function plMseAppendTrack(st, idx, onBuffered) {
       plLog('mse fetch failed idx=' + idx);
       return;
     }
-    var bound = {idx: idx, start: -1, dur: 0};
+    var bound = {idx: idx, start: -1, dur: 0, off: ssReal || 0};
     st.q.push({mark: bound});
     var CH = 1536 * 1024;
     for (var off = 0; off < buf.byteLength; off += CH) {
@@ -2780,7 +2819,13 @@ function plTrackPos() {
   for (var i = 0; i < st.bounds.length; i++) {
     if (st.bounds[i].start <= cur + 0.05) b = st.bounds[i];
   }
-  return {idx: b.idx, pos: Math.max(0, cur - b.start), dur: b.dur || 0, start: b.start};
+  // Real (source) track-seconds, regardless of server stretch: buffered time
+  // runs 1/speed as long as the source, and an ss-offset start means the
+  // first b.off source-seconds aren't in the buffer at all. With speed=1 and
+  // off=0 this is exactly the old element-time arithmetic, so position
+  // saving, stats, seek and display all keep source-seconds semantics.
+  var sp = st.speed || 1, off = b.off || 0;
+  return {idx: b.idx, pos: Math.max(0, cur - b.start) * sp + off, dur: (b.dur || 0) * sp + off, start: b.start, off: off, sp: sp};
 }
 function plMseTick() {
   var st = _mse;
@@ -2882,8 +2927,11 @@ function plMseStart(idx, seekTo, autoplay) {
   var a = document.getElementById('pl-audio');
   plMseTeardown();
   var ms = new MediaSource();
-  var st = {ms: ms, sb: null, q: [], bounds: [], end: 0, fetchingIdx: -1, appendedIdx: -1, noMore: false, nextTryAt: 0, objUrl: null};
+  var st = {ms: ms, sb: null, q: [], bounds: [], end: 0, fetchingIdx: -1, appendedIdx: -1, noMore: false, nextTryAt: 0, objUrl: null,
+            speed: plServerStretch() ? DEFAULT_SPEED : 1};
   _mse = st;
+  // Server-stretched streams already run at the requested tempo.
+  a.playbackRate = st.speed !== 1 ? 1 : DEFAULT_SPEED;
   st.objUrl = URL.createObjectURL(ms);
   a.src = st.objUrl;
   plMseBindEl(a);
@@ -2902,9 +2950,13 @@ function plMseStart(idx, seekTo, autoplay) {
     st.sb.addEventListener('updateend', function() { _msePump(st); });
     st.sb.addEventListener('error', function() { plLog('mse sourcebuffer error'); });
     plLog('mse sourceopen');
+    // On a stretched stream, resume via server-side ss (only the remainder is
+    // encoded — fast start, and element-time no longer equals source-time so
+    // a plain element seek would land wrong anyway).
+    var ssOff = (st.speed !== 1 && seekTo > 1) ? seekTo : 0;
     plMseAppendTrack(st, idx, function() {
       if (_mse !== st) return;
-      if (seekTo > 1 && Math.abs(a.currentTime - seekTo) > 1) { try { a.currentTime = seekTo; } catch(e) {} }
+      if (!ssOff && seekTo > 1 && Math.abs(a.currentTime - seekTo) > 1) { try { a.currentTime = seekTo; } catch(e) {} }
       try {
         var b = st.sb.buffered;
         if (b.length && a.currentTime < b.start(0)) {
@@ -2914,10 +2966,10 @@ function plMseStart(idx, seekTo, autoplay) {
       } catch(e) {}
       plLog('mse first-buffered ' + (autoplay ? 'play' : 'pause') + _mseInfo());
       if (autoplay) plPlay(a); else a.pause();
-    });
+    }, ssOff);
   }, {once: true});
   if (autoplay) plPlay(a);
-  plLog('mse start idx=' + idx + ' ap=' + !!autoplay + (seekTo > 1 ? ' seek=' + seekTo.toFixed(0) : ''));
+  plLog('mse start idx=' + idx + ' ap=' + !!autoplay + (seekTo > 1 ? ' seek=' + seekTo.toFixed(0) : '') + (st.speed !== 1 ? ' stretch=' + st.speed : ''));
 }
 function startPlaylistItem(idx, seekTo, autoplay) {
   if (!PLAYLIST_ITEMS || idx < 0 || idx >= PLAYLIST_ITEMS.length) return;
@@ -3098,11 +3150,12 @@ function _plUpdateAudioUI() {
   var speed = document.getElementById('pl-speed');
   if (speed) {
     // Snap to the step and round off binary floating-point noise (0.8 + 3*0.02
-    // is not exactly 0.86 in JS floats). While a drag is in flight the applied
-    // playbackRate lags the thumb (throttled below) — render from the pending
-    // value so timeupdate ticks don't yank the thumb back mid-drag.
+    // is not exactly 0.86 in JS floats). Render from the user-facing speed
+    // (pending value while a drag is in flight), NOT the element's
+    // playbackRate — that is 1 when the stream is server-stretched, and lags
+    // the thumb during a throttled drag.
     var rate = _plPendingRate !== null ? _plPendingRate :
-      Math.round(Math.round(a.playbackRate / PL_SPEED_STEP) * PL_SPEED_STEP * 100) / 100;
+      Math.round(Math.round(DEFAULT_SPEED / PL_SPEED_STEP) * PL_SPEED_STEP * 100) / 100;
     speed.value = rate;
     // Bipolar control: fill the band between the center (1x / normal speed)
     // and wherever the thumb sits, rather than volume's fill-from-left, so
@@ -3135,13 +3188,19 @@ function plInitAudioUI() {
   // which resets playbackRate to 1 — re-assert it once the new track's
   // metadata is actually loaded, regardless of which loading path was used.
   // (preservesPitch survives src changes, but re-asserting is free.)
-  a.addEventListener('loadedmetadata', function() { a.playbackRate = DEFAULT_SPEED; _plApplyPitch(a); _plUpdateAudioUI(); });
+  a.addEventListener('loadedmetadata', function() { a.playbackRate = _plElementRate(); _plApplyPitch(a); _plUpdateAudioUI(); });
   if (seek) {
     seek.addEventListener('input', function() {
       var tp = plTrackPos();
       if (tp && tp.dur > 0) {
-        var pos = parseFloat(seek.value) / 100 * tp.dur;
-        var target = tp.start + pos;
+        var pos = parseFloat(seek.value) / 100 * tp.dur;  // real source-seconds
+        if (pos < tp.off) {
+          // Before the stream's ss start point — that part was never fetched.
+          startPlaylistItem(tp.idx, pos, true);
+          _plUpdateAudioUI();
+          return;
+        }
+        var target = tp.start + (pos - tp.off) / tp.sp;   // element-timeline seconds
         var evicted = false;
         try { evicted = a.buffered.length > 0 && target < a.buffered.start(0); } catch(e) {}
         if (evicted) { startPlaylistItem(tp.idx, pos, true); }
@@ -3173,22 +3232,34 @@ function plInitAudioUI() {
     // 'input' per 0.01 step, dozens of times a second, i.e. a crackle storm.
     // Keep the label/gradient live from the pending value, but apply the
     // rate to the element at most once per 200ms, and immediately on release.
-    var applySpeed = function() {
+    var applySpeed = function(commit) {
       if (_plSpeedTimer) { clearTimeout(_plSpeedTimer); _plSpeedTimer = null; }
       if (_plPendingRate === null) return;
       var rate = _plPendingRate;
+      var wantStretch = (plMseOk() && PRESERVE_PITCH && Math.abs(rate - 1) >= 0.01) ? rate : 1;
+      var needRestart = _mse && _mse.speed !== wantStretch;
+      // A server-stretch change means a stream re-fetch + ffmpeg re-encode:
+      // only do that on release ('change'), never per throttled drag step —
+      // otherwise a single drag stacks a dozen concurrent encodes.
+      if (needRestart && !commit) return;
       _plPendingRate = null;
-      a.playbackRate = rate;
       DEFAULT_SPEED = rate;
       try { localStorage.setItem('fb_default_speed', rate); } catch(e) {}
+      if (needRestart) {
+        var tp = plTrackPos();
+        plLog('speed restart ' + _mse.speed + ' -> ' + wantStretch);
+        startPlaylistItem(tp ? tp.idx : plCurrentIdx, tp ? tp.pos : 0, !a.paused);
+      } else {
+        a.playbackRate = _plElementRate();
+      }
       _plUpdateAudioUI();
     };
     speed.addEventListener('input', function() {
       _plPendingRate = parseFloat(speed.value);
-      if (!_plSpeedTimer) _plSpeedTimer = setTimeout(applySpeed, 200);
+      if (!_plSpeedTimer) _plSpeedTimer = setTimeout(function() { applySpeed(false); }, 200);
       _plUpdateAudioUI();
     });
-    speed.addEventListener('change', applySpeed);
+    speed.addEventListener('change', function() { applySpeed(true); });
   }
 }
 `

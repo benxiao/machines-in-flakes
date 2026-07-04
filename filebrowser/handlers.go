@@ -13,6 +13,7 @@ import (
 	"html/template"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -2300,6 +2301,21 @@ func (a *App) handleTranscodeStream(w http.ResponseWriter, r *http.Request) {
 	if n, err := strconv.Atoi(r.URL.Query().Get("audio_kbps")); err == nil && n > 0 && n <= 1024 {
 		audioKbps = n
 	}
+	// Server-side time-stretch (pitch preserved): rubberband beats the
+	// browser's real-time WSOLA stretcher, which warbles on sustained tones.
+	speed := 1.0
+	if s, err := strconv.ParseFloat(r.URL.Query().Get("speed"), 64); err == nil {
+		speed = math.Min(2.0, math.Max(0.5, s))
+	}
+	if math.Abs(speed-1) < 0.01 {
+		speed = 1
+	}
+	// Start offset in source seconds, so a mid-track speed change only
+	// re-encodes the remainder of the track instead of the whole file.
+	startSec := 0.0
+	if s, err := strconv.ParseFloat(r.URL.Query().Get("ss"), 64); err == nil && s > 0 {
+		startSec = s
+	}
 	// Sources that are already AAC (m4a/aac) remux losslessly to ADTS instead
 	// of re-encoding, so this endpoint is safe as the universal audio path.
 	codec := ""
@@ -2310,21 +2326,20 @@ func (a *App) handleTranscodeStream(w http.ResponseWriter, r *http.Request) {
 		codec = strings.TrimSpace(string(out))
 	}
 	var args []string
-	if codec == "aac" {
-		args = []string{
-			"-y", "-i", srcPath,
-			"-vn",
-			"-c:a", "copy",
-			"-f", "adts", "pipe:1",
-		}
-	} else {
-		args = []string{
-			"-y", "-i", srcPath,
-			"-vn",
-			"-c:a", "aac", "-b:a", fmt.Sprintf("%dk", audioKbps),
-			"-f", "adts", "pipe:1",
-		}
+	args = append(args, "-y")
+	if startSec > 0 {
+		args = append(args, "-ss", fmt.Sprintf("%.3f", startSec))
 	}
+	args = append(args, "-i", srcPath, "-vn")
+	if codec == "aac" && speed == 1 {
+		args = append(args, "-c:a", "copy")
+	} else {
+		if speed != 1 {
+			args = append(args, "-af", fmt.Sprintf("rubberband=tempo=%.4f", speed))
+		}
+		args = append(args, "-c:a", "aac", "-b:a", fmt.Sprintf("%dk", audioKbps))
+	}
+	args = append(args, "-f", "adts", "pipe:1")
 	cmd := exec.CommandContext(r.Context(), a.ffmpegPath, args...)
 	var stderr bytes.Buffer
 	cmd.Stdout = w
