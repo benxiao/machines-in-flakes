@@ -920,7 +920,17 @@ function toggleTheme() {
 }
 var _fo = false; try { _fo = !!localStorage.getItem('fb_force_original'); } catch(e) {}
 var MOBILE = !_fo && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+// Some MSE event bindings (e.g. the 'waiting' listener) have no natural
+// throttle and can fire in a tight loop while a stream is stalled/buffering
+// (observed during a slow speed-restart re-encode) — cap how often this
+// actually sends so a stall can't exhaust the page's outstanding-request
+// budget and starve the real media fetch itself.
+var _plLogLast = 0, _plLogDropped = 0;
 function plLog(msg) {
+  var now = Date.now();
+  if (now - _plLogLast < 100) { _plLogDropped++; return; }
+  _plLogLast = now;
+  if (_plLogDropped > 0) { msg += ' (+' + _plLogDropped + ' suppressed)'; _plLogDropped = 0; }
   try { navigator.sendBeacon('/api/client-log', '[pl] ' + msg + ' vis=' + document.visibilityState + ' @' + location.pathname); } catch(e) {}
 }
 document.addEventListener('DOMContentLoaded', function() {
