@@ -647,6 +647,7 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleRecent(w http.ResponseWriter, r *http.Request) {
+	userID := uid(r)
 	rows, err := a.db.Query(r.Context(), `
 		SELECT path, watch_count, updated_at, position_sec
 		FROM video_positions
@@ -658,7 +659,7 @@ func (a *App) handleRecent(w http.ResponseWriter, r *http.Request) {
 		  )
 		ORDER BY updated_at DESC
 		LIMIT 50
-	`, uid(r))
+	`, userID)
 	if err != nil {
 		httpErr(w, err, 500)
 		return
@@ -696,6 +697,8 @@ func (a *App) handleRecent(w http.ResponseWriter, r *http.Request) {
 			AlbumArt:    art,
 		})
 	}
+	rows.Close()
+	a.enrichRecentContext(r.Context(), userID, items)
 	var continuing []RecentItem
 	for _, it := range items {
 		// >30s in: skip files barely started, which are noise more often
@@ -708,6 +711,51 @@ func (a *App) handleRecent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	render(w, "recent", RecentPage{ActiveTab: "recent", IsAdmin: isAdmin(r), Items: items, Continuing: continuing})
+}
+
+// enrichRecentContext fills in, per item, which playback context a click
+// should resume: a saved Playlist wins over Favorites wins over the plain
+// "browse to its folder" fallback. Neither lookup requires schema changes —
+// both are derived from tables that already exist for other pages.
+func (a *App) enrichRecentContext(ctx context.Context, userID int64, items []RecentItem) {
+	if len(items) == 0 {
+		return
+	}
+	_, favTracks, err := a.buildFavoritesQueue(ctx, userID, func(p string) string { return p })
+	favIdx := make(map[string]int, len(favTracks))
+	if err == nil {
+		for i, t := range favTracks {
+			if _, ok := favIdx[t.Path]; !ok {
+				favIdx[t.Path] = i
+			}
+		}
+	}
+	for i := range items {
+		var playlistID int64
+		var idx int
+		// idx is the item's rank under playlist_items' own ORDER BY (position, id) —
+		// the array index startPlaylistItem(idx,...) needs, not the raw position
+		// column (which can have gaps after reorders/deletions).
+		err := a.db.QueryRow(ctx, `
+			SELECT pi.playlist_id,
+			       (SELECT COUNT(*) FROM playlist_items pi2
+			        WHERE pi2.playlist_id = pi.playlist_id
+			          AND (pi2.position, pi2.id) < (pi.position, pi.id))
+			FROM playlist_items pi JOIN playlists p ON p.id = pi.playlist_id
+			WHERE pi.path = $1 AND p.user_id = $2
+			ORDER BY pi.playlist_id LIMIT 1
+		`, items[i].Path, userID).Scan(&playlistID, &idx)
+		if err == nil {
+			items[i].Context = "playlist"
+			items[i].ContextID = playlistID
+			items[i].ContextStart = idx
+			continue
+		}
+		if fi, ok := favIdx[items[i].Path]; ok {
+			items[i].Context = "favorites"
+			items[i].ContextStart = fi
+		}
+	}
 }
 
 
@@ -2657,12 +2705,26 @@ func (a *App) handleFavoritesPage(w http.ResponseWriter, r *http.Request) {
 		return rel
 	}
 
+	favItems, tracks, err := a.buildFavoritesQueue(ctx, userID, trimPath)
+	if err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+
+	render(w, "favorites", FavoritesPage{ActiveTab: "favorites", IsAdmin: isAdmin(r), Items: favItems, Tracks: tracks})
+}
+
+// buildFavoritesQueue rebuilds the flattened favorites playback queue exactly
+// as handleFavoritesPage renders it: favorited folders expand to their audio
+// contents, favorited individual tracks are single entries, both in
+// (position, created_at) order. Shared with handleRecent, which needs to
+// reverse-lookup a bare path's index in this same queue.
+func (a *App) buildFavoritesQueue(ctx context.Context, userID int64, trimPath func(string) string) ([]FavoriteItem, []PlaylistItem, error) {
 	favRows, err := a.db.Query(ctx, `
 		SELECT path, is_folder FROM favorites WHERE user_id = $1 ORDER BY position, created_at
 	`, userID)
 	if err != nil {
-		httpErr(w, err, 500)
-		return
+		return nil, nil, err
 	}
 	type rawFav struct {
 		Path     string
@@ -2732,7 +2794,7 @@ func (a *App) handleFavoritesPage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	render(w, "favorites", FavoritesPage{ActiveTab: "favorites", IsAdmin: isAdmin(r), Items: favItems, Tracks: tracks})
+	return favItems, tracks, nil
 }
 
 func (a *App) handleFavoriteList(w http.ResponseWriter, r *http.Request) {

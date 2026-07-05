@@ -138,14 +138,17 @@ type PathsPage struct {
 }
 
 type RecentItem struct {
-	Path        string
-	Filename    string
-	FileType    string
-	Dir         string
-	WatchCount  int64
-	UpdatedAt   string
-	PositionSec float64
-	AlbumArt    string
+	Path         string
+	Filename     string
+	FileType     string
+	Dir          string
+	WatchCount   int64
+	UpdatedAt    string
+	PositionSec  float64
+	AlbumArt     string
+	Context      string // "playlist", "favorites", or "" (plain folder)
+	ContextID    int64
+	ContextStart int
 }
 
 type RecentPage struct {
@@ -2442,7 +2445,7 @@ const recentTmpl = `{{define "content"}}
 <h3 style="margin:0 0 8px">Continue watching &amp; listening</h3>
 <div class="continue-row">
 {{range .Continuing}}
-<div class="grid-card" data-dir="{{.Dir}}" onclick="browseDir(this)">
+<div class="grid-card" data-path="{{.Path}}" data-name="{{.Filename}}" data-type="{{.FileType}}" data-context="{{.Context}}" data-context-id="{{.ContextID}}" data-context-start="{{.ContextStart}}" onclick="openRecentItem(this)">
   {{if eq .FileType "video"}}
   <div class="grid-thumb">
     <img src="{{thumbURL .Path}}" loading="lazy" alt="" style="width:100%;height:100%;object-fit:cover;display:block"
@@ -2483,7 +2486,7 @@ const recentTmpl = `{{define "content"}}
 </tr></thead>
 <tbody>
 {{range .Items}}
-<tr class="file-row" data-dir="{{.Dir}}" style="cursor:pointer" onclick="browseDir(this)">
+<tr class="file-row" data-path="{{.Path}}" data-name="{{.Filename}}" data-type="{{.FileType}}" data-context="{{.Context}}" data-context-id="{{.ContextID}}" data-context-start="{{.ContextStart}}" style="cursor:pointer" onclick="openRecentItem(this)">
   <td>{{.Filename}}</td>
   <td><span class="badge badge-{{.FileType}}">{{upper .FileType}}</span></td>
   <td class="muted" style="font-size:12px;font-family:monospace">{{.Dir}}</td>
@@ -2498,7 +2501,7 @@ const recentTmpl = `{{define "content"}}
 <div id="view-grid" class="view-grid" style="display:none">
 {{range .Items}}
 {{if eq .FileType "video"}}
-<div class="grid-card" data-dir="{{.Dir}}" onclick="browseDir(this)">
+<div class="grid-card" data-path="{{.Path}}" data-name="{{.Filename}}" data-type="{{.FileType}}" data-context="{{.Context}}" data-context-id="{{.ContextID}}" data-context-start="{{.ContextStart}}" onclick="openRecentItem(this)">
   {{if gt .WatchCount 0}}<span class="grid-plays">{{.WatchCount}}×</span>{{end}}
   <div class="grid-thumb">
     <img src="{{thumbURL .Path}}" loading="lazy" alt="" style="width:100%;height:100%;object-fit:cover;display:block"
@@ -2510,7 +2513,7 @@ const recentTmpl = `{{define "content"}}
   <div class="grid-name">{{.Filename}}</div>
 </div>
 {{else if eq .FileType "audio"}}
-<div class="grid-card" data-dir="{{.Dir}}" onclick="browseDir(this)">
+<div class="grid-card" data-path="{{.Path}}" data-name="{{.Filename}}" data-type="{{.FileType}}" data-context="{{.Context}}" data-context-id="{{.ContextID}}" data-context-start="{{.ContextStart}}" onclick="openRecentItem(this)">
   {{if gt .WatchCount 0}}<span class="grid-plays">{{.WatchCount}}×</span>{{end}}
   {{if .AlbumArt}}
   <div class="grid-thumb">
@@ -2544,22 +2547,18 @@ function setView(v) {
   var v = 'list'; try { v = localStorage.getItem('fb_view') || 'list'; } catch(e) {}
   setView(v);
 })();
-(function() {
-  var seen = {}, arr = [];
-  document.querySelectorAll('[data-type="audio"],[data-type="video"]').forEach(function(el) {
-    var p = el.dataset.path;
-    if (p && !seen[p]) { seen[p] = true; arr.push({path: p, name: el.dataset.name || '', type: el.dataset.type}); }
-  });
-  window.dirMediaFiles = arr;
-})();
-(function() {
-  var seen = {}, arr = [];
-  document.querySelectorAll('[data-type="photo"]').forEach(function(el) {
-    var p = el.dataset.path;
-    if (p && !seen[p]) { seen[p] = true; arr.push({path: p, name: el.dataset.name || '', type: 'photo'}); }
-  });
-  window.dirPhotoFiles = arr;
-})();
+function openRecentItem(el) {
+  var type = el.dataset.type, p = el.dataset.path, ctx = el.dataset.context;
+  if (ctx === 'playlist') {
+    window.location = '/playlists/' + el.dataset.contextId + '?start=' + el.dataset.contextStart;
+  } else if (ctx === 'favorites') {
+    window.location = '/favorites?start=' + el.dataset.contextStart;
+  } else if (type === 'audio') {
+    window.location = '/folder/play?file=' + encodeURIComponent(p);
+  } else {
+    window.location = '/browse?dir=' + encodeURIComponent(p.slice(0, p.lastIndexOf('/'))) + '&open=' + encodeURIComponent(p);
+  }
+}
 </script>
 {{end}}`
 
@@ -3055,6 +3054,25 @@ function plTrackPos() {
   var sp = st.speed || 1, off = b.off || 0;
   return {idx: b.idx, pos: Math.max(0, cur - b.start) * sp + off, dur: (b.dur || 0) * sp + off, start: b.start, off: off, sp: sp};
 }
+// Records a play into video_positions (what Recent reads from) regardless of
+// which of the three queue engines is playing — folder-play/favorites never
+// wrote here before, so their tracks never showed up in Recent at all.
+// delta_sec is always 0: play-time accumulation is already owned by
+// savePlState() (playlist-detail posts its own delta to /playlists/{id}/state);
+// this call would otherwise double-count it.
+function plRecordPosition(completed) {
+  var item = PLAYLIST_ITEMS && PLAYLIST_ITEMS[plCurrentIdx];
+  if (!item) return;
+  var media = getPlMedia();
+  var pos = media ? media.currentTime : 0;
+  var tp = plTrackPos();
+  if (tp) pos = tp.pos;
+  fetch('/video/position', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({path: item.Path, position: completed ? 0 : pos, completed: !!completed, delta_sec: 0})
+  });
+}
 // Seek the active audio element to a target position given in real
 // source-seconds (what plTrackPos() returns, and what bookmarks store) —
 // shared by the seek slider and bookmark jumps.
@@ -3147,10 +3165,12 @@ function plMseTick() {
     }
     plLastSave = Date.now();
     savePlState();
+    plRecordPosition(false);
     plLog('mse boundary idx=' + tp.idx);
   } else if (Date.now() - plLastSave > 5000 && cur > 1 && !a.paused) {
     plLastSave = Date.now();
     savePlState();
+    plRecordPosition(false);
   }
   // Stuck before the buffered range (AAC priming gap or post-eviction seek):
   // Chrome will not jump even tiny unbuffered gaps in MSE on its own.
@@ -3195,11 +3215,14 @@ function plMseBindEl(a) {
     var n = plNextIdx(plCurrentIdx);
     plLog('mse ended, next=' + n);
     plMseTeardown();
+    // Record completion for the track that just finished before plCurrentIdx
+    // moves on (startPlaylistItem below reassigns it to n).
+    savePlState();
+    plRecordPosition(true);
     if (n >= 0) {
       startPlaylistItem(n, 0, true);
-    } else {
-      savePlState();
-      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+    } else if ('mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = 'paused';
     }
   });
   ['waiting','stalled','error','playing','pause','seeking'].forEach(function(ev) {
@@ -3262,8 +3285,11 @@ function plMseStart(idx, seekTo, autoplay) {
           a.currentTime = b.start(0) + 0.01;
         }
       } catch(e) {}
-      plLog('mse first-buffered ' + (autoplay ? 'play' : 'pause') + _mseInfo());
-      if (autoplay) plPlay(a); else a.pause();
+      // autoplay reflects the flag captured when this track started loading;
+      // the fetch+append above is async, so a user may have already clicked
+      // play in the meantime (a.paused went false) — don't stomp on that.
+      plLog('mse first-buffered ' + ((autoplay || !a.paused) ? 'play' : 'pause') + _mseInfo());
+      if (autoplay || !a.paused) plPlay(a); else a.pause();
     }, ssOff);
   }, {once: true});
   if (autoplay) plPlay(a);
@@ -3381,6 +3407,7 @@ function startPlaylistItem(idx, seekTo, autoplay) {
     plLog('plAdvance(old path) from idx=' + idx + ' next=' + n);
     if (n < 0) {
       savePlState();
+      plRecordPosition(true);
       if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
       return;
     }
@@ -3392,6 +3419,7 @@ function startPlaylistItem(idx, seekTo, autoplay) {
       }
     }
     savePlState();
+    plRecordPosition(true);
     startPlaylistItem(n, 0, true);
   };
   // Audio→audio reuses the same element, so listeners from the previous track
@@ -3403,7 +3431,7 @@ function startPlaylistItem(idx, seekTo, autoplay) {
   var onTU = function() {
     if (plCurrentIdx !== idx || getPlMedia() !== media) { media.removeEventListener('timeupdate', onTU); return; }
     var now = Date.now();
-    if (now - plLastSave > 5000 && media.currentTime > 1) { plLastSave = now; savePlState(); }
+    if (now - plLastSave > 5000 && media.currentTime > 1) { plLastSave = now; savePlState(); plRecordPosition(false); }
     if (media.duration && isFinite(media.duration)) {
       if (!lateKicked && media.duration - media.currentTime < 30) { lateKicked = true; var ni = plNextIdx(idx); if (ni >= 0) plStartPreload(ni); }
       if (media.currentTime >= media.duration - 0.3) plAdvance();
@@ -3412,8 +3440,8 @@ function startPlaylistItem(idx, seekTo, autoplay) {
   media._plOnTU = onTU;
   media.addEventListener('timeupdate', onTU);
 }
-function plPrev() { savePlState(); var n = plPrevIdx(plCurrentIdx); if (n >= 0) startPlaylistItem(n, 0, true); }
-function plNext() { savePlState(); var n = plNextIdx(plCurrentIdx, true); if (n >= 0) startPlaylistItem(n, 0, true); }
+function plPrev() { savePlState(); plRecordPosition(false); var n = plPrevIdx(plCurrentIdx); if (n >= 0) startPlaylistItem(n, 0, true); }
+function plNext() { savePlState(); plRecordPosition(false); var n = plNextIdx(plCurrentIdx, true); if (n >= 0) startPlaylistItem(n, 0, true); }
 function plTogglePlay() {
   var a = document.getElementById('pl-audio');
   if (!a) return;
@@ -3719,9 +3747,22 @@ window.addEventListener('beforeunload', savePlState);
 document.addEventListener('DOMContentLoaded', function() {
   plInitAudioUI();
   bindPlDrag();
+  // Deep link from Recent: ?start=<idx> jumps straight to that track,
+  // overriding the normal saved-state resume, then cleans the URL.
+  var params = new URLSearchParams(window.location.search);
+  var startParam = params.get('start');
+  if (startParam !== null) {
+    params.delete('start');
+    var qs = params.toString();
+    history.replaceState(null, '', window.location.pathname + (qs ? '?' + qs : ''));
+  }
   if (PLAYLIST_ITEMS && PLAYLIST_ITEMS.length > 0) {
-    startPlaylistItem(Math.min((PLAYLIST_STATE && PLAYLIST_STATE.CurrentIndex) || 0, PLAYLIST_ITEMS.length - 1),
-                     (PLAYLIST_STATE && PLAYLIST_STATE.PositionSec) || 0);
+    if (startParam !== null) {
+      startPlaylistItem(Math.min(parseInt(startParam, 10) || 0, PLAYLIST_ITEMS.length - 1), 0, true);
+    } else {
+      startPlaylistItem(Math.min((PLAYLIST_STATE && PLAYLIST_STATE.CurrentIndex) || 0, PLAYLIST_ITEMS.length - 1),
+                       (PLAYLIST_STATE && PLAYLIST_STATE.PositionSec) || 0);
+    }
   }
 });
 </script>
@@ -3998,8 +4039,20 @@ function plUnstarFavItem(btn, itemIdx) {
 document.addEventListener('DOMContentLoaded', function() {
   plInitAudioUI();
   bindFavDrag();
+  // Deep link from Recent: ?start=<idx> jumps straight to that track.
+  var params = new URLSearchParams(window.location.search);
+  var startParam = params.get('start');
+  if (startParam !== null) {
+    params.delete('start');
+    var qs = params.toString();
+    history.replaceState(null, '', window.location.pathname + (qs ? '?' + qs : ''));
+  }
   if (PLAYLIST_ITEMS && PLAYLIST_ITEMS.length > 0) {
-    startPlaylistItem(0, 0);
+    if (startParam !== null) {
+      startPlaylistItem(Math.min(parseInt(startParam, 10) || 0, PLAYLIST_ITEMS.length - 1), 0, true);
+    } else {
+      startPlaylistItem(0, 0);
+    }
   }
 });
 </script>
