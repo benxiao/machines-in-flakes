@@ -3009,9 +3009,25 @@ function _msePump(st) {
     st.q.shift();
   } catch(e) {
     if (e.name === 'QuotaExceededError') {
+      // A long track can exceed the SourceBuffer quota outright (Android
+      // budgets can be as small as ~2MB ≈ 65s of 256k AAC). Only issue a
+      // remove() when it will actually free something: a remove of an
+      // already-empty range is a no-op that still fires updateend, which
+      // re-runs this pump into the same throw — a hard infinite loop
+      // (observed live: ~70k iterations/sec, playback frozen). When nothing
+      // is evictable yet, leave the chunk queued and return; plMseTick
+      // (4s interval + timeupdate) re-pumps as playback advances and
+      // eviction becomes possible.
       var cur = a ? a.currentTime : 0;
-      plLog('mse quota evict t=' + cur.toFixed(0));
-      try { sb.remove(0, Math.max(0.1, cur - 10)); } catch(e2) { st.q.shift(); plLog('mse evict failed ' + e2.name); }
+      var evictTo = cur - 5;
+      var canEvict = false;
+      try { canEvict = sb.buffered.length > 0 && sb.buffered.start(0) < evictTo - 0.5; } catch(e3) {}
+      if (canEvict) {
+        plLog('mse quota evict t=' + cur.toFixed(0));
+        try { sb.remove(0, evictTo); } catch(e2) { plLog('mse evict failed ' + e2.name); }
+      } else {
+        plLog('mse quota full, waiting t=' + cur.toFixed(0) + ' qlen=' + st.q.length);
+      }
     } else {
       st.q.shift();
       plLog('mse append error ' + e.name);
@@ -3039,7 +3055,11 @@ function plMseAppendTrack(st, idx, onBuffered, ssReal) {
     }
     var bound = {idx: idx, start: -1, dur: 0, off: ssReal || 0};
     st.q.push({mark: bound});
-    var CH = 1536 * 1024;
+    // 384KB ≈ 12s of 256k AAC per chunk: small enough that a phone with a
+    // ~2MB SourceBuffer quota can still make append progress from the space
+    // a routine eviction frees (1.5MB chunks required more free space than
+    // eviction could ever produce there, deadlocking playback).
+    var CH = 384 * 1024;
     for (var off = 0; off < buf.byteLength; off += CH) {
       st.q.push({buf: buf.slice(off, Math.min(off + CH, buf.byteLength))});
     }
