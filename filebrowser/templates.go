@@ -457,7 +457,7 @@ tr:hover td { background: var(--bg-panel); }
 .browse-sidebar-item:hover { background:var(--bg-panel); color:var(--fg); text-decoration:none; }
 .browse-sidebar-item.active { background:var(--surface-active); color:var(--fg-strong); border-left:3px solid #58a6ff; padding-left:13px; }
 .browse-main { flex:1; min-width:0; padding:16px 24px; overflow:hidden; }
-.header-search { position:relative; flex:1; max-width:400px; }
+.header-search { position:relative; width:100%; }
 #search-q { width:100%; padding:6px 14px; background:var(--bg); border:1px solid var(--border); border-radius:20px; color:var(--fg); font-size:14px; font-family:inherit; }
 #search-q:focus { outline:none; border-color:#58a6ff; }
 .search-panel { position:absolute; top:calc(100% + 6px); left:0; right:0; background:var(--bg-panel); border:1px solid var(--border); border-radius:8px; z-index:500; max-height:70vh; overflow-y:auto; box-shadow:0 8px 24px rgba(0,0,0,0.5); }
@@ -779,8 +779,7 @@ input.pl-speed::-moz-range-thumb { width:11px; height:11px; border-radius:50%; b
   /* Prevent iOS auto-zoom on form inputs */
   input[type=text], input[type=number], input[type=password], select { font-size: 16px; }
   /* Search: full-width fixed panel on mobile */
-  .header-search { max-width:none; }
-  .search-panel { position:fixed; top:80px; left:0; right:0; border-radius:0 0 8px 8px; }
+  .search-panel { border-radius:0 0 8px 8px; }
   .search-result { padding:8px 10px; gap:8px; }
   .search-result-thumb { width:44px; height:33px; }
   .search-result-name { font-size:12px; }
@@ -843,6 +842,10 @@ const baseTmpl = `<!DOCTYPE html>
   <span class="logo" style="flex-shrink:0">
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-4px;margin-right:6px"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>File Browser <span style="font-size:0.65em;font-weight:400;opacity:0.45;vertical-align:1px">v{{appVersion}}</span>
   </span>
+  <span id="play-stats" style="margin-left:auto;color:var(--fg-muted);font-size:12px;white-space:nowrap;flex-shrink:0;display:flex;gap:12px;align-items:center"></span>
+  <button id="theme-toggle" class="btn btn-edit btn-sm" onclick="toggleTheme()" title="Toggle light/dark theme" style="flex-shrink:0">&#9789;</button>
+</header>
+<div id="search-bar" style="padding:10px 24px;background:var(--bg-panel);border-bottom:1px solid var(--border)">
   <div class="header-search" id="header-search">
     <input id="search-q" type="text" placeholder="Search files…" autocomplete="off"
            oninput="onSearchInput()" onfocus="onSearchFocus()">
@@ -857,9 +860,7 @@ const baseTmpl = `<!DOCTYPE html>
       <div id="search-status" style="display:none;padding:12px;color:var(--fg-muted);font-size:13px;text-align:center"></div>
     </div>
   </div>
-  <span id="play-stats" style="margin-left:auto;color:var(--fg-muted);font-size:12px;white-space:nowrap;flex-shrink:0;display:flex;gap:12px;align-items:center"></span>
-  <button id="theme-toggle" class="btn btn-edit btn-sm" onclick="toggleTheme()" title="Toggle light/dark theme" style="flex-shrink:0">&#9789;</button>
-</header>
+</div>
 <nav>
   <a href="/browse"     {{if eq .ActiveTab "browse"}}class="active"{{end}}>Browse</a>
   <a href="/recent"     {{if eq .ActiveTab "recent"}}class="active"{{end}}>Recent</a>
