@@ -464,6 +464,7 @@ tr:hover td { background: var(--bg-panel); }
 .search-filters { display:flex; gap:6px; padding:10px 12px; border-bottom:1px solid var(--surface-hover); flex-wrap:wrap; }
 .sf-chip { background:transparent; border:1px solid var(--border); color:var(--fg-muted); border-radius:12px; padding:3px 10px; font-size:12px; cursor:pointer; }
 .sf-chip.active { background:var(--surface-active); border-color:#58a6ff; color:var(--fg-strong); }
+.search-type-header { padding:8px 12px 4px; }
 .search-result-group { border-bottom:1px solid var(--surface-hover); }
 .search-result-group:last-child { border-bottom:none; }
 .search-result { display:flex; gap:10px; padding:10px 12px; cursor:pointer; align-items:center; }
@@ -1554,7 +1555,7 @@ function runSearch(offset) {
       _searchOffset = offset + (results ? results.length : 0);
       _searchMore = results && results.length === 20;
       if (!results || !results.length) return;
-      var html = results.map(function(item){
+      results.forEach(function(item){
         var parts = item.dir_path.split('/').filter(Boolean);
         var folderName = parts.length ? parts[parts.length - 1] : item.dir_path;
         var thumb = (item.sample_type === 'video' || item.sample_type === 'photo')
@@ -1563,10 +1564,10 @@ function runSearch(offset) {
         var matchLabel = item.match_count + ' file' + (item.match_count === 1 ? '' : 's');
         var inline = item.match_count <= 3 && item.files && item.files.length;
         var chevron = !inline
-          ? '<button class="sr-expand" data-dir="' + escAttr(item.dir_path) + '" data-count="' + item.match_count + '" onclick="toggleSearchFiles(event,this)" title="Show matching files">&#9656;</button>'
+          ? '<button class="sr-expand" data-dir="' + escAttr(item.dir_path) + '" data-type="' + escAttr(item.sample_type) + '" data-count="' + item.match_count + '" onclick="toggleSearchFiles(event,this)" title="Show matching files">&#9656;</button>'
           : '';
         var filesHtml = inline ? item.files.map(renderSearchFile).join('') : '';
-        return '<div class="search-result-group">' +
+        var html = '<div class="search-result-group">' +
           '<div class="search-result" data-dir="' + escAttr(item.dir_path) + '" onclick="openSearchResult(this)">' +
             '<div class="search-result-thumb">' + thumb + '</div>' +
             '<div style="min-width:0;flex:1">' +
@@ -1577,9 +1578,32 @@ function runSearch(offset) {
           '</div>' +
           '<div class="sr-files">' + filesHtml + '</div>' +
         '</div>';
-      }).join('');
-      list.insertAdjacentHTML('beforeend', html);
+        var target = (_searchType === 'all') ? searchTypeSection(list, item.sample_type) : list;
+        target.insertAdjacentHTML('beforeend', html);
+      });
     }).catch(function(){ _searchLoading = false; status.textContent = 'Search failed.'; status.style.display = 'block'; });
+}
+// Groups same-type search results together (when the "All" filter is active) into
+// fixed-order sections, matching the sf-chip order plus the two types without a chip.
+var SEARCH_TYPE_ORDER = ['video', 'audio', 'photo', 'pdf', 'archive'];
+var SEARCH_TYPE_LABELS = {video: 'Video', audio: 'Audio', photo: 'Photo', pdf: 'PDF', archive: 'Archive'};
+function searchTypeSection(list, type) {
+  var existing = list.querySelector('.search-type-section[data-stype="' + type + '"]');
+  if (existing) return existing.querySelector('.search-type-items');
+  var section = document.createElement('div');
+  section.className = 'search-type-section';
+  section.dataset.stype = type;
+  var label = SEARCH_TYPE_LABELS[type] || type;
+  section.innerHTML = '<div class="search-type-header"><span class="badge badge-' + type + '">' + escHtml(label.toUpperCase()) + '</span></div><div class="search-type-items"></div>';
+  var myIdx = SEARCH_TYPE_ORDER.indexOf(type);
+  var before = null;
+  var sections = list.querySelectorAll('.search-type-section');
+  for (var i = 0; i < sections.length; i++) {
+    var idx = SEARCH_TYPE_ORDER.indexOf(sections[i].dataset.stype);
+    if (idx === -1 || idx > myIdx) { before = sections[i]; break; }
+  }
+  list.insertBefore(section, before);
+  return section.querySelector('.search-type-items');
 }
 document.addEventListener('scroll', function() {
   var panel = document.getElementById('search-panel');
@@ -1631,7 +1655,7 @@ function toggleSearchFiles(e, btn) {
   btn.innerHTML = '&#8943;';
   var q = document.getElementById('search-q').value.trim();
   var count = parseInt(btn.dataset.count || '0', 10);
-  fetch('/search/files?q=' + encodeURIComponent(q) + '&type=' + _searchType + '&dir=' + encodeURIComponent(btn.dataset.dir))
+  fetch('/search/files?q=' + encodeURIComponent(q) + '&type=' + (btn.dataset.type || _searchType) + '&dir=' + encodeURIComponent(btn.dataset.dir))
     .then(function(r){ return r.json(); })
     .then(function(files){
       var html = files.map(renderSearchFile).join('');
