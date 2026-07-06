@@ -1209,6 +1209,11 @@ func (a *App) handleSearchReindex(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// fileTypeRankExpr orders same-folder search matches so files of the same
+// type sit together in a fixed order (matching the sf-chip order, plus the
+// two types without a chip) rather than interleaved alphabetically.
+const fileTypeRankExpr = `(CASE fi.file_type WHEN 'video' THEN 1 WHEN 'audio' THEN 2 WHEN 'photo' THEN 3 WHEN 'pdf' THEN 4 WHEN 'archive' THEN 5 ELSE 6 END)`
+
 func (a *App) handleSearch(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	typ := r.URL.Query().Get("type")
@@ -1232,10 +1237,10 @@ func (a *App) handleSearch(w http.ResponseWriter, r *http.Request) {
 	args = append(args, offset)
 	rows, err := a.db.Query(r.Context(), `
 		SELECT fi.dir_path,
-		       fi.file_type,
 		       COUNT(*) AS match_count,
-		       (array_agg(fi.path ORDER BY fi.filename))[1:3] AS sample_paths,
-		       (array_agg(fi.filename ORDER BY fi.filename))[1:3] AS sample_names,
+		       (array_agg(fi.path ORDER BY `+fileTypeRankExpr+`, fi.filename))[1:3] AS sample_paths,
+		       (array_agg(fi.filename ORDER BY `+fileTypeRankExpr+`, fi.filename))[1:3] AS sample_names,
+		       (array_agg(fi.file_type ORDER BY `+fileTypeRankExpr+`, fi.filename))[1:3] AS sample_types,
 		       MAX(CASE WHEN lower(substring(fi.dir_path from '[^/]+$')) LIKE $3 || '%' THEN 3
 		                WHEN lower(fi.filename) LIKE $3 || '%' THEN 2
 		                ELSE 1 END) AS rank
@@ -1243,7 +1248,7 @@ func (a *App) handleSearch(w http.ResponseWriter, r *http.Request) {
 		WHERE fi.user_id = $1
 		  AND ($2 = 'all' OR fi.file_type = $2)
 		  AND `+strings.Join(conds, "\n		  AND ")+`
-		GROUP BY fi.dir_path, fi.file_type
+		GROUP BY fi.dir_path
 		ORDER BY rank DESC, COUNT(*) DESC, fi.dir_path
 		LIMIT 20 OFFSET $`+strconv.Itoa(len(args)), args...)
 	if err != nil {
@@ -1254,18 +1259,19 @@ func (a *App) handleSearch(w http.ResponseWriter, r *http.Request) {
 	var results []SearchResult
 	for rows.Next() {
 		var sr SearchResult
-		var paths, names []string
+		var paths, names, types []string
 		var rank int
-		if rows.Scan(&sr.DirPath, &sr.SampleType, &sr.MatchCount, &paths, &names, &rank) != nil {
+		if rows.Scan(&sr.DirPath, &sr.MatchCount, &paths, &names, &types, &rank) != nil {
 			continue
 		}
 		for i := range paths {
-			if i < len(names) {
-				sr.Files = append(sr.Files, SearchFile{Path: paths[i], Name: names[i], Type: sr.SampleType})
+			if i < len(names) && i < len(types) {
+				sr.Files = append(sr.Files, SearchFile{Path: paths[i], Name: names[i], Type: types[i]})
 			}
 		}
 		if len(sr.Files) > 0 {
 			sr.SamplePath = sr.Files[0].Path
+			sr.SampleType = sr.Files[0].Type
 		}
 		results = append(results, sr)
 	}
@@ -1298,7 +1304,7 @@ func (a *App) handleSearchFiles(w http.ResponseWriter, r *http.Request) {
 		  AND ($2 = 'all' OR fi.file_type = $2)
 		  AND fi.dir_path = $3
 		  AND `+strings.Join(conds, "\n		  AND ")+`
-		ORDER BY fi.filename
+		ORDER BY `+fileTypeRankExpr+`, fi.filename
 		LIMIT 50`, args...)
 	if err != nil {
 		httpErr(w, err, 500)
