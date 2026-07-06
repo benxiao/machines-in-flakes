@@ -2994,10 +2994,15 @@ function _msePump(st) {
   if (!st.q.length) return;
   var a = document.getElementById('pl-audio');
   var op = st.q[0];
-  if (op.mark) { op.mark.start = st.end; st.q.shift(); _msePump(st); return; }
+  // The bound joins st.bounds as soon as its start is known (first chunk
+  // about to append), NOT when the whole track has been appended: on
+  // quota-limited phones the queue drains over the track's whole runtime,
+  // and plTrackPos() must be able to map element→source time mid-append or
+  // a speed change/state save early in a long track sees "no position" and
+  // restarts from 0. dur stays 0 (unknown) until the done marker.
+  if (op.mark) { op.mark.start = st.end; st.bounds.push(op.mark); st.q.shift(); _msePump(st); return; }
   if (op.done) {
     op.done.dur = st.end - op.done.start;
-    st.bounds.push(op.done);
     st.q.shift();
     plLog('mse appended idx=' + op.done.idx + ' dur=' + op.done.dur.toFixed(1) + _mseInfo());
     if (op.cb) op.cb();
@@ -3082,7 +3087,9 @@ function plTrackPos() {
   // off=0 this is exactly the old element-time arithmetic, so position
   // saving, stats, seek and display all keep source-seconds semantics.
   var sp = st.speed || 1, off = b.off || 0;
-  return {idx: b.idx, pos: Math.max(0, cur - b.start) * sp + off, dur: (b.dur || 0) * sp + off, start: b.start, off: off, sp: sp};
+  // dur 0 = still appending, real duration unknown — callers fall back to
+  // the element's own duration rather than treating "off" as the length.
+  return {idx: b.idx, pos: Math.max(0, cur - b.start) * sp + off, dur: b.dur ? b.dur * sp + off : 0, start: b.start, off: off, sp: sp};
 }
 // Records a play into video_positions (what Recent reads from) regardless of
 // which of the three queue engines is playing — folder-play/favorites never
@@ -3109,7 +3116,7 @@ function plRecordPosition(completed) {
 function plSeekToPos(pos) {
   var a = document.getElementById('pl-audio');
   var tp = plTrackPos();
-  if (tp && tp.dur > 0) {
+  if (tp) {
     if (pos < tp.off) {
       // Before the stream's ss start point — that part was never fetched.
       startPlaylistItem(tp.idx, pos, true);
@@ -3279,7 +3286,8 @@ function plMseStart(idx, seekTo, autoplay) {
   plMseTeardown();
   var ms = new MediaSource();
   var st = {ms: ms, sb: null, q: [], bounds: [], end: 0, fetchingIdx: -1, appendedIdx: -1, noMore: false, nextTryAt: 0, objUrl: null,
-            speed: plServerStretch() ? DEFAULT_SPEED : 1};
+            speed: plServerStretch() ? DEFAULT_SPEED : 1,
+            ssOff: seekTo > 1 ? seekTo : 0};
   _mse = st;
   // Server-stretched streams already run at the requested tempo.
   a.playbackRate = st.speed !== 1 ? 1 : DEFAULT_SPEED;
@@ -3301,13 +3309,16 @@ function plMseStart(idx, seekTo, autoplay) {
     st.sb.addEventListener('updateend', function() { _msePump(st); });
     st.sb.addEventListener('error', function() { plLog('mse sourcebuffer error'); });
     plLog('mse sourceopen');
-    // On a stretched stream, resume via server-side ss (only the remainder is
-    // encoded — fast start, and element-time no longer equals source-time so
-    // a plain element seek would land wrong anyway).
-    var ssOff = (st.speed !== 1 && seekTo > 1) ? seekTo : 0;
+    // Any mid-track start (resume, speed change) streams from a server-side
+    // ss offset rather than fetching the whole file and seeking the element:
+    // the client seek only worked once the FULL track had appended, which on
+    // a quota-limited phone never happens before the queue stalls — the seek
+    // silently vanished and playback ran from 0. ss also means only the
+    // remainder is encoded (fast start), and plSeekToPos already refetches
+    // with a smaller ss if the user later seeks back before this point.
+    var ssOff = st.ssOff;
     plMseAppendTrack(st, idx, function() {
       if (_mse !== st) return;
-      if (!ssOff && seekTo > 1 && Math.abs(a.currentTime - seekTo) > 1) { try { a.currentTime = seekTo; } catch(e) {} }
       try {
         var b = st.sb.buffered;
         if (b.length && a.currentTime < b.start(0)) {
@@ -3492,9 +3503,11 @@ function _plUpdateAudioUI() {
   if (btn) btn.innerHTML = a.paused ? '&#9654;' : '&#9646;&#9646;';
   var tp = plTrackPos();
   var curT = tp ? tp.pos : (a.currentTime || 0);
-  var durT = tp ? tp.dur : ((a.duration && isFinite(a.duration)) ? a.duration : 0);
+  // tp.dur is 0 while the track is still appending (real length unknown) —
+  // fall back to the element's duration like the no-bounds case.
+  var durT = (tp && tp.dur > 0) ? tp.dur : ((a.duration && isFinite(a.duration)) ? a.duration : 0);
   if (seek && durT > 0) {
-    var pct = (curT / durT * 100).toFixed(2);
+    var pct = Math.min(100, curT / durT * 100).toFixed(2);
     seek.value = pct;
     seek.style.background = 'linear-gradient(to right,#bc60ff 0%,#bc60ff ' + pct + '%,var(--border) ' + pct + '%,var(--border) 100%)';
   }
@@ -3588,8 +3601,12 @@ function plInitAudioUI() {
       try { localStorage.setItem('fb_default_speed', rate); } catch(e) {}
       if (needRestart) {
         var tp = plTrackPos();
-        plLog('speed restart ' + _mse.speed + ' -> ' + wantStretch);
-        startPlaylistItem(tp ? tp.idx : plCurrentIdx, tp ? tp.pos : 0, !a.paused);
+        // plTrackPos is null while the restarted stream's first fetch is
+        // still in flight (nothing appended) — fall back to the stream's own
+        // ss offset so back-to-back speed changes don't reset to 0.
+        var pos = tp ? tp.pos : ((_mse && _mse.ssOff) || 0);
+        plLog('speed restart ' + _mse.speed + ' -> ' + wantStretch + ' pos=' + pos.toFixed(1));
+        startPlaylistItem(tp ? tp.idx : plCurrentIdx, pos, !a.paused);
       } else {
         a.playbackRate = _plElementRate();
       }
