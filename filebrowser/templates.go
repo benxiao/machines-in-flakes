@@ -2955,22 +2955,47 @@ function _mseInfo() {
   } catch(e) {}
   return s;
 }
-function plMseFetch(st, url, tag, cb) {
+// Delivers a track's AAC bytes incrementally: onData(Uint8Array) per chunk
+// as it arrives off the wire, onEnd(ok, totalBytes) exactly once. The server
+// streams ffmpeg's output progressively, so reading the body as a stream
+// (instead of buffering the whole response) means the first seconds of audio
+// are appendable well under a second in — track starts and speed changes no
+// longer wait out the full encode of a 10+ minute movement.
+function plMseFetch(st, url, tag, onData, onEnd) {
   function take() {
     plLog('mse fetch preload-hit ' + tag);
     var blob = _plPreload.blob, bu = _plPreload.blobUrl;
     _plPreload = {path: null, blobUrl: null, blob: null, ctrl: null};
     if (bu) { try { URL.revokeObjectURL(bu); } catch(e) {} }
-    blob.arrayBuffer().then(cb, function(){ cb(null); });
+    blob.arrayBuffer().then(
+      function(buf) { onData(new Uint8Array(buf)); onEnd(true, buf.byteLength); },
+      function() { onEnd(false, 0); });
   }
   function direct() {
-    plLog('mse fetch direct ' + tag);
+    plLog('mse fetch stream ' + tag);
     var ctrl = null;
     try { ctrl = new AbortController(); st.fetchCtrl = ctrl; } catch(e) {}
+    var got = 0;
     fetch(url, ctrl ? {signal: ctrl.signal} : undefined)
-      .then(function(r){ if (!r.ok) throw new Error('http ' + r.status); return r.arrayBuffer(); })
-      .then(function(buf){ if (st.fetchCtrl === ctrl) st.fetchCtrl = null; cb(buf); },
-            function(){ if (st.fetchCtrl === ctrl) st.fetchCtrl = null; cb(null); });
+      .then(function(r) {
+        if (!r.ok) throw new Error('http ' + r.status);
+        if (!r.body || !r.body.getReader) return r.arrayBuffer().then(function(buf) {
+          got = buf.byteLength; onData(new Uint8Array(buf));
+        });
+        var reader = r.body.getReader();
+        function step() {
+          return reader.read().then(function(res) {
+            if (_mse !== st) { try { reader.cancel(); } catch(e) {} return; }
+            if (res.done) return;
+            got += res.value.byteLength;
+            onData(res.value);
+            return step();
+          });
+        }
+        return step();
+      })
+      .then(function() { if (st.fetchCtrl === ctrl) st.fetchCtrl = null; onEnd(true, got); },
+            function() { if (st.fetchCtrl === ctrl) st.fetchCtrl = null; onEnd(false, got); });
   }
   if (_plPreload.path === url && _plPreload.blob) { take(); return; }
   if (_plPreload.path === url && _plPreload.ctrl) {
@@ -3009,6 +3034,9 @@ function _msePump(st) {
     _msePump(st);
     return;
   }
+  // Bare callback op (e.g. the first-buffered hook queued right after a
+  // track's first audio chunk).
+  if (!op.buf) { st.q.shift(); if (op.cb) op.cb(); _msePump(st); return; }
   try {
     sb.appendBuffer(op.buf);
     st.q.shift();
@@ -3050,25 +3078,56 @@ function plMseAppendTrack(st, idx, onBuffered, ssReal) {
   // remainder, so speed changes / resumes mid-track don't wait for a
   // full-track re-encode. The skipped part is simply not in the buffer.
   if (ssReal > 0) url += '&ss=' + ssReal.toFixed(3);
-  plMseFetch(st, url, 'idx=' + idx, function(buf) {
+  var bound = {idx: idx, start: -1, dur: 0, off: ssReal || 0};
+  // 384KB ≈ 12s of 256k AAC per append: small enough that a phone with a
+  // ~2MB SourceBuffer quota can still make append progress from the space
+  // a routine eviction frees (1.5MB chunks required more free space than
+  // eviction could ever produce there, deadlocking playback).
+  var CH = 384 * 1024;
+  var pending = [], pendingBytes = 0, started = false, cbQueued = false;
+  function flush() {
+    if (!pendingBytes) return;
+    var buf = new Uint8Array(pendingBytes), o = 0;
+    for (var i = 0; i < pending.length; i++) { buf.set(pending[i], o); o += pending[i].byteLength; }
+    pending = []; pendingBytes = 0;
+    if (!started) { started = true; st.q.push({mark: bound}); }
+    // Always slice to CH-sized appends: the preload-hit path delivers a
+    // whole ~10MB track in ONE onData call, and a single appendBuffer that
+    // big can exceed the SourceBuffer quota outright — an append no amount
+    // of eviction can ever make fit (deadlocks playback at the buffer edge).
+    for (var off = 0; off < buf.byteLength; off += CH) {
+      st.q.push({buf: buf.buffer.slice(off, Math.min(off + CH, buf.byteLength))});
+      if (!cbQueued) {
+        cbQueued = true;
+        // "First buffered" fires after the first audio chunk of the track is
+        // appended — not after the whole track, whose bytes keep streaming
+        // in for as long as the encode runs.
+        if (onBuffered) st.q.push({cb: onBuffered});
+      }
+    }
+    _msePump(st);
+  }
+  plMseFetch(st, url, 'idx=' + idx, function(chunk) {
+    if (_mse !== st) return;
+    pending.push(chunk);
+    pendingBytes += chunk.byteLength;
+    // First flush goes out small (~3s of audio) so playback starts as soon
+    // as possible; later flushes batch up to CH to keep append overhead low.
+    if (pendingBytes >= (started ? CH : 96 * 1024)) flush();
+  }, function(ok, got) {
     if (_mse !== st) return;
     st.fetchingIdx = -1;
-    if (!buf || !buf.byteLength) {
+    if (!got) {
       st.nextTryAt = Date.now() + 5000;
       plLog('mse fetch failed idx=' + idx);
       return;
     }
-    var bound = {idx: idx, start: -1, dur: 0, off: ssReal || 0};
-    st.q.push({mark: bound});
-    // 384KB ≈ 12s of 256k AAC per chunk: small enough that a phone with a
-    // ~2MB SourceBuffer quota can still make append progress from the space
-    // a routine eviction frees (1.5MB chunks required more free space than
-    // eviction could ever produce there, deadlocking playback).
-    var CH = 384 * 1024;
-    for (var off = 0; off < buf.byteLength; off += CH) {
-      st.q.push({buf: buf.slice(off, Math.min(off + CH, buf.byteLength))});
-    }
-    st.q.push({done: bound, cb: onBuffered});
+    flush();
+    // A mid-stream drop still closes the track's bounds with whatever
+    // arrived, so playback plays out the partial audio and chains to the
+    // next track instead of stalling at the buffer edge forever.
+    if (!ok) plLog('mse stream truncated idx=' + idx + ' got=' + got);
+    st.q.push({done: bound});
     st.appendedIdx = idx;
     _msePump(st);
   });
