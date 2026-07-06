@@ -496,7 +496,7 @@ tr:hover td { background: var(--bg-panel); }
 .continue-row { display:flex; gap:10px; overflow-x:auto; -webkit-overflow-scrolling:touch; padding-bottom:4px; margin-bottom:20px; }
 .continue-row .grid-card { flex:0 0 104px; }
 .continue-resume { font-size:10px; color:var(--fg-muted); margin-top:2px; }
-.grid-chk { position:absolute; top:6px; left:6px; opacity:0; transition:opacity 0.1s; }
+.grid-chk { position:absolute; top:6px; left:6px; opacity:0; transition:opacity 0.1s; z-index:2; }
 .grid-card.grid-checked .grid-chk { opacity:1; }
 .grid-card.grid-checked { border-color:#58a6ff; background:var(--surface-active); }
 #ext-menu { position:fixed; z-index:300; background:var(--bg-panel); border:1px solid var(--border); border-radius:6px; padding:4px; min-width:170px; max-height:60vh; overflow-y:auto; box-shadow:0 8px 24px rgba(0,0,0,0.4); }
@@ -666,9 +666,6 @@ input:focus, select:focus { outline: none; border-color: #58a6ff; }
   word-break: break-all;
   font-family: monospace;
 }
-.fav-btn { background:none; border:none; cursor:pointer; color:var(--fg-muted); font-size:16px; padding:2px 4px; line-height:1; }
-.fav-btn:hover { color:#e3b341; }
-.fav-btn.active { color:#e3b341; }
 .pl-unstar-btn { background:none; border:none; color:#e3b341; cursor:pointer; font-size:13px; padding:0 3px; flex-shrink:0; line-height:1; opacity:0.5; transition:opacity 0.15s; }
 .pl-unstar-btn:hover { opacity:1; }
 .fav-item { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--surface-hover); cursor:pointer; }
@@ -802,7 +799,6 @@ input.pl-speed::-moz-range-thumb { width:11px; height:11px; border-radius:50%; b
   .grid-chk { opacity:0.85; width:18px; height:18px; }
   .row-check { width:20px; height:20px; }
   /* Bigger tap targets */
-  .fav-btn { font-size:20px; padding:8px; }
   .modal-close { padding:8px 12px; font-size:24px; }
   .sf-chip { padding:8px 14px; }
   .sr-file { min-height:40px; }
@@ -1736,7 +1732,6 @@ const browseTmpl = `{{define "content"}}
       <td class="muted">—</td>
       <td class="muted">{{.ModifiedAt}}</td>
       <td></td>
-      <td onclick="event.stopPropagation()"><button class="fav-btn" data-path="{{.AbsPath}}" data-folder="1" onclick="toggleFav(this)" title="Favorite folder">☆</button></td>
     </tr>
     {{end}}
     {{range .Files}}
@@ -1770,7 +1765,6 @@ const browseTmpl = `{{define "content"}}
       <td class="muted">{{.Size}}</td>
       <td class="muted">{{.ModifiedAt}}</td>
       <td>{{if and (or (eq .FileType "video") (eq .FileType "audio")) (gt .WatchCount 0)}}<span class="badge badge-{{.FileType}}">{{.WatchCount}}×</span>{{else}}<span class="muted">—</span>{{end}}</td>
-      <td onclick="event.stopPropagation()">{{if eq .FileType "audio"}}<button class="fav-btn" data-path="{{.AbsPath}}" data-folder="0" onclick="toggleFav(this)" title="Favorite">☆</button>{{end}}</td>
     </tr>
     {{end}}
     {{end}}
@@ -1797,7 +1791,6 @@ const browseTmpl = `{{define "content"}}
       <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>
       {{end}}
       <div class="grid-name">{{.Name}}</div>
-      <button class="fav-btn" data-path="{{.AbsPath}}" data-folder="1" onclick="event.stopPropagation();toggleFav(this)" title="Favorite folder" style="position:absolute;top:4px;right:4px;font-size:14px;background:rgba(0,0,0,0.65);border-radius:3px;color:#fff">☆</button>
     </div>
     {{end}}
     {{range .Files}}
@@ -1842,7 +1835,6 @@ const browseTmpl = `{{define "content"}}
       <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#bc60ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>
       {{end}}
       <div class="grid-name">{{.Filename}}</div>
-      <button class="fav-btn" data-path="{{.AbsPath}}" data-folder="0" onclick="event.stopPropagation();toggleFav(this)" title="Favorite" style="position:absolute;top:4px;right:4px;font-size:14px;background:rgba(0,0,0,0.65);border-radius:3px;color:#fff">☆</button>
     </div>
     {{else if eq .FileType "pdf"}}
     <div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="pdf" onclick="gridClick(event,this)">
@@ -1898,6 +1890,7 @@ const browseTmpl = `{{define "content"}}
     {{range .Playlists}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
   </select>
   <button id="sel-pl-btn" class="btn btn-primary btn-sm" style="display:none" onclick="addSelectedToPlaylist()">Add to Playlist</button>
+  <button id="sel-fav-btn" class="btn btn-edit btn-sm" style="display:none" onclick="favoriteSelected()">&#9734; Favorite</button>
   <button id="sel-ext-btn" class="btn btn-edit btn-sm" style="display:none" onclick="selectSameExt()"></button>
   <button class="btn btn-edit btn-sm" onclick="downloadSelected()">⬇ Download</button>
   {{if and .IsAdmin (not .InZip)}}
@@ -1987,6 +1980,10 @@ function updateSelBar() {
   var plBtn = document.getElementById('sel-pl-btn');
   if (pl) pl.style.display = showPl ? '' : 'none';
   if (plBtn) plBtn.style.display = showPl ? '' : 'none';
+  // Favorite (music only): shown when a folder or audio file is selected.
+  var hasFavable = checks.some(function(c) { return c.dataset.type === 'audio' || c.dataset.type === 'dir'; });
+  var favBtn = document.getElementById('sel-fav-btn');
+  if (favBtn) favBtn.style.display = hasFavable ? '' : 'none';
   var ren = document.getElementById('sel-rename');
   if (ren) ren.style.display = checks.length === 1 ? '' : 'none';
   // Offer "Select all .ext" when the selection is files sharing one extension
@@ -2386,29 +2383,25 @@ function toggleSidebar() {
     }
   } catch(e) {}
 })();
-function loadFavStates() {
+// Bulk "Favorite" from the select bar: add-only (folders + audio files; video/photo
+// skipped). Reuses POST /favorites/toggle, gated by /favorites/list so already-favorited
+// items aren't toggled back off.
+function favoriteSelected() {
+  var checked = selChecks(true).filter(function(c){ return c.dataset.type === 'dir' || c.dataset.type === 'audio'; });
+  if (!checked.length) return;
   fetch('/favorites/list').then(function(r){ return r.json(); }).then(function(paths) {
-    var set = new Set(paths);
-    document.querySelectorAll('.fav-btn').forEach(function(btn) {
-      var active = set.has(btn.dataset.path);
-      btn.classList.toggle('active', active);
-      btn.textContent = active ? '★' : '☆';
-    });
+    var have = {}; (paths || []).forEach(function(p){ have[p] = true; });
+    var todo = checked.filter(function(c){ return !have[c.value]; });
+    var ok = document.getElementById('sel-ok');
+    if (!todo.length) { if (ok) { ok.style.display = ''; ok.textContent = 'Already in favorites'; } return; }
+    Promise.all(todo.map(function(c){
+      return fetch('/favorites/toggle', {method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({path: c.value, is_folder: c.dataset.type === 'dir'})});
+    })).then(function(){
+      if (ok) { ok.style.display = ''; ok.textContent = todo.length + (todo.length === 1 ? ' item' : ' items') + ' added to favorites'; }
+    }).catch(function(){});
   }).catch(function(){});
 }
-function toggleFav(btn) {
-  var path = btn.dataset.path;
-  var isFolder = btn.dataset.folder === '1';
-  fetch('/favorites/toggle', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({path: path, is_folder: isFolder})
-  }).then(function(r){ return r.json(); }).then(function(res) {
-    btn.classList.toggle('active', res.favorited);
-    btn.textContent = res.favorited ? '★' : '☆';
-  }).catch(function(){});
-}
-loadFavStates();
 // Apply saved sort preference if URL has no sort param
 (function() {
   try {
