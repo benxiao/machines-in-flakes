@@ -86,8 +86,10 @@ CREATE TABLE IF NOT EXISTS file_index (
 	filename  TEXT NOT NULL,
 	file_type TEXT NOT NULL,
 	dir_path  TEXT NOT NULL,
+	mtime     TIMESTAMPTZ,
 	PRIMARY KEY (user_id, path)
 );
+ALTER TABLE file_index ADD COLUMN IF NOT EXISTS mtime TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS file_index_search ON file_index (user_id, lower(filename));
 CREATE TABLE IF NOT EXISTS favorites (
 	user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

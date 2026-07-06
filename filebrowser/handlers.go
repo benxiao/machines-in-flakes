@@ -648,69 +648,128 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleRecent(w http.ResponseWriter, r *http.Request) {
 	userID := uid(r)
-	rows, err := a.db.Query(r.Context(), `
-		SELECT path, watch_count, updated_at, position_sec
-		FROM video_positions
-		WHERE user_id = $1
-		  AND EXISTS (
-			SELECT 1 FROM indexed_paths ip
-			WHERE ip.user_id = $1 AND ip.enabled = TRUE
-			  AND (video_positions.path = ip.path OR starts_with(video_positions.path, ip.path || '/'))
-		  )
-		ORDER BY updated_at DESC
-		LIMIT 50
-	`, userID)
+	artCache := make(map[string]string)
+	albumArt := func(ft, dir string) string {
+		if ft != "audio" {
+			return ""
+		}
+		if cached, ok := artCache[dir]; ok {
+			return cached
+		}
+		art := findAlbumArt(dir)
+		artCache[dir] = art
+		return art
+	}
+
+	// Section 1 — Continue (not finished): items with a saved mid-file resume
+	// point (position_sec > 30 skips barely-started noise), newest played first.
+	continuing, err := func() ([]RecentItem, error) {
+		rows, err := a.db.Query(r.Context(), `
+			SELECT path, watch_count, updated_at, position_sec
+			FROM video_positions
+			WHERE user_id = $1 AND position_sec > 30
+			  AND EXISTS (
+				SELECT 1 FROM indexed_paths ip
+				WHERE ip.user_id = $1 AND ip.enabled = TRUE
+				  AND (video_positions.path = ip.path OR starts_with(video_positions.path, ip.path || '/'))
+			  )
+			ORDER BY updated_at DESC
+			LIMIT 100
+		`, userID)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var items []RecentItem
+		var nVideo, nAudio int
+		for rows.Next() {
+			var path string
+			var wc int64
+			var t time.Time
+			var pos float64
+			if rows.Scan(&path, &wc, &t, &pos) != nil {
+				continue
+			}
+			ft := classifyExt(filepath.Ext(path))
+			// Cap the continue list at 10 video + 10 audio, newest first.
+			switch ft {
+			case "video":
+				if nVideo >= 10 {
+					continue
+				}
+				nVideo++
+			case "audio":
+				if nAudio >= 10 {
+					continue
+				}
+				nAudio++
+			default:
+				continue
+			}
+			dir := filepath.Dir(path)
+			items = append(items, RecentItem{
+				Path:        path,
+				Filename:    filepath.Base(path),
+				FileType:    ft,
+				Dir:         dir,
+				WatchCount:  wc,
+				UpdatedAt:   t.Local().Format("2006-01-02 15:04"),
+				PositionSec: pos,
+				AlbumArt:    albumArt(ft, dir),
+			})
+			if nVideo >= 10 && nAudio >= 10 {
+				break
+			}
+		}
+		return items, rows.Err()
+	}()
 	if err != nil {
 		httpErr(w, err, 500)
 		return
 	}
-	defer rows.Close()
-	artCache := make(map[string]string)
-	var items []RecentItem
-	for rows.Next() {
-		var path string
-		var wc int64
-		var t time.Time
-		var pos float64
-		if rows.Scan(&path, &wc, &t, &pos) != nil {
-			continue
+
+	// Section 2 — Recently added: newest files in the library by filesystem
+	// mtime (captured at reindex). file_index only holds files under enabled
+	// roots, so no extra indexed_paths gating is needed.
+	added, err := func() ([]RecentItem, error) {
+		rows, err := a.db.Query(r.Context(), `
+			SELECT path, filename, file_type, dir_path, mtime
+			FROM file_index
+			WHERE user_id = $1 AND mtime IS NOT NULL
+			  AND file_type IN ('video','audio','photo')
+			ORDER BY mtime DESC
+			LIMIT 24
+		`, userID)
+		if err != nil {
+			return nil, err
 		}
-		ft := classifyExt(filepath.Ext(path))
-		dir := filepath.Dir(path)
-		var art string
-		if ft == "audio" {
-			if cached, ok := artCache[dir]; ok {
-				art = cached
-			} else {
-				art = findAlbumArt(dir)
-				artCache[dir] = art
+		defer rows.Close()
+		var items []RecentItem
+		for rows.Next() {
+			var path, filename, ft, dir string
+			var t time.Time
+			if rows.Scan(&path, &filename, &ft, &dir, &t) != nil {
+				continue
 			}
+			items = append(items, RecentItem{
+				Path:     path,
+				Filename: filename,
+				FileType: ft,
+				Dir:      dir,
+				AddedAt:  t.Local().Format("Jan 2, 2006"),
+				AlbumArt: albumArt(ft, dir),
+			})
 		}
-		items = append(items, RecentItem{
-			Path:        path,
-			Filename:    filepath.Base(path),
-			FileType:    ft,
-			Dir:         dir,
-			WatchCount:  wc,
-			UpdatedAt:   t.Local().Format("2006-01-02 15:04"),
-			PositionSec: pos,
-			AlbumArt:    art,
-		})
+		return items, rows.Err()
+	}()
+	if err != nil {
+		httpErr(w, err, 500)
+		return
 	}
-	rows.Close()
-	a.enrichRecentContext(r.Context(), userID, items)
-	var continuing []RecentItem
-	for _, it := range items {
-		// >30s in: skip files barely started, which are noise more often
-		// than a genuine "I meant to come back to this".
-		if it.PositionSec > 30 {
-			continuing = append(continuing, it)
-		}
-		if len(continuing) == 8 {
-			break
-		}
-	}
-	render(w, "recent", RecentPage{ActiveTab: "recent", IsAdmin: isAdmin(r), Items: items, Continuing: continuing})
+
+	a.enrichRecentContext(r.Context(), userID, continuing)
+	a.enrichRecentContext(r.Context(), userID, added)
+	render(w, "recent", RecentPage{ActiveTab: "recent", IsAdmin: isAdmin(r), Continuing: continuing, Added: added})
 }
 
 // enrichRecentContext fills in, per item, which playback context a click
@@ -1015,7 +1074,10 @@ func (a *App) reindexUser(ctx context.Context, userID int64) {
 	}
 	rows.Close()
 
-	type entry struct{ path, filename, fileType, dirPath string }
+	type entry struct {
+		path, filename, fileType, dirPath string
+		mtime                             time.Time
+	}
 	var entries []entry
 	seen := make(map[string]bool) // nested roots walk the same files twice
 	for _, root := range roots {
@@ -1037,7 +1099,7 @@ func (a *App) reindexUser(ctx context.Context, userID int64) {
 				return nil
 			}
 			seen[p] = true
-			entries = append(entries, entry{p, filepath.Base(p), ft, filepath.Dir(p)})
+			entries = append(entries, entry{p, filepath.Base(p), ft, filepath.Dir(p), info.ModTime()})
 			return nil
 		})
 	}
@@ -1054,10 +1116,10 @@ func (a *App) reindexUser(ctx context.Context, userID int64) {
 	}
 	if _, err := tx.CopyFrom(ctx,
 		pgx.Identifier{"file_index"},
-		[]string{"user_id", "path", "filename", "file_type", "dir_path"},
+		[]string{"user_id", "path", "filename", "file_type", "dir_path", "mtime"},
 		pgx.CopyFromSlice(len(entries), func(i int) ([]any, error) {
 			e := entries[i]
-			return []any{userID, e.path, e.filename, e.fileType, e.dirPath}, nil
+			return []any{userID, e.path, e.filename, e.fileType, e.dirPath, e.mtime}, nil
 		}),
 	); err != nil {
 		log.Printf("reindex: copy: %v", err)
