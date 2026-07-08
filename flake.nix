@@ -1,7 +1,7 @@
 {
   description = "all my machines in flakes";
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-26.05";
-  inputs.nixpkgs-unstable.url = "github:nixos/nixpkgs/nixpkgs-unstable";
+  inputs.nixpkgs-unstable.url = "github:nixos/nixpkgs/nixos-unstable-small";
   inputs.nixpkgs-master.url = "github:nixos/nixpkgs/master";
 
   inputs.nixos-hardware.url = "github:NixOS/nixos-hardware/master";
