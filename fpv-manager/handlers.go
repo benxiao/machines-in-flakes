@@ -164,30 +164,22 @@ func (a *App) droneBatteryChecks(r *http.Request, droneID int) ([]BatteryCheck, 
 	return checks, rows.Err()
 }
 
-func (a *App) batteryChecks(r *http.Request, sessionID int) ([]BatteryCheck, error) {
+func (a *App) sessionDroneBatteryChecks(r *http.Request, sessionID, droneID int) ([]BatteryCheck, error) {
 	ctx := r.Context()
 	rows, err := a.db.Query(ctx, `
         SELECT b.id,
                COALESCE(br.name||' ','')|| b.name||' ('||COALESCE(c.label,'?')||' '||b.capacity_mah||'mAh)',
-               EXISTS(SELECT 1 FROM session_batteries sb
-                      WHERE sb.session_id=$1 AND sb.battery_id=b.id),
-               COALESCE((SELECT sb.count FROM session_batteries sb
-                         WHERE sb.session_id=$1 AND sb.battery_id=b.id), 1)
+               EXISTS(SELECT 1 FROM session_drone_batteries sdb
+                      WHERE sdb.session_id=$1 AND sdb.drone_id=$2 AND sdb.battery_id=b.id),
+               COALESCE((SELECT sdb.count FROM session_drone_batteries sdb
+                         WHERE sdb.session_id=$1 AND sdb.drone_id=$2 AND sdb.battery_id=b.id), 1)
         FROM batteries b
         LEFT JOIN brands br ON br.id=b.brand_id
         LEFT JOIN cells c ON c.id=b.cell_id
-        WHERE $1 = 0
-           OR b.cell_id IS NULL
-           OR NOT EXISTS (
-               SELECT 1 FROM session_drones sd
-               JOIN drones d ON d.id=sd.drone_id
-               WHERE sd.session_id=$1 AND d.cell_id IS NOT NULL)
-           OR b.cell_id IN (
-               SELECT d.cell_id FROM session_drones sd
-               JOIN drones d ON d.id=sd.drone_id
-               WHERE sd.session_id=$1 AND d.cell_id IS NOT NULL)
-           OR EXISTS(SELECT 1 FROM session_batteries sb WHERE sb.session_id=$1 AND sb.battery_id=b.id)
-        ORDER BY br.name, b.name`, sessionID)
+        WHERE EXISTS(SELECT 1 FROM drone_batteries db WHERE db.drone_id=$2 AND db.battery_id=b.id)
+           OR EXISTS(SELECT 1 FROM session_drone_batteries sdb
+                     WHERE sdb.session_id=$1 AND sdb.drone_id=$2 AND sdb.battery_id=b.id)
+        ORDER BY br.name, b.name`, sessionID, droneID)
 	if err != nil {
 		return nil, err
 	}
@@ -201,6 +193,40 @@ func (a *App) batteryChecks(r *http.Request, sessionID int) ([]BatteryCheck, err
 		checks = append(checks, c)
 	}
 	return checks, rows.Err()
+}
+
+func (a *App) sessionDroneBatterySections(r *http.Request, sessionID int) ([]DroneBatterySection, error) {
+	ctx := r.Context()
+	rows, err := a.db.Query(ctx, `SELECT id, name FROM drones ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	type droneIDName struct {
+		ID   int
+		Name string
+	}
+	var drones []droneIDName
+	for rows.Next() {
+		var d droneIDName
+		if err := rows.Scan(&d.ID, &d.Name); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		drones = append(drones, d)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	var sections []DroneBatterySection
+	for _, d := range drones {
+		checks, err := a.sessionDroneBatteryChecks(r, sessionID, d.ID)
+		if err != nil {
+			return nil, err
+		}
+		sections = append(sections, DroneBatterySection{DroneID: d.ID, DroneName: d.Name, Batteries: checks})
+	}
+	return sections, nil
 }
 
 func parseIntList(ss []string) []int {
@@ -223,7 +249,7 @@ func (a *App) handleDrones(w http.ResponseWriter, r *http.Request) {
                COALESCE(sz.label,''), COALESCE(c.label,''),
                d.sub_250g,
                fl.flight_count, COALESCE(dp.id,0), fl.has_today,
-               GREATEST(CURRENT_DATE - d.status_changed_at::date, 0)::int
+               GREATEST(CURRENT_DATE - d.status_changed_at::date, 0)::int, pk.packs
         FROM drones d
         LEFT JOIN sizes sz ON sz.id=d.size_id
         LEFT JOIN cells c ON c.id=d.cell_id
@@ -237,6 +263,12 @@ func (a *App) handleDrones(w http.ResponseWriter, r *http.Request) {
             JOIN sessions s ON s.id=sd.session_id
             WHERE sd.drone_id=d.id AND s.type='flight'
         ) fl ON true
+        LEFT JOIN LATERAL (
+            SELECT COALESCE(SUM(sdb.count),0)::int AS packs
+            FROM session_drone_batteries sdb
+            JOIN sessions s2 ON s2.id=sdb.session_id AND s2.type='flight'
+            WHERE sdb.drone_id=d.id
+        ) pk ON true
         ORDER BY d.name`)
 	if err != nil {
 		httpErr(w, err)
@@ -247,7 +279,7 @@ func (a *App) handleDrones(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var d DroneRow
 		if err := rows.Scan(&d.ID, &d.Name, &d.Status,
-			&d.SizeInch, &d.CellLabel, &d.Sub250g, &d.FlightCount, &d.FirstPhotoID, &d.HasFlightToday, &d.DaysInStatus); err != nil {
+			&d.SizeInch, &d.CellLabel, &d.Sub250g, &d.FlightCount, &d.FirstPhotoID, &d.HasFlightToday, &d.DaysInStatus, &d.PacksFlown); err != nil {
 			httpErr(w, err)
 			return
 		}
@@ -2228,10 +2260,10 @@ func (a *App) handleBatteries(w http.ResponseWriter, r *http.Request) {
         LEFT JOIN drones d ON d.id=db.drone_id
         LEFT JOIN LATERAL (SELECT id FROM battery_photos WHERE battery_id=b.id ORDER BY created_at LIMIT 1) bp ON true
         LEFT JOIN LATERAL (
-            SELECT COALESCE(SUM(sb.count),0)::int AS cycles, MAX(s.session_date) AS last_used
-            FROM session_batteries sb
-            JOIN sessions s ON s.id=sb.session_id
-            WHERE sb.battery_id=b.id
+            SELECT COALESCE(SUM(sdb.count),0)::int AS cycles, MAX(s.session_date) AS last_used
+            FROM session_drone_batteries sdb
+            JOIN sessions s ON s.id=sdb.session_id
+            WHERE sdb.battery_id=b.id
         ) u ON true
         GROUP BY b.id, br.name, b.name, c.label, b.capacity_mah, b.weight_g, b.count, bp.id, u.cycles, u.last_used
         ORDER BY br.name, b.name, c.label, b.capacity_mah`)
@@ -2399,10 +2431,10 @@ func (a *App) handleLog(w http.ResponseWriter, r *http.Request) {
                COALESCE((SELECT string_agg(d.name,', ' ORDER BY d.name)
                          FROM session_drones sd JOIN drones d ON d.id=sd.drone_id
                          WHERE sd.session_id=s.id),''),
-               COALESCE((SELECT string_agg(b.name||' ('||COALESCE(c.label,'?')||')',', ' ORDER BY b.name)
-                         FROM session_batteries sb JOIN batteries b ON b.id=sb.battery_id
+               COALESCE((SELECT string_agg(DISTINCT b.name||' ('||COALESCE(c.label,'?')||')', ', ' ORDER BY b.name||' ('||COALESCE(c.label,'?')||')')
+                         FROM session_drone_batteries sdb JOIN batteries b ON b.id=sdb.battery_id
                          LEFT JOIN cells c ON c.id=b.cell_id
-                         WHERE sb.session_id=s.id),''),
+                         WHERE sdb.session_id=s.id),''),
                (s.notes=$1 AND s.title=''),
                COALESCE((SELECT COUNT(*)>0 AND BOOL_AND(checked) FROM session_checklist WHERE session_id=s.id), false)
         FROM sessions s
@@ -2429,6 +2461,25 @@ func (a *App) handleLog(w http.ResponseWriter, r *http.Request) {
 	render(w, "log-list", LogListPage{ActiveTab: "log", Sessions: sessions})
 }
 
+func insertSessionDroneBatteries(ctx context.Context, tx pgx.Tx, r *http.Request, sessionID int, droneIDs []int) error {
+	for _, did := range droneIDs {
+		for _, batIDStr := range r.Form[fmt.Sprintf("battery_ids_%d", did)] {
+			batID, err := strconv.Atoi(batIDStr)
+			if err != nil {
+				continue
+			}
+			cnt, _ := strconv.Atoi(r.FormValue(fmt.Sprintf("battery_count_%d_%d", did, batID)))
+			if cnt < 1 {
+				cnt = 1
+			}
+			if _, err := tx.Exec(ctx, `INSERT INTO session_drone_batteries (session_id,drone_id,battery_id,count) VALUES ($1,$2,$3,$4)`, sessionID, did, batID, cnt); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (a *App) handleSessionNew(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if r.Method == http.MethodPost {
@@ -2440,7 +2491,7 @@ func (a *App) handleSessionNew(w http.ResponseWriter, r *http.Request) {
 		if len(droneIDs) == 0 {
 			page := SessionFormPage{ActiveTab: "log", Error: "Select at least one drone", Type: "flight"}
 			page.Drones, _ = a.droneChecks(r, 0)
-			page.Batteries, _ = a.batteryChecks(r, 0)
+			page.DroneBatterySections, _ = a.sessionDroneBatterySections(r, 0)
 			page.Places, _ = a.placeOptions(r)
 			render(w, "session-form", page)
 			return
@@ -2470,19 +2521,9 @@ func (a *App) handleSessionNew(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		for _, batIDStr := range r.Form["battery_ids"] {
-			batID, err := strconv.Atoi(batIDStr)
-			if err != nil {
-				continue
-			}
-			cnt, _ := strconv.Atoi(r.FormValue(fmt.Sprintf("battery_count_%d", batID)))
-			if cnt < 1 {
-				cnt = 1
-			}
-			if _, err := tx.Exec(ctx, `INSERT INTO session_batteries (session_id,battery_id,count) VALUES ($1,$2,$3)`, sessionID, batID, cnt); err != nil {
-				httpErr(w, err)
-				return
-			}
+		if err := insertSessionDroneBatteries(ctx, tx, r, sessionID, droneIDs); err != nil {
+			httpErr(w, err)
+			return
 		}
 		if err := tx.Commit(ctx); err != nil {
 			httpErr(w, err)
@@ -2493,7 +2534,7 @@ func (a *App) handleSessionNew(w http.ResponseWriter, r *http.Request) {
 	}
 	page := SessionFormPage{ActiveTab: "log", Type: "flight", SessionDate: time.Now().Format("2006-01-02")}
 	page.Drones, _ = a.droneChecks(r, 0)
-	page.Batteries, _ = a.batteryChecks(r, 0)
+	page.DroneBatterySections, _ = a.sessionDroneBatterySections(r, 0)
 	page.Places, _ = a.placeOptions(r)
 	render(w, "session-form", page)
 }
@@ -2524,23 +2565,25 @@ func (a *App) handleSessionDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := a.db.Query(ctx, `
-        SELECT b.id, COALESCE(br.name,''), b.name, COALESCE(c.label,''), b.capacity_mah, sb.count
-        FROM batteries b JOIN session_batteries sb ON sb.battery_id=b.id
+        SELECT d.name, COALESCE(br.name,''), b.name, COALESCE(c.label,''), b.capacity_mah, sdb.count
+        FROM session_drone_batteries sdb
+        JOIN drones d ON d.id=sdb.drone_id
+        JOIN batteries b ON b.id=sdb.battery_id
         LEFT JOIN brands br ON br.id=b.brand_id
         LEFT JOIN cells c ON c.id=b.cell_id
-        WHERE sb.session_id=$1 ORDER BY br.name, b.name`, id)
+        WHERE sdb.session_id=$1 ORDER BY d.name, br.name, b.name`, id)
 	if err != nil {
 		httpErr(w, err)
 		return
 	}
 	for rows.Next() {
-		var b BatteryRow
-		if err := rows.Scan(&b.ID, &b.Brand, &b.Name, &b.CellLabel, &b.CapacityMAh, &b.Count); err != nil {
+		var b SessionDroneBatteryRow
+		if err := rows.Scan(&b.DroneName, &b.Brand, &b.Name, &b.CellLabel, &b.CapacityMAh, &b.Count); err != nil {
 			rows.Close()
 			httpErr(w, err)
 			return
 		}
-		page.Batteries = append(page.Batteries, b)
+		page.DroneBatteries = append(page.DroneBatteries, b)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
@@ -2646,13 +2689,12 @@ func (a *App) handleSessionEdit(w http.ResponseWriter, r *http.Request) {
 		if len(droneIDs) == 0 {
 			page := SessionFormPage{ActiveTab: "log", Error: "Select at least one drone", ID: id}
 			page.Drones, _ = a.droneChecks(r, id)
-			page.Batteries, _ = a.batteryChecks(r, id)
+			page.DroneBatterySections, _ = a.sessionDroneBatterySections(r, id)
 			page.Places, _ = a.placeOptions(r)
 			render(w, "session-form", page)
 			return
 		}
 		dur, _ := strconv.Atoi(r.FormValue("duration_min"))
-		newBatIDs := parseIntList(r.Form["battery_ids"])
 
 		tx, err := a.db.Begin(ctx)
 		if err != nil {
@@ -2671,19 +2713,13 @@ func (a *App) handleSessionEdit(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		if _, err := tx.Exec(ctx, `DELETE FROM session_batteries WHERE session_id=$1`, id); err != nil {
+		if _, err := tx.Exec(ctx, `DELETE FROM session_drone_batteries WHERE session_id=$1`, id); err != nil {
 			httpErr(w, err)
 			return
 		}
-		for _, bid := range newBatIDs {
-			cnt, _ := strconv.Atoi(r.FormValue(fmt.Sprintf("battery_count_%d", bid)))
-			if cnt < 1 {
-				cnt = 1
-			}
-			if _, err := tx.Exec(ctx, `INSERT INTO session_batteries (session_id,battery_id,count) VALUES ($1,$2,$3)`, id, bid, cnt); err != nil {
-				httpErr(w, err)
-				return
-			}
+		if err := insertSessionDroneBatteries(ctx, tx, r, id, droneIDs); err != nil {
+			httpErr(w, err)
+			return
 		}
 		_, err = tx.Exec(ctx,
 			`UPDATE sessions SET title=$1,type=$2,session_date=$3,duration_min=$4,location=$5,notes=$6 WHERE id=$7`,
@@ -2716,7 +2752,7 @@ func (a *App) handleSessionEdit(w http.ResponseWriter, r *http.Request) {
 	page.DurationMin = strconv.Itoa(dur)
 	page.ActiveTab = "log"
 	page.Drones, _ = a.droneChecks(r, id)
-	page.Batteries, _ = a.batteryChecks(r, id)
+	page.DroneBatterySections, _ = a.sessionDroneBatterySections(r, id)
 	page.Places, _ = a.placeOptions(r)
 	render(w, "session-form", page)
 }
@@ -4501,10 +4537,10 @@ func (a *App) handleStats(w http.ResponseWriter, r *http.Request) {
         LEFT JOIN brands br ON br.id=b.brand_id
         LEFT JOIN cells c ON c.id=b.cell_id
         LEFT JOIN LATERAL (
-            SELECT COUNT(*)::int AS sessions, COALESCE(SUM(sb.count),0)::int AS cycles, MAX(s.session_date) AS last_used
-            FROM session_batteries sb
-            JOIN sessions s ON s.id=sb.session_id
-            WHERE sb.battery_id=b.id
+            SELECT COUNT(DISTINCT sdb.session_id)::int AS sessions, COALESCE(SUM(sdb.count),0)::int AS cycles, MAX(s.session_date) AS last_used
+            FROM session_drone_batteries sdb
+            JOIN sessions s ON s.id=sdb.session_id
+            WHERE sdb.battery_id=b.id
         ) u ON true
         ORDER BY u.cycles DESC, b.name`)
 	if err != nil {

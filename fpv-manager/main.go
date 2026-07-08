@@ -266,6 +266,14 @@ CREATE TABLE IF NOT EXISTS session_batteries (
     PRIMARY KEY (session_id, battery_id)
 );
 
+CREATE TABLE IF NOT EXISTS session_drone_batteries (
+    session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    drone_id   INTEGER NOT NULL REFERENCES drones(id) ON DELETE CASCADE,
+    battery_id INTEGER NOT NULL REFERENCES batteries(id) ON DELETE CASCADE,
+    count      INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (session_id, drone_id, battery_id)
+);
+
 CREATE TABLE IF NOT EXISTS drone_photos (
     id            SERIAL PRIMARY KEY,
     drone_id      INTEGER NOT NULL REFERENCES drones(id) ON DELETE CASCADE,
@@ -562,6 +570,8 @@ CREATE INDEX IF NOT EXISTS idx_sv_session      ON session_videos(session_id);
 CREATE INDEX IF NOT EXISTS idx_sp_session      ON session_photos(session_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_date   ON sessions(session_date DESC);
 CREATE INDEX IF NOT EXISTS idx_sb_battery      ON session_batteries(battery_id);
+CREATE INDEX IF NOT EXISTS idx_sdb_drone       ON session_drone_batteries(drone_id);
+CREATE INDEX IF NOT EXISTS idx_sdb_battery     ON session_drone_batteries(battery_id);
 
 CREATE TABLE IF NOT EXISTS app_config (
     id              INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),

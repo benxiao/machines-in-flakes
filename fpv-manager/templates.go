@@ -84,6 +84,7 @@ type DroneRow struct {
 	Status         string
 	Sub250g        bool
 	FlightCount    int
+	PacksFlown     int
 	FirstPhotoID   int
 	HasFlightToday bool
 	DaysInStatus   int
@@ -535,35 +536,50 @@ type SessionChecklistItem struct {
 }
 
 type SessionFormPage struct {
-	ActiveTab   string
-	Error       string
-	ID          int
-	Title       string
-	Type        string
-	SessionDate string
-	DurationMin string
-	Location    string
-	Notes       string
-	Drones      []DroneCheck
-	Batteries   []BatteryCheck
-	Places      []OptionItem
+	ActiveTab            string
+	Error                string
+	ID                   int
+	Title                string
+	Type                 string
+	SessionDate          string
+	DurationMin          string
+	Location             string
+	Notes                string
+	Drones               []DroneCheck
+	DroneBatterySections []DroneBatterySection
+	Places               []OptionItem
+}
+
+type DroneBatterySection struct {
+	DroneID   int
+	DroneName string
+	Batteries []BatteryCheck
 }
 
 type SessionDetailPage struct {
-	ActiveTab  string
-	ID         int
-	Title      string
-	DroneNames string
-	Type       string
-	Date       string
-	Duration   int
-	Location   string
-	Notes      string
-	Batteries  []BatteryRow
-	Videos     []VideoRow
-	Photos     []PhotoRow
-	Drones     []OptionItem
-	Checklist  []SessionChecklistItem
+	ActiveTab      string
+	ID             int
+	Title          string
+	DroneNames     string
+	Type           string
+	Date           string
+	Duration       int
+	Location       string
+	Notes          string
+	DroneBatteries []SessionDroneBatteryRow
+	Videos         []VideoRow
+	Photos         []PhotoRow
+	Drones         []OptionItem
+	Checklist      []SessionChecklistItem
+}
+
+type SessionDroneBatteryRow struct {
+	DroneName   string
+	Brand       string
+	Name        string
+	CellLabel   string
+	CapacityMAh int
+	Count       int
 }
 
 type PlaceListPage struct {
@@ -1124,6 +1140,7 @@ const droneListTmpl = `{{define "content"}}
       {{if .SizeInch}}<span>{{.SizeInch}}"</span>{{end}}
       {{if .CellLabel}}<span>{{.CellLabel}}</span>{{end}}
       {{if gt .FlightCount 0}}<span>{{.FlightCount}} flights</span>{{end}}
+      {{if gt .PacksFlown 0}}<span>{{.PacksFlown}} packs</span>{{end}}
       {{if .Sub250g}}<span style="color:#3fb950">sub 250g</span>{{end}}
     </div>
   </div>
@@ -2741,20 +2758,42 @@ const sessionFormTmpl = `{{define "content"}}
       {{end}}
     </div>
   </div>
-  {{if .Batteries}}
+  {{if .DroneBatterySections}}
   <div class="form-group">
-    <label>Batteries Used</label>
-    <div style="display:flex;flex-direction:column;gap:6px">
-      {{range .Batteries}}
-      <div style="display:flex;align-items:center;gap:8px">
-        <label class="battery-check" style="margin:0">
-          <input type="checkbox" name="battery_ids" value="{{.ID}}" {{if .Checked}}checked{{end}}>
-          {{.Label}}
-        </label>
-        <input type="number" name="battery_count_{{.ID}}" value="{{if gt .Count 0}}{{.Count}}{{else}}1{{end}}" min="1" style="width:52px;padding:2px 6px">
+    <label>Batteries Used <span class="muted" style="font-weight:normal;font-size:12px">(per drone, select drones above first)</span></label>
+    {{range .DroneBatterySections}}
+    {{if .Batteries}}
+    {{$droneID := .DroneID}}
+    <div class="drone-battery-section" data-drone-id="{{.DroneID}}" style="display:none;margin-bottom:10px;padding:8px;border:1px solid #21262d;border-radius:6px">
+      <div style="font-weight:600;margin-bottom:6px">{{.DroneName}}</div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        {{range .Batteries}}
+        <div style="display:flex;align-items:center;gap:8px">
+          <label class="battery-check" style="margin:0">
+            <input type="checkbox" name="battery_ids_{{$droneID}}" value="{{.ID}}" {{if .Checked}}checked{{end}}>
+            {{.Label}}
+          </label>
+          <input type="number" name="battery_count_{{$droneID}}_{{.ID}}" value="{{if gt .Count 0}}{{.Count}}{{else}}1{{end}}" min="1" style="width:52px;padding:2px 6px">
+        </div>
+        {{end}}
       </div>
-      {{end}}
     </div>
+    {{end}}
+    {{end}}
+    <script>
+    (function(){
+      var sel=document.querySelector('select[name="drone_ids"]');
+      var sections=document.querySelectorAll('.drone-battery-section');
+      function sync(){
+        var selected=Array.prototype.map.call(sel.selectedOptions,function(o){return o.value;});
+        sections.forEach(function(sec){
+          sec.style.display=selected.indexOf(sec.getAttribute('data-drone-id'))!==-1?'':'none';
+        });
+      }
+      sel.addEventListener('change',sync);
+      sync();
+    })();
+    </script>
   </div>
   {{end}}
   <div class="form-group">
@@ -2828,14 +2867,15 @@ updateAllClear();
 </script>
 {{end}}
 
-{{if .Batteries}}
+{{if .DroneBatteries}}
 <h3>Batteries Used</h3>
 <div class="table-wrap" style="max-width:600px;margin-bottom:24px">
 <table>
-<thead><tr><th>Brand</th><th>Name</th><th>Cell</th><th>mAh</th><th>Qty</th></tr></thead>
+<thead><tr><th>Drone</th><th>Brand</th><th>Name</th><th>Cell</th><th>mAh</th><th>Qty</th></tr></thead>
 <tbody>
-{{range .Batteries}}
+{{range .DroneBatteries}}
 <tr>
+  <td>{{.DroneName}}</td>
   <td class="muted">{{dash .Brand}}</td>
   <td>{{.Name}}</td>
   <td class="muted">{{dash .CellLabel}}</td>
