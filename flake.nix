@@ -18,6 +18,22 @@
           unstable = import nixpkgs-unstable {
             inherit system;
             config.allowUnfree = true;
+            overlays = [
+              (final: prev: {
+                # python3/python3Packages are aliases for python314/python314Packages,
+                # so the override must land on python314 itself to be visible everywhere.
+                python314 = prev.python314.override {
+                  packageOverrides = pyFinal: pyPrev: {
+                    # pandas-stubs' own test suite fails on Python 3.14 (nixos-unstable-small);
+                    # it's only a nativeCheckInput for pdfplumber's checkPhase, not used at runtime.
+                    pandas-stubs = pyPrev.pandas-stubs.overridePythonAttrs (_: {
+                      doCheck = false;
+                      pythonImportsCheck = [ ];
+                    });
+                  };
+                };
+              })
+            ];
           };
 
           master = import nixpkgs-master {
@@ -296,6 +312,7 @@
                       hardware.ledger.enable = true;
 
                       boot.loader.systemd-boot.enable = true;
+                      boot.loader.systemd-boot.configurationLimit = 15;
 
                       boot.extraModprobeConfig = ''
                           options zfs zfs_arc_max=8884901888
@@ -360,6 +377,7 @@
                         smartmontools
                         nmap
                         unzip
+                        unrar
                         pv
                         ouch
                         silver-searcher
