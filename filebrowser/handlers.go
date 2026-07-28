@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/nwaples/rardecode/v2"
 	"github.com/rwcarlsen/goexif/exif"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -53,6 +54,10 @@ var textExts = map[string]bool{
 	".go": true, ".py": true, ".sh": true, ".csv": true, ".log": true,
 }
 
+// archiveExts are the archive formats browsable as virtual folders (see
+// "Archive files browsed as folders" below).
+var archiveExts = map[string]bool{".zip": true, ".rar": true}
+
 func classifyExt(ext string) string {
 	ext = strings.ToLower(ext)
 	switch {
@@ -64,7 +69,7 @@ func classifyExt(ext string) string {
 		return "audio"
 	case ext == ".pdf":
 		return "pdf"
-	case ext == ".zip":
+	case archiveExts[ext]:
 		return "archive"
 	case textExts[ext]:
 		return "text"
@@ -151,15 +156,15 @@ func (a *App) isAllowedPath(r *http.Request, absPath string) bool {
 	target := absPath
 	resolved, err := filepath.EvalSymlinks(target)
 	if err != nil {
-		// Virtual zip paths don't exist on disk (traversing into the archive
-		// file yields ENOTDIR, a missing sibling ENOENT); the lexical check
-		// above already covered the full virtual path, so the symlink
+		// Virtual archive paths don't exist on disk (traversing into the
+		// archive file yields ENOTDIR, a missing sibling ENOENT); the lexical
+		// check above already covered the full virtual path, so the symlink
 		// containment check runs against the archive file itself.
-		zipFile, _, ok := splitZipPath(target)
+		archiveFile, _, ok := splitArchivePath(target)
 		if !ok || !(errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENOTDIR)) {
 			return false
 		}
-		target = zipFile
+		target = archiveFile
 		resolved, err = filepath.EvalSymlinks(target)
 		if err != nil {
 			return false
@@ -180,25 +185,25 @@ func (a *App) isAllowedPath(r *http.Request, absPath string) bool {
 	return false
 }
 
-// ---- Zip archives browsed as folders ----
+// ---- Archive files (zip/rar) browsed as folders ----
 //
-// Files inside a .zip are addressed with virtual paths that extend the
-// archive's real path with the entry path, e.g. /media/photos.zip/a/b.jpg.
+// Files inside a .zip or .rar are addressed with virtual paths that extend
+// the archive's real path with the entry path, e.g. /media/photos.zip/a/b.jpg.
 // Paths stay opaque strings, so auth checks, position/favorite keys and the
 // templates all work unchanged; anything that must read bytes goes through
 // resolveMediaPath, which extracts the entry into an on-disk cache.
 
-const zipCacheDir = "/var/lib/filebrowser/zipcache"
+const archiveCacheDir = "/var/lib/filebrowser/zipcache"
 
 // Extraction copies whole entries out of archives; cap concurrent ones.
-var zipSem = make(chan struct{}, 3)
+var archiveSem = make(chan struct{}, 3)
 
-// splitZipPath splits a virtual zip path into the archive file and the entry
-// path inside it ("" means the archive root). ok is false when no path
-// component is an existing regular .zip file.
-func splitZipPath(absPath string) (zipFile, inner string, ok bool) {
+// splitArchivePath splits a virtual archive path into the archive file and
+// the entry path inside it ("" means the archive root). ok is false when no
+// path component is an existing regular archive file.
+func splitArchivePath(absPath string) (archiveFile, inner string, ok bool) {
 	for p := absPath; ; {
-		if strings.EqualFold(filepath.Ext(p), ".zip") {
+		if archiveExts[strings.ToLower(filepath.Ext(p))] {
 			if info, err := os.Stat(p); err == nil && info.Mode().IsRegular() {
 				return p, strings.TrimPrefix(strings.TrimPrefix(absPath, p), "/"), true
 			}
@@ -211,19 +216,19 @@ func splitZipPath(absPath string) (zipFile, inner string, ok bool) {
 	}
 }
 
-// extractZipEntry extracts one entry into the cache and returns the cached
-// file's path. The key covers the archive's mtime, so an updated zip never
-// serves stale content; cache names are hashes, so a hostile entry name
-// can't escape the cache dir (zip-slip). The entry's extension is kept so
-// ServeFile sniffs the right Content-Type.
-func (a *App) extractZipEntry(ctx context.Context, zipFile, inner string) (string, error) {
-	info, err := os.Stat(zipFile)
+// extractArchiveEntry extracts one entry into the cache and returns the
+// cached file's path. The key covers the archive's mtime, so an updated
+// archive never serves stale content; cache names are hashes, so a hostile
+// entry name can't escape the cache dir (zip-slip). The entry's extension is
+// kept so ServeFile sniffs the right Content-Type.
+func (a *App) extractArchiveEntry(ctx context.Context, archiveFile, inner string) (string, error) {
+	info, err := os.Stat(archiveFile)
 	if err != nil {
 		return "", err
 	}
-	key := fmt.Sprintf("%s|%d|%s", zipFile, info.ModTime().UnixNano(), inner)
+	key := fmt.Sprintf("%s|%d|%s", archiveFile, info.ModTime().UnixNano(), inner)
 	h := sha256.Sum256([]byte(key))
-	cacheFile := filepath.Join(zipCacheDir, hex.EncodeToString(h[:])+strings.ToLower(filepath.Ext(inner)))
+	cacheFile := filepath.Join(archiveCacheDir, hex.EncodeToString(h[:])+strings.ToLower(filepath.Ext(inner)))
 	if _, err := os.Stat(cacheFile); err == nil {
 		now := time.Now()
 		os.Chtimes(cacheFile, now, now) // keep hot entries alive across cleanup
@@ -231,87 +236,175 @@ func (a *App) extractZipEntry(ctx context.Context, zipFile, inner string) (strin
 	}
 
 	select {
-	case zipSem <- struct{}{}:
+	case archiveSem <- struct{}{}:
 	case <-ctx.Done():
 		return "", ctx.Err()
 	}
-	defer func() { <-zipSem }()
+	defer func() { <-archiveSem }()
 	// Another request may have extracted it while we waited on the semaphore.
 	if _, err := os.Stat(cacheFile); err == nil {
 		return cacheFile, nil
 	}
 
-	zr, err := zip.OpenReader(zipFile)
+	if err := os.MkdirAll(archiveCacheDir, 0755); err != nil {
+		return "", err
+	}
+	// Unique temp name: two requests for the same entry can race past the
+	// cache check above; each writes its own file and rename is atomic.
+	tmp, err := os.CreateTemp(archiveCacheDir, "extract-*.tmp")
 	if err != nil {
 		return "", err
+	}
+	if strings.EqualFold(filepath.Ext(archiveFile), ".rar") {
+		err = copyRarEntry(archiveFile, inner, tmp)
+	} else {
+		err = copyZipEntry(archiveFile, inner, tmp)
+	}
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(tmp.Name(), cacheFile)
+	}
+	if err != nil {
+		os.Remove(tmp.Name())
+		return "", err
+	}
+	return cacheFile, nil
+}
+
+// copyZipEntry writes a single zip entry's bytes to dst.
+func copyZipEntry(zipFile, inner string, dst io.Writer) error {
+	zr, err := zip.OpenReader(zipFile)
+	if err != nil {
+		return err
 	}
 	defer zr.Close()
 	for _, f := range zr.File {
 		// inner comes from a Clean-ed absolute path, so it never contains
 		// ".."; traversal-named entries simply never match.
-		if f.FileInfo().IsDir() || zipEntryName(f.Name) != inner {
+		if f.FileInfo().IsDir() || archiveEntryName(f.Name) != inner {
 			continue
 		}
 		rc, err := f.Open()
 		if err != nil {
-			return "", err
+			return err
 		}
-		if err := os.MkdirAll(zipCacheDir, 0755); err != nil {
-			rc.Close()
-			return "", err
-		}
-		// Unique temp name: two requests for the same entry can race past the
-		// cache check above; each writes its own file and rename is atomic.
-		tmp, err := os.CreateTemp(zipCacheDir, "extract-*.tmp")
-		if err != nil {
-			rc.Close()
-			return "", err
-		}
-		_, err = io.Copy(tmp, rc)
+		_, err = io.Copy(dst, rc)
 		rc.Close()
-		if cerr := tmp.Close(); err == nil {
-			err = cerr
-		}
-		if err == nil {
-			err = os.Rename(tmp.Name(), cacheFile)
-		}
-		if err != nil {
-			os.Remove(tmp.Name())
-			return "", err
-		}
-		return cacheFile, nil
+		return err
 	}
-	return "", fmt.Errorf("entry %q not found in %s: %w", inner, zipFile, os.ErrNotExist)
+	return fmt.Errorf("entry %q not found in %s: %w", inner, zipFile, os.ErrNotExist)
 }
 
-// zipEntryName normalizes an archive entry name for comparison with inner
-// paths (drops "./" and trailing slashes; keeps ".." intact so traversal
-// names never match a clean inner path).
-func zipEntryName(name string) string {
+// copyRarEntry writes a single rar entry's bytes to dst. Rar entries are
+// only decodable through a sequential scan from the start of the archive
+// (solid archives chain each entry's decompression state onto the last), so
+// unlike zip there's no direct seek-to-entry shortcut.
+func copyRarEntry(rarFile, inner string, dst io.Writer) error {
+	rr, err := rardecode.OpenReader(rarFile)
+	if err != nil {
+		return err
+	}
+	defer rr.Close()
+	for {
+		hdr, err := rr.Next()
+		if err == io.EOF {
+			return fmt.Errorf("entry %q not found in %s: %w", inner, rarFile, os.ErrNotExist)
+		}
+		if err != nil {
+			return err
+		}
+		if hdr.IsDir || archiveEntryName(hdr.Name) != inner {
+			continue
+		}
+		_, err = io.Copy(dst, rr)
+		return err
+	}
+}
+
+// archiveEntryName normalizes an archive entry name for comparison with
+// inner paths (drops "./" and trailing slashes; keeps ".." intact so
+// traversal names never match a clean inner path).
+func archiveEntryName(name string) string {
 	return strings.TrimPrefix(path.Clean(name), "/")
 }
 
-// findZipAlbumArt mirrors findAlbumArt's rules but scans a zip's top-level
-// entries instead of a directory, so an archive full of photos gets a cover
-// thumbnail in the browse grid just like a folder does.
-func findZipAlbumArt(zipFile string) string {
+// archiveEntry is a format-agnostic view of one archive entry, used by
+// listArchiveDir and findArchiveAlbumArt so the directory-synthesis and
+// cover-art-scan logic runs identically over zip and rar archives.
+type archiveEntry struct {
+	Name    string // normalized, "/"-separated, via archiveEntryName
+	IsDir   bool
+	Size    int64
+	ModTime time.Time
+}
+
+// listArchiveEntries enumerates every entry in a zip or rar archive.
+// Header-only for both formats (no decompression), so it's cheap even for
+// solid rar archives, which only need a sequential decode when extracting a
+// single entry's bytes.
+func listArchiveEntries(archiveFile string) ([]archiveEntry, error) {
+	if strings.EqualFold(filepath.Ext(archiveFile), ".rar") {
+		return rarEntries(archiveFile)
+	}
+	return zipEntries(archiveFile)
+}
+
+func zipEntries(zipFile string) ([]archiveEntry, error) {
 	zr, err := zip.OpenReader(zipFile)
+	if err != nil {
+		return nil, err
+	}
+	defer zr.Close()
+	out := make([]archiveEntry, 0, len(zr.File))
+	for _, f := range zr.File {
+		out = append(out, archiveEntry{
+			Name:    archiveEntryName(f.Name),
+			IsDir:   f.FileInfo().IsDir(),
+			Size:    int64(f.UncompressedSize64),
+			ModTime: f.Modified,
+		})
+	}
+	return out, nil
+}
+
+func rarEntries(rarFile string) ([]archiveEntry, error) {
+	files, err := rardecode.List(rarFile)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]archiveEntry, 0, len(files))
+	for _, f := range files {
+		out = append(out, archiveEntry{
+			Name:    archiveEntryName(f.Name),
+			IsDir:   f.IsDir,
+			Size:    f.UnPackedSize,
+			ModTime: f.ModificationTime,
+		})
+	}
+	return out, nil
+}
+
+// findArchiveAlbumArt mirrors findAlbumArt's rules but scans an archive's
+// top-level entries instead of a directory, so an archive full of photos
+// gets a cover thumbnail in the browse grid just like a folder does.
+func findArchiveAlbumArt(archiveFile string) string {
+	entries, err := listArchiveEntries(archiveFile)
 	if err != nil {
 		return ""
 	}
-	defer zr.Close()
 	var first string
-	for _, f := range zr.File {
-		name := zipEntryName(f.Name)
-		if name == "" || strings.Contains(name, "/") || f.FileInfo().IsDir() {
+	for _, e := range entries {
+		if e.Name == "" || strings.Contains(e.Name, "/") || e.IsDir {
 			continue
 		}
-		ext := strings.ToLower(path.Ext(name))
+		ext := strings.ToLower(path.Ext(e.Name))
 		if !photoExts[ext] {
 			continue
 		}
-		virt := zipFile + "/" + name
-		base := strings.ToLower(strings.TrimSuffix(name, ext))
+		virt := archiveFile + "/" + e.Name
+		base := strings.ToLower(strings.TrimSuffix(e.Name, ext))
 		if base == "cover" || base == "folder" || base == "album" || base == "front" {
 			return virt
 		}
@@ -323,9 +416,9 @@ func findZipAlbumArt(zipFile string) string {
 }
 
 // resolveMediaPath maps a possibly-virtual path to a real file that
-// ServeFile/ffmpeg can read. Real paths pass through untouched; zip-internal
-// paths extract into the cache. Callers keep the original path for DB keys,
-// Content-Disposition and the thumbnail cache key.
+// ServeFile/ffmpeg can read. Real paths pass through untouched; archive-
+// internal paths extract into the cache. Callers keep the original path for
+// DB keys, Content-Disposition and the thumbnail cache key.
 // handlePhotoExif returns capture metadata for the photo viewer's info panel:
 // pixel dimensions (stdlib image decoders — jpeg/png/gif only, other photo
 // formats just omit them) plus EXIF camera/date/GPS fields where the file
@@ -397,30 +490,29 @@ func (a *App) resolveMediaPath(ctx context.Context, absPath string) (string, err
 	if _, err := os.Stat(absPath); err == nil {
 		return absPath, nil
 	}
-	zipFile, inner, ok := splitZipPath(absPath)
+	archiveFile, inner, ok := splitArchivePath(absPath)
 	if !ok || inner == "" {
 		return "", os.ErrNotExist
 	}
-	return a.extractZipEntry(ctx, zipFile, inner)
+	return a.extractArchiveEntry(ctx, archiveFile, inner)
 }
 
-// listZipDir lists the immediate children of inner within zipFile as rows
-// whose AbsPaths are virtual paths under dirParam. Directories that exist
-// only as prefixes of deeper entries are synthesized.
-func listZipDir(zipFile, inner, dirParam string) ([]SubdirRow, []FileRow, error) {
-	zr, err := zip.OpenReader(zipFile)
+// listArchiveDir lists the immediate children of inner within archiveFile as
+// rows whose AbsPaths are virtual paths under dirParam. Directories that
+// exist only as prefixes of deeper entries are synthesized.
+func listArchiveDir(archiveFile, inner, dirParam string) ([]SubdirRow, []FileRow, error) {
+	entries, err := listArchiveEntries(archiveFile)
 	if err != nil {
 		return nil, nil, err
 	}
-	defer zr.Close()
 	prefix := ""
 	if inner != "" {
 		prefix = inner + "/"
 	}
 	dirTimes := make(map[string]time.Time)
 	var files []FileRow
-	for _, f := range zr.File {
-		name := zipEntryName(f.Name)
+	for _, e := range entries {
+		name := e.Name
 		if name == "." || strings.HasPrefix(name, "../") || !strings.HasPrefix(name, prefix) {
 			continue
 		}
@@ -431,28 +523,27 @@ func listZipDir(zipFile, inner, dirParam string) ([]SubdirRow, []FileRow, error)
 		if i := strings.IndexByte(rest, '/'); i >= 0 {
 			// A deeper entry implies a child directory at this level.
 			d := rest[:i]
-			if t, seen := dirTimes[d]; !seen || f.Modified.After(t) {
-				dirTimes[d] = f.Modified
+			if t, seen := dirTimes[d]; !seen || e.ModTime.After(t) {
+				dirTimes[d] = e.ModTime
 			}
 			continue
 		}
-		if f.FileInfo().IsDir() {
+		if e.IsDir {
 			if _, seen := dirTimes[rest]; !seen {
-				dirTimes[rest] = f.Modified
+				dirTimes[rest] = e.ModTime
 			}
 			continue
 		}
 		ext := path.Ext(rest)
-		size := int64(f.UncompressedSize64)
 		files = append(files, FileRow{
 			AbsPath:    dirParam + "/" + rest,
 			Filename:   rest,
 			Extension:  strings.ToLower(ext),
 			FileType:   classifyExt(ext),
-			SizeBytes:  size,
-			Size:       formatSize(size),
-			ModifiedAt: f.Modified.Format("2006-01-02 15:04"),
-			ModTime:    f.Modified,
+			SizeBytes:  e.Size,
+			Size:       formatSize(e.Size),
+			ModifiedAt: e.ModTime.Format("2006-01-02 15:04"),
+			ModTime:    e.ModTime,
 		})
 	}
 	subdirs := make([]SubdirRow, 0, len(dirTimes))
@@ -522,11 +613,11 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 
 	var subdirs []SubdirRow
 	var files []FileRow
-	inZip := false
-	if zipFile, inner, ok := splitZipPath(dirParam); ok {
-		// A .zip file (or a virtual dir inside one) browses like a folder.
-		inZip = true
-		subdirs, files, err = listZipDir(zipFile, inner, dirParam)
+	inArchive := false
+	if archiveFile, inner, ok := splitArchivePath(dirParam); ok {
+		// A .zip/.rar file (or a virtual dir inside one) browses like a folder.
+		inArchive = true
+		subdirs, files, err = listArchiveDir(archiveFile, inner, dirParam)
 		if err != nil {
 			httpErr(w, err, 500)
 			return
@@ -561,7 +652,7 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 			fileType := classifyExt(ext)
 			var art string
 			if fileType == "archive" {
-				art = findZipAlbumArt(absFile)
+				art = findArchiveAlbumArt(absFile)
 			}
 			files = append(files, FileRow{
 				AbsPath:    absFile,
@@ -642,7 +733,7 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		PlaylistsJSON: template.JS(plJSON),
 		DirAlbumArt:   albumArt,
 		SortBy:        sortBy,
-		InZip:         inZip,
+		InArchive:     inArchive,
 	})
 }
 
@@ -1967,7 +2058,7 @@ func (a *App) handleThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Zip-internal files extract to the cache; the thumb cache key above
+	// Archive-internal files extract to the cache; the thumb cache key above
 	// stays on the virtual path so it survives cache eviction.
 	srcPath, err := a.resolveMediaPath(r.Context(), absPath)
 	if err != nil {
@@ -2693,8 +2784,8 @@ func (a *App) handleFolderPlay(w http.ResponseWriter, r *http.Request) {
 	}
 	var items []PlaylistItem
 	startIdx := 0
-	if zipFile, inner, ok := splitZipPath(dir); ok {
-		_, zfiles, err := listZipDir(zipFile, inner, dir)
+	if archiveFile, inner, ok := splitArchivePath(dir); ok {
+		_, zfiles, err := listArchiveDir(archiveFile, inner, dir)
 		if err != nil {
 			httpErr(w, err, 500)
 			return

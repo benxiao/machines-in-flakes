@@ -28,7 +28,7 @@ type BrowsePage struct {
 	PlaylistsJSON template.JS
 	DirAlbumArt   string
 	SortBy        string
-	InZip         bool // browsing inside a zip archive: read-only, no upload/mutations
+	InArchive     bool // browsing inside an archive (zip/rar): read-only, no upload/mutations
 }
 
 type PlaylistRow struct {
@@ -109,7 +109,7 @@ type FileRow struct {
 	ModifiedAt string
 	WatchCount int64
 	ModTime    time.Time
-	AlbumArt   string // for archives: virtual path of a cover image inside the zip, empty if none
+	AlbumArt   string // for archives: virtual path of a cover image inside the zip/rar, empty if none
 }
 
 type GrantedUserRow struct {
@@ -1614,8 +1614,8 @@ function openSearchFile(e, el) {
   if (el.dataset.type === 'audio') {
     window.location = '/folder/play?file=' + encodeURIComponent(p);
   } else if (el.dataset.type === 'archive') {
-    // Zip files are browsed as virtual directories (their own path, not
-    // the parent) — same as clicking one in the normal Browse view.
+    // Archives (zip/rar) are browsed as virtual directories (their own path,
+    // not the parent) — same as clicking one in the normal Browse view.
     window.location = '/browse?dir=' + encodeURIComponent(p);
   } else if (el.dataset.type === 'video' || el.dataset.type === 'photo') {
     // Land in the containing folder AND open the file's own preview
@@ -1697,8 +1697,8 @@ const browseTmpl = `{{define "content"}}
         {{end}}
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        {{if and .IsAdmin (not .InZip)}}<label class="btn btn-primary btn-sm" id="upload-btn" style="cursor:pointer;margin:0" title="Upload files to this folder">&#8679; Upload<input type="file" id="upload-input" multiple style="display:none" onchange="uploadFiles(this.files)"></label><span id="upload-status" style="display:none;color:var(--fg-muted);font-size:13px;white-space:nowrap"></span>{{end}}
-        {{if and .IsAdmin (not .InZip)}}<button id="btn-new-folder" class="btn btn-primary btn-sm" onclick="createFolder()" title="Create a new subdirectory in this folder">+ New Folder</button>{{end}}
+        {{if and .IsAdmin (not .InArchive)}}<label class="btn btn-primary btn-sm" id="upload-btn" style="cursor:pointer;margin:0" title="Upload files to this folder">&#8679; Upload<input type="file" id="upload-input" multiple style="display:none" onchange="uploadFiles(this.files)"></label><span id="upload-status" style="display:none;color:var(--fg-muted);font-size:13px;white-space:nowrap"></span>{{end}}
+        {{if and .IsAdmin (not .InArchive)}}<button id="btn-new-folder" class="btn btn-primary btn-sm" onclick="createFolder()" title="Create a new subdirectory in this folder">+ New Folder</button>{{end}}
         <button id="btn-play-all" class="btn btn-primary btn-sm" onclick="playFolderAll()" style="display:none" title="Play all media in this folder in a loop">&#9654; Loop</button>
         {{if or .Files .Subdirs}}<button id="btn-select" class="btn btn-edit btn-sm" onclick="toggleExtMenu(event)" title="Show only folders and files with certain extensions">Filter &#9662;</button>{{end}}
         <div class="view-toggle">
@@ -1745,7 +1745,7 @@ const browseTmpl = `{{define "content"}}
       <td>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#db6d28" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:6px"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><line x1="10" y1="12" x2="14" y2="12"/></svg>{{.Filename}}
       </td>
-      <td><span class="badge badge-archive">ZIP</span></td>
+      <td><span class="badge badge-archive">{{if eq .Extension ".rar"}}RAR{{else}}ZIP{{end}}</span></td>
       <td class="muted">{{.Size}}</td>
       <td class="muted">{{.ModifiedAt}}</td>
       <td class="muted">—</td>
@@ -1897,7 +1897,7 @@ const browseTmpl = `{{define "content"}}
   <button id="sel-fav-btn" class="btn btn-edit btn-sm" style="display:none" onclick="favoriteSelected()">&#9734; Favorite</button>
   <button id="sel-ext-btn" class="btn btn-edit btn-sm" style="display:none" onclick="selectSameExt()"></button>
   <button class="btn btn-edit btn-sm" onclick="downloadSelected()">⬇ Download</button>
-  {{if and .IsAdmin (not .InZip)}}
+  {{if and .IsAdmin (not .InArchive)}}
   <button id="sel-rename" class="btn btn-edit btn-sm" style="display:none" onclick="renameSelected()">&#x270E; Rename</button>
   <button class="btn btn-edit btn-sm" onclick="moveSelected()">&#128193; Move</button>
   <button class="btn btn-danger btn-sm" onclick="deleteSelected()">&#128465; Delete</button>

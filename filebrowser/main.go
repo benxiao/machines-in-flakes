@@ -344,11 +344,11 @@ func main() {
 		}
 	}()
 
-	// Evict zip extraction cache entries untouched for a day (access bumps
-	// mtime, so anything a user keeps playing stays cached).
+	// Evict archive extraction cache entries untouched for a day (access
+	// bumps mtime, so anything a user keeps playing stays cached).
 	go func() {
 		for {
-			entries, err := os.ReadDir(zipCacheDir)
+			entries, err := os.ReadDir(archiveCacheDir)
 			if err == nil {
 				purged := 0
 				for _, e := range entries {
@@ -356,12 +356,12 @@ func main() {
 					if err != nil || time.Since(info.ModTime()) < 24*time.Hour {
 						continue
 					}
-					if os.Remove(filepath.Join(zipCacheDir, e.Name())) == nil {
+					if os.Remove(filepath.Join(archiveCacheDir, e.Name())) == nil {
 						purged++
 					}
 				}
 				if purged > 0 {
-					log.Printf("zipcache: purged %d stale extraction(s)", purged)
+					log.Printf("archivecache: purged %d stale extraction(s)", purged)
 				}
 			}
 			time.Sleep(time.Hour)
