@@ -3111,6 +3111,7 @@ func (a *App) purgeFileRows(ctx context.Context, paths []string) error {
 		`DELETE FROM video_positions WHERE path = ANY($1)`,
 		`DELETE FROM playlist_items WHERE path = ANY($1)`,
 		`DELETE FROM favorites WHERE path = ANY($1) AND is_folder = FALSE`,
+		`DELETE FROM file_hashes WHERE path = ANY($1)`,
 	} {
 		if _, err := tx.Exec(ctx, q, paths); err != nil {
 			return err
@@ -3141,6 +3142,8 @@ func (a *App) repathFileRows(ctx context.Context, oldPath, newPath string) error
 		{`UPDATE playlist_items SET path = $1 WHERE path = $2`, []any{newPath, oldPath}},
 		{`DELETE FROM favorites WHERE path = $1 AND is_folder = FALSE`, []any{newPath}},
 		{`UPDATE favorites SET path = $1 WHERE path = $2 AND is_folder = FALSE`, []any{newPath, oldPath}},
+		{`DELETE FROM file_hashes WHERE path = $1`, []any{newPath}},
+		{`UPDATE file_hashes SET path = $1 WHERE path = $2`, []any{newPath, oldPath}},
 	}
 	for _, s := range steps {
 		if _, err := tx.Exec(ctx, s.q, s.args...); err != nil {
@@ -3619,6 +3622,7 @@ func (a *App) purgeFolderRows(ctx context.Context, dir string) error {
 		`DELETE FROM playlist_items WHERE path LIKE $1 || '/%' ESCAPE '\'`,
 		`DELETE FROM favorites WHERE path LIKE $1 || '/%' ESCAPE '\' AND is_folder = FALSE`,
 		`DELETE FROM indexed_paths WHERE path LIKE $1 || '/%' ESCAPE '\'`,
+		`DELETE FROM file_hashes WHERE path LIKE $1 || '/%' ESCAPE '\'`,
 	} {
 		if _, err := tx.Exec(ctx, q, likeDir); err != nil {
 			return err
@@ -3662,6 +3666,9 @@ func (a *App) repathFolderRows(ctx context.Context, oldDir, newDir string) error
 		  SET path = $3 || SUBSTRING(path FROM LENGTH($2)+1)
 		  WHERE path LIKE $1 || '/%' ESCAPE '\' AND is_folder = FALSE`, []any{likeOld, oldDir, newDir}},
 		{`UPDATE indexed_paths
+		  SET path = $3 || SUBSTRING(path FROM LENGTH($2)+1)
+		  WHERE path LIKE $1 || '/%' ESCAPE '\'`, []any{likeOld, oldDir, newDir}},
+		{`UPDATE file_hashes
 		  SET path = $3 || SUBSTRING(path FROM LENGTH($2)+1)
 		  WHERE path LIKE $1 || '/%' ESCAPE '\'`, []any{likeOld, oldDir, newDir}},
 		// Exact-match updates use unescaped oldDir
@@ -4028,6 +4035,15 @@ func hashFile(ctx context.Context, path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// sameInstant compares mtimes at microsecond granularity. os.FileInfo.ModTime
+// is nanosecond-precision but Postgres TIMESTAMPTZ only stores microseconds,
+// so a plain time.Time.Equal against a value round-tripped through the DB
+// would mismatch on the trailing digits almost every time — silently making
+// every cached hash look stale and defeating the cache entirely.
+func sameInstant(a, b time.Time) bool {
+	return a.UnixMicro() == b.UnixMicro()
+}
+
 // scanDuplicates walks the user's enabled roots, grouping files by size
 // first (cheap, stat-only) and only hashing files that share a size with at
 // least one other file — most files in a real library are unique sizes, so
@@ -4056,7 +4072,11 @@ func (a *App) scanDuplicates(ctx context.Context, userID int64) {
 	}
 	rows.Close()
 
-	bySize := make(map[int64][]string)
+	type dupFile struct {
+		path  string
+		mtime time.Time
+	}
+	bySize := make(map[int64][]dupFile)
 	seen := make(map[string]bool) // nested roots walk the same files twice
 	for _, root := range roots {
 		filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
@@ -4073,9 +4093,44 @@ func (a *App) scanDuplicates(ctx context.Context, userID int64) {
 				return nil
 			}
 			seen[p] = true
-			bySize[info.Size()] = append(bySize[info.Size()], p)
+			bySize[info.Size()] = append(bySize[info.Size()], dupFile{p, info.ModTime()})
 			return nil
 		})
+	}
+
+	// Cached hashes let a rescan skip re-reading files that haven't changed
+	// since the last scan (by path+size+mtime) — the dominant cost on a
+	// large library of unique-sized-but-still-colliding video files.
+	var candidatePaths []string
+	for _, files := range bySize {
+		if len(files) < 2 {
+			continue
+		}
+		for _, f := range files {
+			candidatePaths = append(candidatePaths, f.path)
+		}
+	}
+	type cachedHash struct {
+		size   int64
+		mtime  time.Time
+		sha256 string
+	}
+	cache := make(map[string]cachedHash, len(candidatePaths))
+	if len(candidatePaths) > 0 {
+		if rows, err := a.db.Query(ctx,
+			`SELECT path, size, mtime, sha256 FROM file_hashes WHERE path = ANY($1)`,
+			candidatePaths); err != nil {
+			log.Printf("dup scan: hash cache lookup: %v", err)
+		} else {
+			for rows.Next() {
+				var c cachedHash
+				var path string
+				if rows.Scan(&path, &c.size, &c.mtime, &c.sha256) == nil {
+					cache[path] = c
+				}
+			}
+			rows.Close()
+		}
 	}
 
 	type hashKey struct {
@@ -4083,17 +4138,35 @@ func (a *App) scanDuplicates(ctx context.Context, userID int64) {
 		hash string
 	}
 	byHash := make(map[hashKey][]string)
-	for size, paths := range bySize {
-		if len(paths) < 2 {
+	for size, files := range bySize {
+		if len(files) < 2 {
 			continue
 		}
-		for _, p := range paths {
-			h, err := hashFile(ctx, p)
-			if err != nil {
-				continue
+		for _, f := range files {
+			h, hit := "", false
+			if c, ok := cache[f.path]; ok && c.size == size && sameInstant(c.mtime, f.mtime) {
+				h, hit = c.sha256, true
+			}
+			if !hit {
+				var err error
+				h, err = hashFile(ctx, f.path)
+				if err != nil {
+					continue
+				}
+				if _, err := a.db.Exec(ctx, `
+					INSERT INTO file_hashes (path, size, mtime, sha256, hashed_at)
+					VALUES ($1, $2, $3, $4, now())
+					ON CONFLICT (path) DO UPDATE
+					  SET size = EXCLUDED.size, mtime = EXCLUDED.mtime,
+					      sha256 = EXCLUDED.sha256, hashed_at = EXCLUDED.hashed_at
+				`, f.path, size, f.mtime, h); err != nil {
+					// Persistence for next time failed, but we still have a
+					// valid hash for this run — don't drop the file.
+					log.Printf("dup scan: cache hash for %s: %v", f.path, err)
+				}
 			}
 			k := hashKey{size, h}
-			byHash[k] = append(byHash[k], p)
+			byHash[k] = append(byHash[k], f.path)
 		}
 	}
 

@@ -91,6 +91,13 @@ CREATE TABLE IF NOT EXISTS file_index (
 );
 ALTER TABLE file_index ADD COLUMN IF NOT EXISTS mtime TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS file_index_search ON file_index (user_id, lower(filename));
+CREATE TABLE IF NOT EXISTS file_hashes (
+	path      TEXT PRIMARY KEY,
+	size      BIGINT NOT NULL,
+	mtime     TIMESTAMPTZ NOT NULL,
+	sha256    TEXT NOT NULL,
+	hashed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 CREATE TABLE IF NOT EXISTS favorites (
 	user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 	path       TEXT NOT NULL,
