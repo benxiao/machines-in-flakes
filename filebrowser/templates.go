@@ -403,7 +403,7 @@ nav a {
 }
 nav a:hover { color: var(--fg); text-decoration: none; }
 nav a.active { color: var(--fg-strong); border-bottom-color: #f78166; }
-main { padding: 24px; max-width: 1400px; margin: 0 auto; }
+main { padding: 24px; }
 h2 { font-size: 20px; font-weight: 600; margin: 0 0 4px; color: var(--fg-strong); }
 h3 { font-size: 16px; font-weight: 600; margin: 0 0 12px; color: var(--fg-strong); }
 .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
@@ -446,7 +446,7 @@ tr:hover td { background: var(--bg-panel); }
 .badge-dir     { background: rgba(88,166,255,0.12); color: #58a6ff; border: 1px solid rgba(88,166,255,0.3); }
 .badge-archive { background: rgba(219,109,40,0.15); color: #db6d28; border: 1px solid rgba(219,109,40,0.4); }
 .browse-layout { display:flex; margin:-24px; min-height:calc(100vh - 108px); }
-.browse-sidebar { width:220px; flex-shrink:0; border-right:1px solid var(--border); padding:0; position:relative; transition:width 0.18s; display:flex; flex-direction:column; }
+.browse-sidebar { width:max-content; min-width:120px; max-width:180px; flex-shrink:0; border-right:1px solid var(--border); padding:0; position:relative; transition:width 0.18s; display:flex; flex-direction:column; }
 .browse-sidebar.collapsed { width:28px; }
 .browse-sidebar.collapsed .sidebar-paths { display:none; }
 .sidebar-toggle { background:transparent; border:none; color:var(--fg-muted); cursor:pointer; font-size:16px; line-height:1; padding:6px 4px; text-align:center; width:100%; flex-shrink:0; }

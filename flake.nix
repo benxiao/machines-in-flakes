@@ -497,6 +497,15 @@
                     '';
                   };
 
+                  # Nightly dumps for the app databases; kept as plain
+                  # pg_dump SQL (current + previous) rather than relying on
+                  # ZFS snapshots, which don't cover this pool.
+                  services.postgresqlBackup = {
+                    enable = true;
+                    databases = [ "filebrowser" "fpv_manager" "kanban" ];
+                    compression = "zstd";
+                  };
+
                   systemd.services.restart-broken-containers-after-reboot = {
                     wantedBy = [ "multi-user.target" ];
                     after = [
@@ -573,7 +582,7 @@
               })
               (makeGoService {
                 pname = "filebrowser";
-                version = "1.29.0";
+                version = "1.29.2";
                 src = ./filebrowser;
                 vendorHash = "sha256-1ZUei2lGm6RAj7AY7frzX9VoO3VEVDIu2DwMT4T44Ww=";
                 description = "File Browser";
