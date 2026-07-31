@@ -226,6 +226,7 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/file/delete", a.handleFileDelete)
 	mux.HandleFunc("POST /api/file/move", a.handleFileMove)
 	mux.HandleFunc("POST /api/file/upload", a.handleFileUpload)
+	mux.HandleFunc("POST /api/file/hash-matches", a.handleFileHashMatches)
 	mux.HandleFunc("GET /api/pdf/markdown",          a.handlePDFMarkdown)
 	mux.HandleFunc("GET /api/folder/download",      a.handleFolderDownload)
 	mux.HandleFunc("POST /api/folder/delete",       a.handleFolderDelete)

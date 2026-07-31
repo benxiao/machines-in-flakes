@@ -1901,6 +1901,7 @@ const browseTmpl = `{{define "content"}}
   <button id="sel-rename" class="btn btn-edit btn-sm" style="display:none" onclick="renameSelected()">&#x270E; Rename</button>
   <button class="btn btn-edit btn-sm" onclick="moveSelected()">&#128193; Move</button>
   <button class="btn btn-danger btn-sm" onclick="deleteSelected()">&#128465; Delete</button>
+  <button id="sel-hashdel-btn" class="btn btn-danger btn-sm" style="display:none" onclick="deleteAllCopies()">&#128465; Delete All Copies</button>
   {{end}}
   <button class="btn btn-edit btn-sm" onclick="clearSelection()">&#x2715; Clear</button>
   <span id="sel-ok" style="display:none;color:#3fb950;font-size:13px"></span>
@@ -1990,6 +1991,8 @@ function updateSelBar() {
   if (favBtn) favBtn.style.display = hasFavable ? '' : 'none';
   var ren = document.getElementById('sel-rename');
   if (ren) ren.style.display = checks.length === 1 ? '' : 'none';
+  var hashDelBtn = document.getElementById('sel-hashdel-btn');
+  if (hashDelBtn) hashDelBtn.style.display = (checks.length === 1 && checks[0].dataset.type !== 'dir') ? '' : 'none';
   // Offer "Select all .ext" when the selection is files sharing one extension
   // and more files with that extension remain unselected.
   var extBtn = document.getElementById('sel-ext-btn');
@@ -2248,6 +2251,45 @@ function deleteSelected() {
       location.reload();
     })
     .catch(function(e) { alert('Delete failed: ' + e); });
+}
+function deleteAllCopies() {
+  var checks = selChecks(true);
+  if (checks.length !== 1) return;
+  var path = checks[0].value;
+  var btn = document.getElementById('sel-hashdel-btn');
+  var origText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Searching…';
+  fetch('/api/file/hash-matches', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({path: path})})
+    .then(function(r) {
+      if (!r.ok) return r.text().then(function(t) { throw new Error(t || r.statusText); });
+      return r.json();
+    })
+    .then(function(data) {
+      btn.disabled = false;
+      btn.textContent = origText;
+      var paths = data.paths || [];
+      if (paths.length <= 1) {
+        alert('No other copies of this file were found.');
+        return;
+      }
+      var shown = paths.slice(0, 20).join('\n') + (paths.length > 20 ? '\n…and ' + (paths.length - 20) + ' more' : '');
+      var msg = paths.length + ' files share this exact content, including the file you selected:\n\n' + shown +
+        '\n\nDelete all ' + paths.length + ' to Trash? No copy of this content will remain.';
+      if (!confirm(msg)) return;
+      fetch('/api/file/delete', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({paths: paths})})
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+          if (res.errors && res.errors.length) alert('Some items failed:\n' + res.errors.join('\n'));
+          location.reload();
+        })
+        .catch(function(e) { alert('Delete failed: ' + e); });
+    })
+    .catch(function(e) {
+      btn.disabled = false;
+      btn.textContent = origText;
+      alert('Search failed: ' + e.message);
+    });
 }
 function renameSelected() {
   var checked = selChecks(true);
