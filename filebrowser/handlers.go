@@ -29,11 +29,15 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/nwaples/rardecode/v2"
 	"github.com/rwcarlsen/goexif/exif"
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/text/encoding"
+	"golang.org/x/text/encoding/japanese"
+	"golang.org/x/text/encoding/simplifiedchinese"
 )
 
 var photoExts = map[string]bool{
@@ -327,7 +331,31 @@ func copyRarEntry(rarFile, inner string, dst io.Writer) error {
 // inner paths (drops "./" and trailing slashes; keeps ".." intact so
 // traversal names never match a clean inner path).
 func archiveEntryName(name string) string {
-	return strings.TrimPrefix(path.Clean(name), "/")
+	return strings.TrimPrefix(path.Clean(normalizeArchiveName(name)), "/")
+}
+
+// normalizeArchiveName guarantees a valid UTF-8 name. Zip/rar entries from
+// tools that don't set the Unicode/UTF-8 flag (common with East-Asian
+// filenames from older Windows tools) store raw legacy-codepage bytes
+// verbatim — archive/zip and rardecode both pass those bytes through
+// unchanged. Left as invalid UTF-8, the name breaks the moment it round-trips
+// through a browser: the HTML parser (following the page's UTF-8 charset)
+// replaces each undecodable byte with U+FFFD while building the DOM, so the
+// string a click sends back no longer matches the archive's real entry name
+// and listArchiveDir's prefix match fails silently — the folder renders as
+// empty even though it has files. Guessing GBK/Shift-JIS fixes the *display*;
+// falling back to ToValidUTF8 guarantees the *round-trip* either way, so even
+// a wrong guess keeps browsing working, just ugly.
+func normalizeArchiveName(name string) string {
+	if utf8.ValidString(name) {
+		return name
+	}
+	for _, enc := range []encoding.Encoding{simplifiedchinese.GBK, japanese.ShiftJIS} {
+		if decoded, err := enc.NewDecoder().String(name); err == nil && utf8.ValidString(decoded) && !strings.ContainsRune(decoded, utf8.RuneError) {
+			return decoded
+		}
+	}
+	return strings.ToValidUTF8(name, "�")
 }
 
 // archiveEntry is a format-agnostic view of one archive entry, used by
