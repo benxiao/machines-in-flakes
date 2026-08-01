@@ -182,6 +182,40 @@
             };
           });
 
+          # Fetches (and daily-renews) a Tailscale HTTPS cert for `hostname`
+          # into /var/lib/tailscale-certs, owned by `user` so a paired
+          # service running as the same user can read the private key with
+          # no group coordination needed. Requires "HTTPS Certificates" to
+          # be enabled for the tailnet (Tailscale admin console -> DNS).
+          makeTailscaleCertModule = { hostname, user }: ({ pkgs, ... }: {
+            systemd.services.tailscale-cert = {
+              description = "Fetch/renew Tailscale HTTPS cert for ${hostname}";
+              after = [ "tailscaled.service" "network-online.target" ];
+              wants = [ "network-online.target" ];
+              serviceConfig = {
+                Type = "oneshot";
+                User = user;
+                StateDirectory = "tailscale-certs";
+                ExecStart = pkgs.writeShellScript "tailscale-cert-fetch" ''
+                  set -eu
+                  ${pkgs.tailscale}/bin/tailscale cert \
+                    --cert-file=/var/lib/tailscale-certs/cert.pem \
+                    --key-file=/var/lib/tailscale-certs/key.pem \
+                    ${hostname}
+                '';
+              };
+            };
+            systemd.timers.tailscale-cert = {
+              description = "Daily Tailscale HTTPS cert renewal for ${hostname}";
+              wantedBy = [ "timers.target" ];
+              timerConfig = {
+                OnBootSec = "5m";
+                OnUnitActiveSec = "1d";
+                Persistent = true;
+              };
+            };
+          });
+
           ollamaModule = ({ ... }: {
             services.ollama = {
               enable = true;
@@ -597,11 +631,23 @@
                 # Create filebrowser/.env (gitignored) with:
                 #   FB_ADMIN_USERNAME=admin
                 #   FB_ADMIN_PASSWORD=your-password
+                #   FB_GOOGLE_CLIENT_ID=...
+                #   FB_GOOGLE_CLIENT_SECRET=...
+                #   FB_GOOGLE_REDIRECT_URL=https://athena.pinto-stargazer.ts.net:10094/auth/google/callback
                 environmentFile = "/home/rxiao/machines-in-flakes/filebrowser/.env";
+              })
+              (makeTailscaleCertModule {
+                hostname = "athena.pinto-stargazer.ts.net";
+                user = "rxiao";
               })
               ({ lib, ... }: {
                 # run as rxiao so it can read user-owned files and directories
                 systemd.services.filebrowser.serviceConfig.User = lib.mkForce "rxiao";
+                # not a hard requirement (TLS cert is loaded lazily per
+                # handshake, see main.go's certLoader), just narrows the
+                # window on a fresh boot where the cert isn't there yet
+                systemd.services.filebrowser.wants = [ "tailscale-cert.service" ];
+                systemd.services.filebrowser.after = [ "tailscale-cert.service" ];
               })
               (makeRouterMonitorModule { })
               nvidiaModule
