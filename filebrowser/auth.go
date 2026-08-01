@@ -4,15 +4,19 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 )
 
 // ---- Auth ----
@@ -34,7 +38,10 @@ func randToken() string {
 }
 
 func (a *App) withAuth(next http.Handler) http.Handler {
-	exempt := map[string]bool{"/login": true, "/logout": true, "/favicon.svg": true}
+	exempt := map[string]bool{
+		"/login": true, "/logout": true, "/favicon.svg": true,
+		"/auth/google/login": true, "/auth/google/callback": true,
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if exempt[r.URL.Path] {
 			next.ServeHTTP(w, r)
@@ -121,6 +128,7 @@ func (a *App) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		MaxAge:   30 * 24 * 3600,
 		HttpOnly: true,
+		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 	})
 	// Require a local path: "//host" and "/\host" are protocol-relative
@@ -137,6 +145,113 @@ func (a *App) handleLogout(w http.ResponseWriter, r *http.Request) {
 	}
 	http.SetCookie(w, &http.Cookie{Name: "fb_session", Value: "", Path: "/", MaxAge: -1})
 	http.Redirect(w, r, "/login", http.StatusFound)
+}
+
+// ---- Google sign-in ----
+//
+// Deliberately does NOT auto-provision accounts: a Google account only
+// works for login once an admin has linked it to an existing user via
+// handleUserSetGoogleEmail. This mirrors the existing admin-managed-users
+// model instead of adding open signup to a private media server.
+
+func googleOAuthConfig() *oauth2.Config {
+	return &oauth2.Config{
+		ClientID:     os.Getenv("FB_GOOGLE_CLIENT_ID"),
+		ClientSecret: os.Getenv("FB_GOOGLE_CLIENT_SECRET"),
+		RedirectURL:  os.Getenv("FB_GOOGLE_REDIRECT_URL"),
+		Scopes:       []string{"openid", "email"},
+		Endpoint:     google.Endpoint,
+	}
+}
+
+func (a *App) handleGoogleLoginStart(w http.ResponseWriter, r *http.Request) {
+	cfg := googleOAuthConfig()
+	if cfg.ClientID == "" {
+		http.Error(w, "Google sign-in is not configured", http.StatusServiceUnavailable)
+		return
+	}
+	state := randToken()
+	http.SetCookie(w, &http.Cookie{Name: "fb_oauth_state", Value: state, Path: "/", MaxAge: 600, HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode})
+	next := r.URL.Query().Get("next")
+	http.SetCookie(w, &http.Cookie{Name: "fb_oauth_next", Value: next, Path: "/", MaxAge: 600, HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode})
+	http.Redirect(w, r, cfg.AuthCodeURL(state), http.StatusFound)
+}
+
+func (a *App) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
+	const failMsg = "Google sign-in failed. Please try again."
+
+	stateCookie, stateErr := r.Cookie("fb_oauth_state")
+	http.SetCookie(w, &http.Cookie{Name: "fb_oauth_state", Value: "", Path: "/", MaxAge: -1})
+	next := "/browse"
+	if nextCookie, err := r.Cookie("fb_oauth_next"); err == nil && strings.HasPrefix(nextCookie.Value, "/") &&
+		!strings.HasPrefix(nextCookie.Value, "//") && !strings.HasPrefix(nextCookie.Value, `/\`) {
+		next = nextCookie.Value
+	}
+	http.SetCookie(w, &http.Cookie{Name: "fb_oauth_next", Value: "", Path: "/", MaxAge: -1})
+
+	if stateErr != nil || r.URL.Query().Get("state") != stateCookie.Value {
+		render(w, "login", LoginPage{Error: "Google sign-in failed (session expired). Please try again."})
+		return
+	}
+	code := r.URL.Query().Get("code")
+	if code == "" {
+		render(w, "login", LoginPage{Error: "Google sign-in was cancelled."})
+		return
+	}
+
+	cfg := googleOAuthConfig()
+	token, err := cfg.Exchange(r.Context(), code)
+	if err != nil {
+		log.Printf("google oauth exchange: %v", err)
+		render(w, "login", LoginPage{Error: failMsg})
+		return
+	}
+	resp, err := cfg.Client(r.Context(), token).Get("https://openidconnect.googleapis.com/v1/userinfo")
+	if err != nil {
+		log.Printf("google oauth userinfo: %v", err)
+		render(w, "login", LoginPage{Error: failMsg})
+		return
+	}
+	defer resp.Body.Close()
+	var info struct {
+		Email         string `json:"email"`
+		EmailVerified bool   `json:"email_verified"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil || info.Email == "" {
+		log.Printf("google oauth userinfo decode: %v", err)
+		render(w, "login", LoginPage{Error: failMsg})
+		return
+	}
+	if !info.EmailVerified {
+		render(w, "login", LoginPage{Error: "Your Google account's email address is not verified."})
+		return
+	}
+
+	var userID int64
+	err = a.db.QueryRow(r.Context(), `SELECT id FROM users WHERE google_email = $1`, strings.ToLower(info.Email)).Scan(&userID)
+	if err != nil {
+		render(w, "login", LoginPage{Error: fmt.Sprintf("The Google account %s isn't linked to a filebrowser user. Ask an admin to link it.", info.Email)})
+		return
+	}
+
+	sessToken := randToken()
+	if _, err = a.db.Exec(r.Context(), `
+		INSERT INTO sessions (token, user_id, expires_at)
+		VALUES ($1, $2, now() + interval '30 days')
+	`, sessToken, userID); err != nil {
+		httpErr(w, err, 500)
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     "fb_session",
+		Value:    sessToken,
+		Path:     "/",
+		MaxAge:   30 * 24 * 3600,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	})
+	http.Redirect(w, r, next, http.StatusFound)
 }
 
 // ---- User management ----
@@ -175,8 +290,10 @@ func (a *App) handleUserDetail(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	var username string
-	if err := a.db.QueryRow(r.Context(), `SELECT username FROM users WHERE id = $1`, targetID).Scan(&username); err != nil {
+	var username, googleEmail string
+	if err := a.db.QueryRow(r.Context(),
+		`SELECT username, COALESCE(google_email, '') FROM users WHERE id = $1`, targetID,
+	).Scan(&username, &googleEmail); err != nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -200,12 +317,49 @@ func (a *App) handleUserDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	render(w, "user_detail", UserDetailPage{
-		ActiveTab: "users",
-		IsAdmin:   true,
-		ID:        targetID,
-		Username:  username,
-		AllPaths:  allPaths,
+		ActiveTab:   "users",
+		IsAdmin:     true,
+		ID:          targetID,
+		Username:    username,
+		GoogleEmail: googleEmail,
+		AllPaths:    allPaths,
 	})
+}
+
+// handleUserSetGoogleEmail links or unlinks a Google account for sign-in
+// (see handleGoogleCallback): an empty value clears the link. Google
+// sign-in only ever matches an EXISTING user by this field -- it never
+// creates accounts -- so this is the only way a Google account becomes
+// usable for login.
+func (a *App) handleUserSetGoogleEmail(w http.ResponseWriter, r *http.Request) {
+	if !isAdmin(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	targetID, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	r.ParseForm()
+	email := strings.TrimSpace(strings.ToLower(r.FormValue("google_email")))
+	var err error
+	if email == "" {
+		_, err = a.db.Exec(r.Context(), `UPDATE users SET google_email = NULL WHERE id = $1`, targetID)
+	} else {
+		_, err = a.db.Exec(r.Context(), `UPDATE users SET google_email = $1 WHERE id = $2`, email, targetID)
+	}
+	if err != nil {
+		msg := "Failed to update Google account link."
+		if strings.Contains(err.Error(), "unique") || strings.Contains(err.Error(), "duplicate") {
+			msg = fmt.Sprintf("%s is already linked to another user.", email)
+		}
+		var username, googleEmail string
+		a.db.QueryRow(r.Context(), `SELECT username, COALESCE(google_email, '') FROM users WHERE id = $1`, targetID).Scan(&username, &googleEmail)
+		render(w, "user_detail", UserDetailPage{ActiveTab: "users", IsAdmin: true, ID: targetID, Username: username, GoogleEmail: googleEmail, Error: msg})
+		return
+	}
+	http.Redirect(w, r, fmt.Sprintf("/users/%d", targetID), http.StatusFound)
 }
 
 func (a *App) handleUserCreate(w http.ResponseWriter, r *http.Request) {

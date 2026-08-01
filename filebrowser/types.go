@@ -117,11 +117,13 @@ type AdminPathRow struct {
 }
 
 type UserDetailPage struct {
-	ActiveTab string
-	IsAdmin   bool
-	ID        int64
-	Username  string
-	AllPaths  []AdminPathRow
+	ActiveTab   string
+	IsAdmin     bool
+	ID          int64
+	Username    string
+	GoogleEmail string
+	AllPaths    []AdminPathRow
+	Error       string
 }
 
 type PathsPage struct {

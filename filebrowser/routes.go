@@ -74,6 +74,7 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /users/{id}", a.handleUserDetail)
 	mux.HandleFunc("POST /users", a.handleUserCreate)
 	mux.HandleFunc("POST /users/{id}/delete", a.handleUserDelete)
+	mux.HandleFunc("POST /users/{id}/google-email", a.handleUserSetGoogleEmail)
 	mux.HandleFunc("POST /paths/{id}/grant", a.handlePathGrant)
 	mux.HandleFunc("POST /paths/{id}/revoke/{uid}", a.handlePathRevoke)
 	mux.HandleFunc("GET /trash", a.handleTrashPage)
