@@ -153,11 +153,7 @@ DO $$ BEGIN
     ALTER TABLE play_time DROP CONSTRAINT play_time_pkey;
     ALTER TABLE play_time ADD PRIMARY KEY (user_id, day, media_type);
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='google_email') THEN
-    ALTER TABLE users ADD COLUMN google_email TEXT;
-  END IF;
 END $$;
-CREATE UNIQUE INDEX IF NOT EXISTS users_google_email_key ON users (google_email) WHERE google_email IS NOT NULL;
 `
 
 func (a *App) initSchema(ctx context.Context) error {

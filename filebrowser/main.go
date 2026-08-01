@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"log"
 	"net/http"
 	"os"
@@ -38,47 +37,6 @@ func systemTimezone() string {
 		return target[i+len(marker):]
 	}
 	return ""
-}
-
-func envOr(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
-}
-
-// certLoader returns a tls.Config.GetCertificate callback that reads
-// certFile/keyFile from disk lazily, re-parsing only when the cert file's
-// mtime advances -- so a renewed Tailscale cert (see the tailscale-cert
-// systemd timer in flake.nix) takes effect on the next handshake with no
-// restart. If a reload attempt fails (e.g. mid-write by the renewal job),
-// the previously-loaded cert keeps serving rather than failing the request.
-func certLoader(certFile, keyFile string) func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
-	var mu sync.Mutex
-	var cached *tls.Certificate
-	var cachedModTime time.Time
-	return func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
-		info, err := os.Stat(certFile)
-		if err != nil {
-			return nil, err
-		}
-		mu.Lock()
-		defer mu.Unlock()
-		if cached == nil || info.ModTime().After(cachedModTime) {
-			cert, err := tls.LoadX509KeyPair(certFile, keyFile)
-			if err != nil {
-				if cached != nil {
-					log.Printf("tls: reload failed, keeping previous cert: %v", err)
-					return cached, nil
-				}
-				return nil, err
-			}
-			cached = &cert
-			cachedModTime = info.ModTime()
-			log.Printf("tls: loaded cert (modified %s)", cachedModTime.Format(time.RFC3339))
-		}
-		return cached, nil
-	}
 }
 
 func main() {
@@ -193,19 +151,7 @@ func main() {
 	mux.HandleFunc("GET /login", app.handleLoginGet)
 	mux.HandleFunc("POST /login", app.handleLoginPost)
 	mux.HandleFunc("POST /logout", app.handleLogout)
-	mux.HandleFunc("GET /auth/google/login", app.handleGoogleLoginStart)
-	mux.HandleFunc("GET /auth/google/callback", app.handleGoogleCallback)
 	app.registerRoutes(mux)
-
-	certFile := envOr("FB_TLS_CERT", "/var/lib/tailscale-certs/cert.pem")
-	keyFile := envOr("FB_TLS_KEY", "/var/lib/tailscale-certs/key.pem")
-	srv := &http.Server{
-		Addr:    addr,
-		Handler: app.withAuth(mux),
-		TLSConfig: &tls.Config{
-			GetCertificate: certLoader(certFile, keyFile),
-		},
-	}
-	log.Printf("filebrowser listening on %s (https)", addr)
-	log.Fatal(srv.ListenAndServeTLS("", ""))
+	log.Printf("filebrowser listening on %s", addr)
+	log.Fatal(http.ListenAndServe(addr, app.withAuth(mux)))
 }

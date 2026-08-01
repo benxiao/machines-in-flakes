@@ -57,12 +57,6 @@ func initTemplates() {
 		"playURL": func(path string) template.URL {
 			return template.URL("/folder/play?file=" + url.QueryEscape(path))
 		},
-		"googleLoginURL": func(next string) template.URL {
-			if next == "" {
-				return template.URL("/auth/google/login")
-			}
-			return template.URL("/auth/google/login?next=" + url.QueryEscape(next))
-		},
 		"fmtDur": fmtDurStr,
 		"fmtPos": func(sec float64) string { return fmtDurStr(int64(sec)) },
 	}
