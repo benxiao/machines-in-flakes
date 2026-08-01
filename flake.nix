@@ -216,18 +216,6 @@
             };
           });
 
-          # filebrowser is HTTPS-only, on a Tailscale-issued cert bound to
-          # athena's ts.net hostname (see makeTailscaleCertModule above).
-          # Client machines that reach athena over the LAN or a WireGuard
-          # VPN (not Tailscale) need this hostname to resolve locally to
-          # athena's LAN IP, since it won't resolve via Tailscale MagicDNS
-          # off-tailnet.
-          filebrowserHostOverrideModule = ({ ... }: {
-            networking.hosts = {
-              "192.168.30.7" = [ "athena.pinto-stargazer.ts.net" ];
-            };
-          });
-
           ollamaModule = ({ ... }: {
             services.ollama = {
               enable = true;
@@ -508,7 +496,6 @@
               desktopAppsModule
               googleSDKPackageModule
               nixos-hardware.nixosModules.lenovo-thinkpad-t490
-              filebrowserHostOverrideModule
             ];
 
           });
@@ -700,7 +687,6 @@
                 };
               })
               ollamaModule
-              filebrowserHostOverrideModule
             ];
           });
           # amd ryzen 3950x
@@ -740,7 +726,6 @@
               (makePython3Module { })
               desktopAppsModule
               googleSDKPackageModule
-              filebrowserHostOverrideModule
             ];
           });
         };
