@@ -482,6 +482,12 @@
                   networking.hostId = "00000000"; # replace: run `head -c 8 /etc/machine-id` on athena
                   services.vscode-server.enable = true;
 
+                  # Periodic SMART health checks on all drives (logs to the
+                  # journal — journalctl -u smartd — no notification method
+                  # configured yet: no X server here to pop an x11 alert, and
+                  # mail needs an MTA this machine doesn't have set up).
+                  services.smartd.enable = true;
+
                   # Headless server — no GPU or monitor attached
                   services.xserver.enable = lib.mkForce false;
                   services.displayManager.gdm.enable = lib.mkForce false;
