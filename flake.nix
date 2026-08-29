@@ -488,6 +488,40 @@
                   # mail needs an MTA this machine doesn't have set up).
                   services.smartd.enable = true;
 
+                  # Automated snapshots on the data pools, so recovering from
+                  # a fat-fingered delete or a buggy reorg script doesn't
+                  # depend on remembering to `zfs snapshot` beforehand. Named
+                  # autosnap_* — distinct from, and never touches, manually
+                  # taken snapshots like blue2t@2026-08-29. Deliberately
+                  # modest retention as a trial; safe to enable=false or
+                  # retune later. zroot is left out for now (mixes the OS,
+                  # which is reproducible from this flake, with the
+                  # /torrents dataset — a separate decision).
+                  services.sanoid = {
+                    enable = true;
+                    templates.production = {
+                      hourly = 24;
+                      daily = 7;
+                      weekly = 4;
+                      monthly = 3;
+                      yearly = 0;
+                      autosnap = true;
+                      autoprune = true;
+                    };
+                    datasets = {
+                      "blue2t".useTemplate = [ "production" ];
+                      "blue2t".recursive = true;
+                      "c7".useTemplate = [ "production" ];
+                      "c7".recursive = true;
+                      "exos12".useTemplate = [ "production" ];
+                      "exos12".recursive = true;
+                      "exos16".useTemplate = [ "production" ];
+                      "exos16".recursive = true;
+                      "tm1t".useTemplate = [ "production" ];
+                      "tm1t".recursive = true;
+                    };
+                  };
+
                   # Headless server — no GPU or monitor attached
                   services.xserver.enable = lib.mkForce false;
                   services.displayManager.gdm.enable = lib.mkForce false;
