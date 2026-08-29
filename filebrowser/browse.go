@@ -180,8 +180,15 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 
 	dirParam := r.URL.Query().Get("dir")
 	if dirParam == "" {
-		if len(sidebarPaths) > 0 {
-			target := "/browse?dir=" + url.QueryEscape(sidebarPaths[0].Path)
+		// Land on wherever the user last browsed to, so re-opening the app
+		// picks up where they left off instead of always starting at the
+		// first sidebar path. Falls back to that first path if there's no
+		// recorded folder open yet, or the recorded one is no longer valid
+		// (root disabled/ungranted, or the folder itself deleted/moved).
+		lastOpened := a.lastOpenedFolder(ctx, userID)
+		landing := chooseLandingPath(lastOpened, lastOpened != "" && a.isAllowedPath(r, lastOpened), sidebarPaths)
+		if landing != "" {
+			target := "/browse?dir=" + url.QueryEscape(landing)
 			if s := r.URL.Query().Get("sort"); s != "" {
 				target += "&sort=" + url.QueryEscape(s)
 			}
@@ -197,6 +204,10 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	// A folder counts as "opened" each time it's browsed to. Files can't be
+	// observed server-side the same way (they're viewed client-side, in the
+	// preview modal or the playlist player), so those go through /open instead.
+	a.recordOpenPath(ctx, userID, dirParam, true)
 
 	// Derive current root from sidebar paths (longest matching prefix).
 	var rootPath string
@@ -206,7 +217,10 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	sortBy := r.URL.Query().Get("sort") // "" or "name" = alphabetical; "date" = newest first
+	sortBy := r.URL.Query().Get("sort") // "" or "opened" = last opened first (default); "date" = newest modified first; "name" = alphabetical
+	if sortBy == "" {
+		sortBy = "opened"
+	}
 
 	var subdirs []SubdirRow
 	var files []FileRow
@@ -264,15 +278,29 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
-	if sortBy == "date" {
-		sort.Slice(subdirs, func(i, j int) bool { return subdirs[i].ModTime.After(subdirs[j].ModTime) })
-		sort.Slice(files, func(i, j int) bool { return files[i].ModTime.After(files[j].ModTime) })
-	} else {
-		sort.Slice(subdirs, func(i, j int) bool { return subdirs[i].Name < subdirs[j].Name })
-		sort.Slice(files, func(i, j int) bool {
-			return strings.ToLower(files[i].Filename) < strings.ToLower(files[j].Filename)
-		})
+	// Batch-fetch last-opened timestamps for everything in the listing —
+	// needed to render the "Opened" column and, when sortBy is "opened", to
+	// order by it.
+	var allPaths []string
+	for _, d := range subdirs {
+		allPaths = append(allPaths, d.AbsPath)
 	}
+	for _, f := range files {
+		allPaths = append(allPaths, f.AbsPath)
+	}
+	if len(allPaths) > 0 {
+		lastOpened := a.fetchLastOpened(ctx, userID, allPaths)
+		for i := range subdirs {
+			subdirs[i].LastOpened = lastOpened[subdirs[i].AbsPath]
+			subdirs[i].LastOpenedAt = formatLastOpened(subdirs[i].LastOpened)
+		}
+		for i := range files {
+			files[i].LastOpened = lastOpened[files[i].AbsPath]
+			files[i].LastOpenedAt = formatLastOpened(files[i].LastOpened)
+		}
+	}
+
+	sortEntries(subdirs, files, sortBy)
 
 	// Batch-fetch watch counts for video and audio files.
 	var mediaPaths []string
@@ -379,6 +407,65 @@ func buildBreadcrumb(dir, root string) []Breadcrumb {
 		})
 	}
 	return crumbs
+}
+
+// chooseLandingPath picks where a bare /browse (no ?dir=) lands: the user's
+// last-opened folder if there is one and it's still valid, else the first
+// sidebar path, else "" (no paths configured at all — renders the empty
+// "no paths" page instead of redirecting).
+func chooseLandingPath(lastOpened string, lastOpenedValid bool, sidebarPaths []PathRow) string {
+	if lastOpened != "" && lastOpenedValid {
+		return lastOpened
+	}
+	if len(sidebarPaths) > 0 {
+		return sidebarPaths[0].Path
+	}
+	return ""
+}
+
+// sortEntries orders subdirs and files in place, independently of each other
+// (the template always lists folders above files regardless of sort mode).
+func sortEntries(subdirs []SubdirRow, files []FileRow, sortBy string) {
+	switch sortBy {
+	case "date":
+		sort.Slice(subdirs, func(i, j int) bool { return subdirs[i].ModTime.After(subdirs[j].ModTime) })
+		sort.Slice(files, func(i, j int) bool { return files[i].ModTime.After(files[j].ModTime) })
+	case "name":
+		sort.Slice(subdirs, func(i, j int) bool { return subdirs[i].Name < subdirs[j].Name })
+		sort.Slice(files, func(i, j int) bool {
+			return strings.ToLower(files[i].Filename) < strings.ToLower(files[j].Filename)
+		})
+	default: // "opened"
+		sort.Slice(subdirs, func(i, j int) bool {
+			return openedBefore(subdirs[i].LastOpened, subdirs[i].ModTime, subdirs[j].LastOpened, subdirs[j].ModTime)
+		})
+		sort.Slice(files, func(i, j int) bool {
+			return openedBefore(files[i].LastOpened, files[i].ModTime, files[j].LastOpened, files[j].ModTime)
+		})
+	}
+}
+
+// openedBefore reports whether entry a should sort ahead of entry b under
+// the "opened" order: most-recently-opened first; entries with no recorded
+// open (zero LastOpened) sort after every opened entry, newest-modified first.
+func openedBefore(aOpened, aMod, bOpened, bMod time.Time) bool {
+	aHas, bHas := !aOpened.IsZero(), !bOpened.IsZero()
+	if aHas != bHas {
+		return aHas
+	}
+	if aHas {
+		return aOpened.After(bOpened)
+	}
+	return aMod.After(bMod)
+}
+
+// formatLastOpened renders a last-opened timestamp for the "Opened" column,
+// or "Never" when the entry has no recorded open.
+func formatLastOpened(t time.Time) string {
+	if t.IsZero() {
+		return "Never"
+	}
+	return t.Format("2006-01-02 15:04")
 }
 
 func (a *App) handleServeFile(w http.ResponseWriter, r *http.Request) {

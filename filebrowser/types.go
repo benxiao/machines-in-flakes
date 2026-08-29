@@ -85,24 +85,28 @@ type Breadcrumb struct {
 }
 
 type SubdirRow struct {
-	AbsPath    string
-	Name       string
-	AlbumArt   string // abs path of cover image inside this dir, empty if none
-	ModifiedAt string
-	ModTime    time.Time
+	AbsPath      string
+	Name         string
+	AlbumArt     string // abs path of cover image inside this dir, empty if none
+	ModifiedAt   string
+	ModTime      time.Time
+	LastOpened   time.Time // zero if never opened by this user
+	LastOpenedAt string    // pre-formatted LastOpened, or "Never"
 }
 
 type FileRow struct {
-	AbsPath    string
-	Filename   string
-	Extension  string
-	FileType   string
-	SizeBytes  int64
-	Size       string
-	ModifiedAt string
-	WatchCount int64
-	ModTime    time.Time
-	AlbumArt   string // for archives: virtual path of a cover image inside the zip/rar, empty if none
+	AbsPath      string
+	Filename     string
+	Extension    string
+	FileType     string
+	SizeBytes    int64
+	Size         string
+	ModifiedAt   string
+	WatchCount   int64
+	ModTime      time.Time
+	LastOpened   time.Time // zero if never opened by this user
+	LastOpenedAt string    // pre-formatted LastOpened, or "Never"
+	AlbumArt     string    // for archives: virtual path of a cover image inside the zip/rar, empty if none
 }
 
 type GrantedUserRow struct {

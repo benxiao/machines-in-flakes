@@ -108,6 +108,7 @@ tr:hover td { background: var(--bg-panel); }
 .browse-sidebar.collapsed .sidebar-paths { display:none; }
 .sidebar-toggle { background:transparent; border:none; color:var(--fg-muted); cursor:pointer; font-size:16px; line-height:1; padding:6px 4px; text-align:center; width:100%; flex-shrink:0; }
 .sidebar-toggle:hover { color:var(--fg-strong); }
+.sidebar-path-picker { display:none; }
 .browse-sidebar.collapsed .sidebar-toggle { padding:8px 4px; }
 .sidebar-paths { overflow-y:auto; overflow-x:hidden; flex:1; padding:4px 0; }
 .browse-sidebar-item { display:block; padding:8px 16px; color:var(--fg-muted); font-size:13px; font-family:monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-decoration:none; cursor:pointer; }
@@ -438,15 +439,20 @@ input.pl-speed::-moz-range-thumb { width:11px; height:11px; border-radius:50%; b
   .search-result-thumb { width:44px; height:33px; }
   .search-result-name { font-size:12px; }
   .search-result-dir { font-size:10px; }
-  /* Browse: stack sidebar above content on mobile */
+  /* Browse: on mobile the sidebar is a single "current root" button that
+     drops a scrollable panel of every root, instead of a horizontal tab
+     row (with 10+ roots, a tab row shows one full-width tab and hides the
+     rest off-screen with no indication they exist). */
   .browse-layout { flex-direction:column; margin:-12px; min-height:0; }
   .browse-sidebar { width:100% !important; border-right:none; border-bottom:1px solid var(--border); flex-direction:row; transition:none; }
-  .browse-sidebar.collapsed { width:100% !important; }
-  .browse-sidebar.collapsed .sidebar-paths { display:flex; }
   .sidebar-toggle { display:none; }
-  .sidebar-paths { display:flex; flex-direction:row; overflow-x:auto; overflow-y:hidden; padding:4px 8px; -webkit-overflow-scrolling:touch; flex:none; width:100%; }
-  .browse-sidebar-item { flex-shrink:0; padding:8px 14px; border-left:none !important; padding-left:14px !important; font-size:13px; min-height:44px; display:flex; align-items:center; }
-  .browse-sidebar-item.active { border-bottom:2px solid #58a6ff; border-left:none !important; color:var(--fg-strong); background:var(--surface-active); }
+  .sidebar-path-picker { display:flex; align-items:center; justify-content:space-between; gap:6px; width:100%; padding:10px 14px; background:transparent; border:none; color:var(--fg); font-size:14px; font-family:monospace; text-align:left; cursor:pointer; min-height:44px; }
+  /* !important guards against .browse-sidebar.collapsed .sidebar-paths
+     (base rule, higher specificity) hiding this if a desktop session on the
+     same browser left "collapsed" set in localStorage. */
+  .sidebar-paths { display:none; position:fixed; z-index:300; left:8px; right:8px; background:var(--bg-panel); border:1px solid var(--border); border-radius:6px; padding:4px; max-height:60vh; overflow-y:auto; box-shadow:0 8px 24px rgba(0,0,0,0.4); flex-direction:column; }
+  .sidebar-paths.open { display:flex !important; }
+  .browse-sidebar-item { padding:10px 14px; font-size:14px; min-height:44px; display:flex; align-items:center; border-radius:4px; }
   .browse-main { padding:12px; }
   /* Settings: single column */
   .settings-grid { grid-template-columns:1fr !important; }
@@ -643,9 +649,9 @@ function _sortParam() {
   return s ? '&sort=' + encodeURIComponent(s) : '';
 }
 function setSort(s) {
-  try { localStorage.setItem('fb_sort', s === 'name' ? '' : s); } catch(e) {}
+  try { localStorage.setItem('fb_sort', s === 'opened' ? '' : s); } catch(e) {}
   var params = new URLSearchParams(window.location.search);
-  if (s === 'name') { params.delete('sort'); } else { params.set('sort', s); }
+  if (s === 'opened') { params.delete('sort'); } else { params.set('sort', s); }
   params.set('dir', params.get('dir') || '');
   window.location = '/browse?' + params.toString();
 }
@@ -996,8 +1002,18 @@ window.addEventListener('resize', function() {
 });
 // ---- End image zoom ----
 
+// recordOpen pings the server the moment a file is opened, driving the
+// browse listing's "last opened" sort. Fire-and-forget: nothing here needs
+// the response, and a dropped ping just means the file falls back to being
+// ranked by modified-date next to other never-opened files.
+function recordOpen(path) {
+  try {
+    fetch('/open', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({path: path})});
+  } catch(e) {}
+}
 function openPreview(el, autoplay) {
   var path = el.dataset.path;
+  recordOpen(path);
   var name = el.dataset.name;
   var type = el.dataset.type;
   var fileUrl = '/file?path=' + encodeURIComponent(path);

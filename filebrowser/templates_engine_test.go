@@ -2,6 +2,21 @@ package main
 
 import "testing"
 
+// TestInitTemplatesParses catches template syntax errors (e.g. an unbalanced
+// {{if}}/{{range}} introduced by a template edit) that a plain compile can't
+// see, since page templates are just Go string constants until parsed here.
+func TestInitTemplatesParses(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("initTemplates panicked: %v", r)
+		}
+	}()
+	initTemplates()
+	if len(pages) == 0 {
+		t.Fatal("initTemplates left pages empty")
+	}
+}
+
 func TestFmtDurStr(t *testing.T) {
 	cases := []struct {
 		sec  int64

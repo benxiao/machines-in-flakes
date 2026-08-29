@@ -7,7 +7,10 @@ const browseTmpl = `{{define "content"}}
 <div class="browse-layout">
   <div class="browse-sidebar" id="browse-sidebar">
     <button class="sidebar-toggle" id="sidebar-toggle" onclick="toggleSidebar()" title="Collapse sidebar">&#8249;</button>
-    <div class="sidebar-paths">
+    <button class="sidebar-path-picker" id="sidebar-path-picker" onclick="togglePathMenu(event)" title="Choose a root folder">
+      <span>{{if .CurrentRoot}}{{base .CurrentRoot}}{{else}}Choose folder{{end}}</span> &#9662;
+    </button>
+    <div class="sidebar-paths" id="sidebar-paths" onclick="event.stopPropagation()">
       {{range .Paths}}
       <a class="browse-sidebar-item{{if eq .Path $.CurrentRoot}} active{{end}}" href="{{browseURL .Path}}" title="{{.Path}}">{{base .Path}}</a>
       {{else}}
@@ -31,8 +34,9 @@ const browseTmpl = `{{define "content"}}
         <button id="btn-play-all" class="btn btn-primary btn-sm" onclick="playFolderAll()" style="display:none" title="Play all media in this folder in a loop">&#9654; Loop</button>
         {{if or .Files .Subdirs}}<button id="btn-select" class="btn btn-edit btn-sm" onclick="toggleExtMenu(event)" title="Show only folders and files with certain extensions">Filter &#9662;</button>{{end}}
         <div class="view-toggle">
+          <button class="btn-view {{if eq .SortBy "opened"}}active{{end}}" onclick="setSort('opened')" title="Sort by last opened">&#128337; Opened</button>
           <button class="btn-view {{if eq .SortBy "date"}}active{{end}}" onclick="setSort('date')" title="Sort by date">&#128197; Date</button>
-          <button class="btn-view {{if ne .SortBy "date"}}active{{end}}" onclick="setSort('name')" title="Sort by name">A&#8250;Z Name</button>
+          <button class="btn-view {{if eq .SortBy "name"}}active{{end}}" onclick="setSort('name')" title="Sort by name">A&#8250;Z Name</button>
         </div>
         <div class="view-toggle">
           <button id="btn-list" class="btn-view" onclick="setView('list')" title="List view">&#9776; List</button>
@@ -51,7 +55,7 @@ const browseTmpl = `{{define "content"}}
       <th>Name</th>
       <th>Type</th>
       <th>Size</th>
-      <th>Modified</th>
+      <th>{{if eq .SortBy "opened"}}Opened{{else}}Modified{{end}}</th>
       <th>Plays</th>
     </tr></thead>
     <tbody>
@@ -63,7 +67,7 @@ const browseTmpl = `{{define "content"}}
       </td>
       <td><span class="badge badge-dir">DIR</span></td>
       <td class="muted">—</td>
-      <td class="muted">{{.ModifiedAt}}</td>
+      <td class="muted">{{if eq $.SortBy "opened"}}{{.LastOpenedAt}}{{else}}{{.ModifiedAt}}{{end}}</td>
       <td></td>
     </tr>
     {{end}}
@@ -76,19 +80,17 @@ const browseTmpl = `{{define "content"}}
       </td>
       <td><span class="badge badge-archive">{{if eq .Extension ".rar"}}RAR{{else}}ZIP{{end}}</span></td>
       <td class="muted">{{.Size}}</td>
-      <td class="muted">{{.ModifiedAt}}</td>
+      <td class="muted">{{if eq $.SortBy "opened"}}{{.LastOpenedAt}}{{else}}{{.ModifiedAt}}{{end}}</td>
       <td class="muted">—</td>
-      <td></td>
     </tr>
     {{else if eq .FileType "other"}}
     <tr data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="other">
       <td><input type="checkbox" class="row-check" value="{{.AbsPath}}" data-type="other" data-ext="{{.Extension}}" onchange="updateSelBar()" onclick="event.stopPropagation()" style="cursor:pointer"></td>
-      <td><a href="{{fileURL .AbsPath}}" onclick="event.stopPropagation()">{{.Filename}}</a></td>
+      <td><a href="{{fileURL .AbsPath}}" data-path="{{.AbsPath}}" onclick="event.stopPropagation(); recordOpen(this.dataset.path)">{{.Filename}}</a></td>
       <td><span class="badge badge-{{.FileType}}">{{upper .FileType}}</span></td>
       <td class="muted">{{.Size}}</td>
-      <td class="muted">{{.ModifiedAt}}</td>
+      <td class="muted">{{if eq $.SortBy "opened"}}{{.LastOpenedAt}}{{else}}{{.ModifiedAt}}{{end}}</td>
       <td class="muted">—</td>
-      <td></td>
     </tr>
     {{else}}
     <tr class="file-row" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="{{.FileType}}" onclick="openPreview(this, true)">
@@ -96,7 +98,7 @@ const browseTmpl = `{{define "content"}}
       <td>{{.Filename}}</td>
       <td><span class="badge badge-{{.FileType}}">{{upper .FileType}}</span></td>
       <td class="muted">{{.Size}}</td>
-      <td class="muted">{{.ModifiedAt}}</td>
+      <td class="muted">{{if eq $.SortBy "opened"}}{{.LastOpenedAt}}{{else}}{{.ModifiedAt}}{{end}}</td>
       <td>{{if and (or (eq .FileType "video") (eq .FileType "audio")) (gt .WatchCount 0)}}<span class="badge badge-{{.FileType}}">{{.WatchCount}}×</span>{{else}}<span class="muted">—</span>{{end}}</td>
     </tr>
     {{end}}
@@ -203,7 +205,7 @@ const browseTmpl = `{{define "content"}}
     {{else}}
     <div class="grid-card" data-path="{{.AbsPath}}" data-name="{{.Filename}}" data-type="other" onclick="gridClick(event,this)">
       <input class="grid-chk row-check" type="checkbox" value="{{.AbsPath}}" data-type="other" data-ext="{{.Extension}}" onchange="gridCheck(event,this)" onclick="event.stopPropagation()" style="cursor:pointer;width:14px;height:14px">
-      <a href="{{fileURL .AbsPath}}" onclick="event.stopPropagation()" style="display:contents">
+      <a href="{{fileURL .AbsPath}}" data-path="{{.AbsPath}}" onclick="event.stopPropagation(); recordOpen(this.dataset.path)" style="display:contents">
         <div class="grid-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
         <div class="grid-name">{{.Filename}}</div>
       </a>
@@ -366,6 +368,20 @@ function hideExtMenu() {
   var m = document.getElementById('ext-menu');
   if (m) m.style.display = 'none';
 }
+// Mobile root-folder picker: same tap-to-open/outside-click-to-close pattern
+// as the ext-menu above, just listing .sidebar-paths instead of extensions.
+function hidePathMenu() {
+  var m = document.getElementById('sidebar-paths');
+  if (m) m.classList.remove('open');
+}
+function togglePathMenu(ev) {
+  ev.stopPropagation();
+  var menu = document.getElementById('sidebar-paths');
+  if (menu.classList.contains('open')) { hidePathMenu(); return; }
+  menu.classList.add('open');
+  var r = ev.currentTarget.getBoundingClientRect();
+  menu.style.top = (r.bottom + 4) + 'px';
+}
 function toggleExtMenu(ev) {
   ev.stopPropagation();
   var menu = document.getElementById('ext-menu');
@@ -427,7 +443,8 @@ function buildExtMenu() {
   });
 }
 document.addEventListener('click', hideExtMenu);
-document.addEventListener('keydown', function(e) { if (e.key === 'Escape') hideExtMenu(); });
+document.addEventListener('click', hidePathMenu);
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') { hideExtMenu(); hidePathMenu(); } });
 function setView(v) {
   var list = document.getElementById('view-list');
   var grid = document.getElementById('view-grid');
@@ -777,15 +794,17 @@ function favoriteSelected() {
     }).catch(function(){});
   }).catch(function(){});
 }
-// Apply saved sort preference if URL has no sort param
+// Apply saved sort preference if URL has no sort param. 'opened' is the
+// server's default (an omitted/empty sort param already means "opened"), so
+// only a saved 'date' or 'name' preference needs to force it into the URL.
 (function() {
   try {
     var urlSort = new URLSearchParams(window.location.search).get('sort');
     if (urlSort === null) {
       var saved = _getStoredSort();
-      if (saved === 'date') {
+      if (saved === 'date' || saved === 'name') {
         var p = new URLSearchParams(window.location.search);
-        p.set('sort', 'date');
+        p.set('sort', saved);
         window.location.replace('/browse?' + p.toString());
       }
     }

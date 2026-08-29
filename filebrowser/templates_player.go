@@ -735,6 +735,7 @@ function startPlaylistItem(idx, seekTo, autoplay) {
   var rows = document.querySelectorAll('.pl-item');
   if (rows[idx]) rows[idx].scrollIntoView({block: 'nearest'});
   var item = PLAYLIST_ITEMS[idx];
+  recordOpen(item.Path);
   plLog('spi idx=' + idx + ' type=' + item.FileType + ' ap=' + !!autoplay + ' seek=' + (seekTo || 0).toFixed(0) + ' mse=' + plMseOk());
   var fileUrl = '/file?path=' + encodeURIComponent(item.Path);
   var v = document.getElementById('pl-video'), a = document.getElementById('pl-audio');

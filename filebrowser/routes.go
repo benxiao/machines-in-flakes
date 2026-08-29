@@ -41,6 +41,7 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/folder/playlist-add", a.handleFolderPlaylistAdd)
 	mux.HandleFunc("GET /video/position", a.handleGetVideoPosition)
 	mux.HandleFunc("POST /video/position", a.handleSaveVideoPosition)
+	mux.HandleFunc("POST /open", a.handleRecordOpen)
 	mux.HandleFunc("GET /api/bookmarks", a.handleListBookmarks)
 	mux.HandleFunc("POST /api/bookmarks", a.handleAddBookmark)
 	mux.HandleFunc("POST /api/bookmarks/{id}/delete", a.handleDeleteBookmark)

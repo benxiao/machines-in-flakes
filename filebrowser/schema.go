@@ -95,6 +95,13 @@ CREATE TABLE IF NOT EXISTS track_bookmarks (
 	created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS track_bookmarks_path ON track_bookmarks (user_id, path);
+CREATE TABLE IF NOT EXISTS last_opened (
+	user_id   BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	path      TEXT NOT NULL,
+	is_folder BOOLEAN NOT NULL DEFAULT FALSE,
+	opened_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (user_id, path)
+);
 `
 
 const migrations = `
@@ -153,6 +160,7 @@ DO $$ BEGIN
     ALTER TABLE play_time DROP CONSTRAINT play_time_pkey;
     ALTER TABLE play_time ADD PRIMARY KEY (user_id, day, media_type);
   END IF;
+  ALTER TABLE last_opened ADD COLUMN IF NOT EXISTS is_folder BOOLEAN NOT NULL DEFAULT FALSE;
 END $$;
 `
 
