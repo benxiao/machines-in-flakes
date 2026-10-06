@@ -275,8 +275,10 @@
               systemd.services.${pname} = {
                 inherit description;
                 wantedBy = [ "multi-user.target" ];
-                after = [ "network.target" "postgresql.service" ];
-                requires = [ "postgresql.service" ];
+                # postgresql.target includes postgresql-setup.service, which creates the
+                # ensureUsers role; ordering after postgresql.service alone races it on first start
+                after = [ "network.target" "postgresql.target" ];
+                requires = [ "postgresql.target" ];
                 environment = {
                   ${listenEnvVar} = listenPort;
                   ${dbDsnEnvVar} = "host=/run/postgresql dbname=${dbName} user=${svcUser} sslmode=disable";
@@ -542,7 +544,7 @@
                   # ZFS snapshots, which don't cover this pool.
                   services.postgresqlBackup = {
                     enable = true;
-                    databases = [ "filebrowser" "fpv_manager" "kanban" ];
+                    databases = [ "filebrowser" "fpv_manager" "kanban" "stl_review" ];
                     compression = "zstd";
                   };
 
@@ -642,6 +644,27 @@
               ({ lib, ... }: {
                 # run as rxiao so it can read user-owned files and directories
                 systemd.services.filebrowser.serviceConfig.User = lib.mkForce "rxiao";
+              })
+              (makeGoService {
+                pname = "stl-review";
+                version = "0.3.0";
+                src = ./stl-review;
+                # same pgx deps as kanban/fpv-manager
+                vendorHash = "sha256-Qs23BHgrlK0P5BREEzS5Y/2G7mL1pcSd1k3z8NUw/mM=";
+                description = "STL Review (3D print viewer + annotations)";
+                listenEnvVar = "STLR_LISTEN";
+                listenPort = ":10095";
+                dbDsnEnvVar = "STLR_DB_DSN";
+                dbName = "stl_review";
+                extraEnv = {
+                  # every ~/<project>/stl/ directory is a project
+                  STLR_HOME = "/home/rxiao";
+                  STLR_SHOT_DIR = "/var/lib/stl-review/shots";
+                };
+              })
+              ({ lib, ... }: {
+                # home is 0700; also lets Claude read the screenshots without sudo
+                systemd.services.stl-review.serviceConfig.User = lib.mkForce "rxiao";
               })
               (makeRouterMonitorModule { })
               nvidiaModule

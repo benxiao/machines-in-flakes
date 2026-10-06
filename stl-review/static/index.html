@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>STL Review</title>
+<link rel="stylesheet" href="/static/style.css?v={{VERSION}}">
+</head>
+<body>
+<header class="bar">
+  <select id="project" title="Project"></select>
+  <select id="part" title="Part"></select>
+  <div class="group">
+    <button id="prev" title="Previous version">‹</button>
+    <select id="version" title="Version"></select>
+    <button id="next" title="Next version">›</button>
+  </div>
+  <div class="group">
+    <select id="compare" title="Compare against"></select>
+    <div class="seg" id="cmpmode">
+      <button data-m="heat" title="Colour by distance from the compared mesh">Diff</button>
+      <button data-m="ghost" title="Compared mesh as a translucent overlay">Ghost</button>
+      <button data-m="flip" title="Toggle between the two meshes">A/B</button>
+    </div>
+  </div>
+  <div class="group right">
+    <a id="bambu" class="btn" title="Open in Bambu Studio">Bambu</a>
+    <a id="download" class="btn" title="Download STL" download>⬇</a>
+  </div>
+</header>
+
+<main>
+  <div id="stage">
+    <div id="labels"></div>
+    <div id="chip" hidden></div>
+    <div id="legend" hidden></div>
+    <div id="toast" hidden></div>
+    <div id="busy" hidden></div>
+    <button id="flipbtn" class="floating" hidden></button>
+  </div>
+  <aside id="panel">
+    <div class="panel-head">
+      <div id="info"></div>
+      <button id="closepanel" class="mobile-only" title="Close">✕</button>
+    </div>
+    <div class="pins-head">
+      <h2>Notes</h2>
+      <label class="check"><input type="checkbox" id="showresolved"> resolved</label>
+    </div>
+    <div id="pins"></div>
+    <footer class="ver">stl-review {{VERSION}}</footer>
+  </aside>
+</main>
+
+<div id="sectionbar" class="subbar" hidden>
+  <div class="seg" id="secaxis">
+    <button data-a="x">X</button><button data-a="y">Y</button><button data-a="z">Z</button>
+  </div>
+  <input type="range" id="secpos" min="0" max="1000" value="500">
+  <span id="secval" class="mono"></span>
+  <button id="secflip" title="Keep the other side">⇅</button>
+</div>
+
+<div id="brushbar" class="subbar" hidden>
+  <div class="seg" id="brushmode">
+    <button data-b="paint" class="on" title="Paint">Paint</button><button data-b="erase" title="Erase (X)">Erase</button>
+  </div>
+  <label class="brushsize" title="Brush diameter ([ and ])">⌀ <input type="range" id="brushsize" min="0.5" max="20" step="0.5" value="3"></label>
+  <span id="brushval" class="mono"></span>
+  <span id="paintarea" class="mono"></span>
+  <button id="paintclear" disabled>Clear</button>
+  <button id="paintnote" class="primary" disabled>Add note</button>
+</div>
+
+<nav class="tools">
+  <div class="seg" id="mode">
+    <button data-mode="view" title="Rotate / inspect (tap shows coordinates)">View</button>
+    <button data-mode="brush" title="Paint an area on the part, then add a note (B)">Brush</button>
+    <button data-mode="measure" title="Tap two points">Measure</button>
+  </div>
+  <button id="section" title="Section plane"><span class="desktop-only">Section</span><span class="mobile-only">Cut</span></button>
+  <div class="seg" id="views">
+    <button data-v="fit" title="Fit">Fit</button>
+    <button data-v="top" title="Top (from +Z)">Top</button>
+    <button data-v="front" title="Front (from −Y)">Front</button>
+    <button data-v="right" title="Right (from +X)">Right</button>
+    <button data-v="iso" title="Iso">Iso</button>
+  </div>
+  <button id="openpanel" class="mobile-only">Notes <span id="pincount"></span></button>
+</nav>
+
+<div id="sheet" hidden>
+  <div class="sheet-card">
+    <div id="sheettitle" class="mono"></div>
+    <textarea id="sheettext" rows="4" placeholder="What should change here?"></textarea>
+    <div class="sheet-actions">
+      <button id="sheetcancel">Cancel</button>
+      <button id="sheetsave" class="primary">Save</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="/static/app.js?v={{VERSION}}"></script>
+</body>
+</html>
