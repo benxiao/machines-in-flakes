@@ -308,6 +308,11 @@
                     {
                       imports = [ (modulesPath + "/installer/scan/not-detected.nix") ];
                       nix.extraOptions = "experimental-features = nix-command flakes";
+                      # Run Nix builds at idle CPU/IO priority so big source builds
+                      # (e.g. unfree packages with no binary cache, like bambu-studio)
+                      # don't make the desktop sluggish.
+                      nix.daemonCPUSchedPolicy = "idle";
+                      nix.daemonIOSchedClass = "idle";
                       nixpkgs.config.allowUnfree = true;
 
                       hardware.bluetooth.enable = true;
