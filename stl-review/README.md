@@ -12,6 +12,21 @@ versions; `scan/` and `ref/` subdirectories hold reference meshes (e.g. a 3D sca
 The page polls every 3 s: when a newer version of the part on screen appears, it switches to it and
 diffs against the previous one automatically.
 
+## Uploading
+
+The ⬆ button, or dropping files anywhere on the page, saves STLs into a project's `stl/` directory, or
+into a new `~/<name>/stl/` directory for a new project. A single file can be saved as a new part or as
+the next version of an existing part. The page then shows it, diffed against the previous version.
+
+An upload never replaces a file, because notes refer to files by name. A name that belongs to an
+existing part becomes that part's next version (`foo.stl` → `foo_v6.stl`), unless it asks for a version
+number that is still free. Files must be valid STLs of at most 256 MiB.
+
+```bash
+curl --data-binary @foo.stl 'localhost:10095/api/upload?project=cam-adapter&name=foo.stl'
+# {"path":"stl/foo_v6.stl","project":"cam-adapter"}
+```
+
 ## Notes API
 
 Every note stores the point (model mm, same frame as the CAD script), surface normal, optional second

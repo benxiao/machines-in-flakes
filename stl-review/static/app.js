@@ -1360,7 +1360,7 @@ $('closepanel').onclick = () => document.body.classList.remove('panel-open');
 window.addEventListener('keydown', (e) => {
   if (e.target.matches('input, textarea, select')) return;
   if (e.key === ' ' && cmpGeo) { e.preventDefault(); S.flipped = !S.flipped; applyDisplay(); }
-  if (e.key === 'Escape') { setMode('view'); closeSheet(); }
+  if (e.key === 'Escape') { setMode('view'); closeSheet(); closeUpload(); }
   if (e.key === 'b') setMode('brush');
   if (e.key === 'm') setMode('measure');
   if (e.key === '[') setBrush(brushD - 0.5);
@@ -1444,6 +1444,128 @@ async function poll() {
   } catch {}
   setTimeout(poll, document.hidden ? 15000 : 3000);
 }
+
+// ── Upload ───────────────────────────────────────────────────────────────────
+
+let uploadFiles = [];  // files still to send; each one leaves the list once it is saved
+let uploading = false;
+
+const partFromName = (name) => name.replace(/\.stl$/i, '').replace(/_v\d+$/, '');
+
+function renderUploadForm() {
+  const total = uploadFiles.reduce((n, f) => n + f.size, 0);
+  const one = uploadFiles.length === 1;
+  $('uploadtitle').textContent = `${one ? uploadFiles[0].name : `${uploadFiles.length} files`} · ${total < 1 << 20 ? `${(total / 1024).toFixed(0)} KB` : `${(total / (1 << 20)).toFixed(1)} MB`}`;
+  const p = S.projects.find((x) => x.name === $('uploadproject').value);
+  $('uploadnewfield').hidden = !!p;
+  $('uploadnewname').required = !p;
+  $('uploadpartfield').hidden = !p || !one;
+  if (!p || !one) return;
+  // A file named after an existing part can only be a new version of it: the server never reuses
+  // a name. Any other file can start a part, or become a version of whichever part it belongs to.
+  const own = partFromName(uploadFiles[0].name);
+  const parts = p.parts.filter((pt) => !pt.ref);
+  $('uploadpart').innerHTML = (parts.some((pt) => pt.name === own) ? '' : opt('', `New part: ${own}`, true))
+    + parts.map((pt) => opt(pt.name, `New version of ${pt.name}`, pt.name === own)).join('');
+}
+
+function openUpload(files) {
+  const all = [...files];
+  const stl = all.filter((f) => /\.stl$/i.test(f.name));
+  if (stl.length < all.length) toast(stl.length ? `Skipped ${all.length - stl.length} non-STL file(s)` : 'Only .stl files can be uploaded');
+  if (!stl.length || uploading) return;
+  uploadFiles = stl;
+  $('uploadproject').innerHTML = S.projects.map((p) => opt(p.name, p.name, p.name === S.project?.name)).join('')
+    + opt('', 'New project…', !S.project);
+  $('uploaderror').hidden = true;
+  renderUploadForm();
+  $('uploadsheet').hidden = false;
+  $('uploadsave').focus();
+}
+
+function closeUpload() {
+  if (uploading) return;
+  $('uploadsheet').hidden = true;
+  uploadFiles = [];
+}
+
+function sendUpload(project, name, file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api/upload?${new URLSearchParams({ project, name })}`);
+    xhr.upload.onprogress = (e) => onProgress(e.loaded / e.total);
+    xhr.onload = () => (xhr.status < 300 ? resolve(JSON.parse(xhr.responseText)) : reject(new Error(xhr.responseText.trim())));
+    xhr.onerror = () => reject(new Error('connection lost'));
+    xhr.send(file);
+  });
+}
+
+// Show what was just uploaded, diffed against the version before it. The camera only moves if
+// this is a different part from the one on screen.
+async function showUploaded({ project, path }) {
+  const was = `${S.project?.name}/${S.part?.name}`;
+  S.projects = await (await fetch('/api/projects')).json();
+  S.project = S.projects.find((p) => p.name === project);
+  fetchAnnotations();
+  const f = findFile(path);
+  toast(`Saved as ${f.name}`);
+  selectFile(f, { cmp: prevVersion(f), fit: was !== `${project}/${f.part}` });
+}
+
+$('upload').onclick = $('uploadmobile').onclick = () => $('uploadfile').click();
+$('uploadfile').onchange = (e) => { openUpload(e.target.files); e.target.value = ''; };
+$('uploadproject').onchange = () => {
+  renderUploadForm();
+  if (!$('uploadproject').value) $('uploadnewname').focus();
+};
+$('uploadcancel').onclick = closeUpload;
+$('uploadsheet').onclick = (e) => { if (e.target === $('uploadsheet')) closeUpload(); };
+$('uploadsheet').onkeydown = (e) => { e.stopPropagation(); if (e.key === 'Escape') closeUpload(); };
+$('uploadform').onsubmit = async (e) => {
+  e.preventDefault();
+  const project = $('uploadproject').value || $('uploadnewname').value.trim();
+  const part = $('uploadpartfield').hidden ? '' : $('uploadpart').value;
+  const total = uploadFiles.length;
+  let saved = null;
+  uploading = true;
+  $('uploadsave').disabled = $('uploadcancel').disabled = true;
+  $('uploaderror').hidden = true;
+  try {
+    while (uploadFiles.length) {
+      const file = uploadFiles[0];
+      const name = part && part !== partFromName(file.name) ? `${part}.stl` : file.name;
+      const count = total > 1 ? `${total - uploadFiles.length + 1}/${total} · ` : '';
+      saved = await sendUpload(project, name, file, (done) => {
+        $('uploadsave').textContent = `Uploading ${count}${Math.round(done * 100)}%`;
+      });
+      uploadFiles.shift();
+    }
+  } catch (err) {
+    $('uploaderror').textContent = `${uploadFiles[0].name}: ${err.message}`;
+    $('uploaderror').hidden = false;
+  }
+  uploading = false;
+  $('uploadsave').disabled = $('uploadcancel').disabled = false;
+  $('uploadsave').textContent = 'Upload';
+  if (saved) await showUploaded(saved);
+  if (uploadFiles.length) renderUploadForm();
+  else closeUpload();
+};
+
+// Files can be dropped anywhere on the page.
+const draggingFiles = (e) => e.dataTransfer?.types.includes('Files');
+window.addEventListener('dragover', (e) => {
+  if (!draggingFiles(e)) return;
+  e.preventDefault();
+  stage.classList.add('dropping');
+});
+window.addEventListener('dragleave', (e) => { if (!e.relatedTarget) stage.classList.remove('dropping'); });
+window.addEventListener('drop', (e) => {
+  if (!draggingFiles(e)) return;
+  e.preventDefault();
+  stage.classList.remove('dropping');
+  openUpload(e.dataTransfer.files);
+});
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
 

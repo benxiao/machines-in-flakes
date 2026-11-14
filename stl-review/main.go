@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"embed"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
@@ -18,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -38,6 +42,12 @@ var meshSubdirs = []string{"stl", "scan", "ref"}
 
 // foo_bar_v12.stl → part "foo_bar", version 12
 var versionRe = regexp.MustCompile(`^(.+?)_v(\d+)$`)
+
+// Largest accepted upload. The biggest mesh in any project so far is about 40 MB.
+const maxUploadBytes = 256 << 20
+
+// A project name becomes a directory directly under STLR_HOME: one path component, not hidden.
+var projectNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 const schema = `
 CREATE TABLE IF NOT EXISTS annotations (
@@ -527,6 +537,171 @@ func (a *App) handleShot(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, a.shotPath(id))
 }
 
+// ── Upload ────────────────────────────────────────────────────────────────────
+
+// cleanUploadName reduces a client-supplied filename to a safe "<stem>.stl".
+func cleanUploadName(name string) (string, error) {
+	name = name[strings.LastIndexAny(name, `/\\`)+1:]
+	if !strings.EqualFold(filepath.Ext(name), ".stl") {
+		return "", errors.New("only .stl files can be uploaded")
+	}
+	stem := strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, name[:len(name)-len(".stl")])
+	stem = strings.TrimSpace(strings.TrimLeft(stem, ". "))
+	if stem == "" || len(stem) > 200 {
+		return "", errors.New("unusable file name")
+	}
+	return stem + ".stl", nil
+}
+
+// uploadFileName picks the name an upload is saved under. An existing part gets its next version,
+// unless the name asks for a version number that is still free. Existing files are never reused:
+// notes refer to files by name, so a file's contents must not change underneath them.
+func uploadFileName(name string, p Project) string {
+	stem := strings.TrimSuffix(name, ".stl")
+	part, explicit := stem, false
+	if m := versionRe.FindStringSubmatch(stem); m != nil {
+		part, explicit = m[1], true
+	}
+	var files []MeshFile
+	for _, pt := range p.Parts {
+		if pt.Name == part {
+			files = pt.Files
+		}
+	}
+	if len(files) == 0 {
+		return name
+	}
+	taken := false
+	top := 1 // an unversioned file counts as v1
+	for _, f := range files {
+		taken = taken || f.Name == name
+		if f.Version != nil && *f.Version > top {
+			top = *f.Version
+		}
+	}
+	if explicit && !taken {
+		return name
+	}
+	return fmt.Sprintf("%s_v%d.stl", part, top+1)
+}
+
+// checkSTL accepts what the viewer's STLLoader can parse, so that a bad upload is refused here
+// rather than breaking the page for everyone it auto-jumps to the new file. head is the start of
+// the file (at least 84 bytes unless the file is shorter) and size its full length.
+func checkSTL(head []byte, size int64) error {
+	var faces int64
+	if size >= 84 {
+		faces = int64(binary.LittleEndian.Uint32(head[80:84]))
+	}
+	if faces > 0 && size == 84+50*faces {
+		return nil // binary, exact size; may still start with "solid"
+	}
+	if bytes.Contains(head[:min(len(head), 10)], []byte("solid")) {
+		if bytes.Contains(head, []byte("facet")) {
+			return nil // ASCII
+		}
+		return errors.New("not a valid STL file: ASCII STL with no facets")
+	}
+	if faces > 0 && size > 84+50*faces {
+		return nil // binary with trailing bytes, which the loader ignores
+	}
+	return errors.New("not a valid STL file")
+}
+
+// handleUpload saves the request body as a new mesh in ~/<project>/stl/, creating the project if
+// it does not exist: POST /api/upload?project=<name>&name=<file>.stl. Nothing appears to the
+// scanner until the whole file has arrived and passed checkSTL.
+func (a *App) handleUpload(w http.ResponseWriter, r *http.Request) {
+	project := r.URL.Query().Get("project")
+	if !projectNameRe.MatchString(project) {
+		httpError(w, 400, errors.New("project names may use letters, digits, '.', '_' and '-', starting with a letter or digit"))
+		return
+	}
+	name, err := cleanUploadName(r.URL.Query().Get("name"))
+	if err != nil {
+		httpError(w, 400, err)
+		return
+	}
+	dir := filepath.Join(a.home, project)
+	stlDir := filepath.Join(dir, "stl")
+	if _, exists := a.findProject(project); !exists {
+		// Mkdir, not MkdirAll: a directory that isn't a project must not gain an stl/ folder.
+		if err := os.Mkdir(dir, 0755); errors.Is(err, fs.ErrExist) {
+			httpError(w, 409, fmt.Errorf("~/%s already exists but is not a project", project))
+			return
+		} else if err != nil {
+			httpError(w, 500, err)
+			return
+		}
+		if err := os.Mkdir(stlDir, 0755); err != nil {
+			os.Remove(dir)
+			httpError(w, 500, err)
+			return
+		}
+		// These only succeed on empty directories, so they undo a failed first upload and
+		// leave a successful one alone.
+		defer func() {
+			os.Remove(stlDir)
+			os.Remove(dir)
+		}()
+	}
+
+	// The temp file's name has no .stl extension, so the scanner never sees it.
+	tmp, err := os.CreateTemp(stlDir, ".upload-*")
+	if err != nil {
+		httpError(w, 500, err)
+		return
+	}
+	defer os.Remove(tmp.Name())
+	defer tmp.Close()
+	size, err := io.Copy(tmp, http.MaxBytesReader(w, r.Body, maxUploadBytes))
+	if err != nil {
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			httpError(w, 413, fmt.Errorf("file is larger than the %d MiB limit", maxUploadBytes>>20))
+			return
+		}
+		httpError(w, 400, fmt.Errorf("upload interrupted: %w", err))
+		return
+	}
+	head := make([]byte, 4096)
+	n, err := tmp.ReadAt(head, 0)
+	if err != nil && !errors.Is(err, io.EOF) {
+		httpError(w, 500, err)
+		return
+	}
+	if err := checkSTL(head[:n], size); err != nil {
+		httpError(w, 400, err)
+		return
+	}
+	if err := tmp.Chmod(0644); err != nil {
+		httpError(w, 500, err)
+		return
+	}
+
+	// Link, unlike rename, fails if the target exists. If something else (another upload, a
+	// release script) takes the name first, work out the next one and try again.
+	for range 5 {
+		target := uploadFileName(name, scanProject(dir))
+		err := os.Link(tmp.Name(), filepath.Join(stlDir, target))
+		if errors.Is(err, fs.ErrExist) {
+			continue
+		}
+		if err != nil {
+			httpError(w, 500, err)
+			return
+		}
+		writeJSON(w, map[string]string{"project": project, "path": filepath.Join("stl", target)})
+		return
+	}
+	httpError(w, 409, errors.New("could not find a free file name, try again"))
+}
+
 func (a *App) registerRoutes(mux *http.ServeMux) {
 	static, _ := fs.Sub(staticFS, "static")
 	mux.HandleFunc("GET /{$}", a.handleIndex)
@@ -534,6 +709,8 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/projects", a.handleProjects)
 	mux.HandleFunc("GET /api/state", a.handleState)
 	mux.HandleFunc("GET /mesh/{project}/{path...}", a.handleMesh)
+	// the app has no login, so at least stop other websites posting files through the browser
+	mux.Handle("POST /api/upload", http.NewCrossOriginProtection().Handler(http.HandlerFunc(a.handleUpload)))
 	mux.HandleFunc("GET /api/annotations", a.handleListAnnotations)
 	mux.HandleFunc("POST /api/annotations", a.handleCreateAnnotation)
 	mux.HandleFunc("PATCH /api/annotations/{id}", a.handleUpdateAnnotation)

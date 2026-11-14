@@ -652,7 +652,7 @@
               })
               (makeGoService {
                 pname = "stl-review";
-                version = "0.3.0";
+                version = "0.4.0";
                 src = ./stl-review;
                 # same pgx deps as kanban/fpv-manager
                 vendorHash = "sha256-Qs23BHgrlK0P5BREEzS5Y/2G7mL1pcSd1k3z8NUw/mM=";

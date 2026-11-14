@@ -14,6 +14,7 @@
     <button id="prev" title="Previous version">‹</button>
     <select id="version" title="Version"></select>
     <button id="next" title="Next version">›</button>
+    <button id="uploadmobile" class="mobile-only" title="Upload STL">⬆</button>
   </div>
   <div class="group">
     <select id="compare" title="Compare against"></select>
@@ -24,6 +25,7 @@
     </div>
   </div>
   <div class="group right">
+    <button id="upload" title="Upload STL (or drop files anywhere on the page)">⬆</button>
     <a id="bambu" class="btn" title="Open in Bambu Studio">Bambu</a>
     <a id="download" class="btn" title="Download STL" download>⬇</a>
   </div>
@@ -98,6 +100,23 @@
       <button id="sheetsave" class="primary">Save</button>
     </div>
   </div>
+</div>
+
+<input type="file" id="uploadfile" accept=".stl,model/stl,application/sla,application/octet-stream" multiple hidden>
+<div id="uploadsheet" hidden>
+  <form id="uploadform" class="sheet-card">
+    <div id="uploadtitle" class="mono"></div>
+    <label class="field">Project <select id="uploadproject"></select></label>
+    <label class="field" id="uploadnewfield" hidden>Project name
+      <input id="uploadnewname" pattern="[A-Za-z0-9][A-Za-z0-9._\-]*" title="Letters, digits, '.', '_' and '-', starting with a letter or digit" autocapitalize="off" autocomplete="off" spellcheck="false">
+    </label>
+    <label class="field" id="uploadpartfield">Part <select id="uploadpart"></select></label>
+    <div id="uploaderror" hidden></div>
+    <div class="sheet-actions">
+      <button type="button" id="uploadcancel">Cancel</button>
+      <button id="uploadsave" class="primary">Upload</button>
+    </div>
+  </form>
 </div>
 
 <script type="module" src="/static/app.js?v={{VERSION}}"></script>

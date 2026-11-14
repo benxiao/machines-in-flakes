@@ -166,7 +166,7 @@ footer.ver { margin-top: auto; color: var(--muted); font-size: 11px; }
 .floating { right: 12px; top: 12px; cursor: pointer; font-weight: 600; }
 [hidden] { display: none !important; }
 
-#sheet { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); display: flex; align-items: flex-end; justify-content: center; z-index: 10; }
+#sheet, #uploadsheet { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); display: flex; align-items: flex-end; justify-content: center; z-index: 10; }
 .sheet-card {
   background: var(--panel);
   width: min(520px, 100%);
@@ -178,7 +178,23 @@ footer.ver { margin-top: auto; color: var(--muted); font-size: 11px; }
 }
 .sheet-card textarea { font: inherit; font-size: 16px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px; resize: vertical; }
 .sheet-actions { display: flex; justify-content: flex-end; gap: 8px; }
-#sheettitle { color: var(--muted); }
+#sheettitle, #uploadtitle { color: var(--muted); overflow-wrap: anywhere; }
+.field { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
+.field select, .field input { width: 100%; max-width: none; min-height: 36px; font: inherit; font-size: 16px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; }
+#uploaderror { color: #d9423a; overflow-wrap: anywhere; }
+#stage.dropping::after {
+  content: "Drop STL to upload";
+  position: absolute;
+  inset: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--chip);
+  border: 2px dashed var(--accent);
+  border-radius: 8px;
+  font-size: 16px;
+  pointer-events: none;
+}
 
 .mobile-only { display: none; }
 @media (max-width: 860px) {
