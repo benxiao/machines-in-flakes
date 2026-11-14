@@ -700,8 +700,22 @@
                 bootDevice = "/dev/disk/by-uuid/DED6-AF46";
                 extraPools = [ "wotan" ];
               })
-              ({ ... }: {
+              ({ pkgs, ... }: {
                 networking.hostId = "00000000"; # replace: run `head -c 8 /etc/machine-id` on wotan
+                # Flatpak for apps nixpkgs serves poorly, e.g. Bambu Studio: unfree, so
+                # never in the binary cache, and Flathub is Bambu's own Linux build.
+                services.flatpak.enable = true;
+                systemd.services.flatpak-repo = {
+                  description = "Add the Flathub remote";
+                  wantedBy = [ "multi-user.target" ];
+                  wants = [ "network-online.target" ];
+                  after = [ "network-online.target" ];
+                  path = [ pkgs.flatpak ];
+                  serviceConfig.Type = "oneshot";
+                  script = ''
+                    flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+                  '';
+                };
                 home-manager.users.rxiao = { ... }: {
                   programs.bash.shellAliases = {
                     mendeley = "mendeley-reference-manager --no-sandbox";
