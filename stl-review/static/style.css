@@ -166,7 +166,7 @@ footer.ver { margin-top: auto; color: var(--muted); font-size: 11px; }
 .floating { right: 12px; top: 12px; cursor: pointer; font-weight: 600; }
 [hidden] { display: none !important; }
 
-#sheet, #uploadsheet { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); display: flex; align-items: flex-end; justify-content: center; z-index: 10; }
+#sheet, #uploadsheet, #projectsheet { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); display: flex; align-items: flex-end; justify-content: center; z-index: 10; }
 .sheet-card {
   background: var(--panel);
   width: min(520px, 100%);
@@ -178,10 +178,27 @@ footer.ver { margin-top: auto; color: var(--muted); font-size: 11px; }
 }
 .sheet-card textarea { font: inherit; font-size: 16px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px; resize: vertical; }
 .sheet-actions { display: flex; justify-content: flex-end; gap: 8px; }
-#sheettitle, #uploadtitle { color: var(--muted); overflow-wrap: anywhere; }
+#sheettitle, #uploadtitle, .sheet-head { color: var(--muted); overflow-wrap: anywhere; }
 .field { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
 .field select, .field input { width: 100%; max-width: none; min-height: 36px; font: inherit; font-size: 16px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; }
-#uploaderror { color: #d9423a; overflow-wrap: anywhere; }
+#uploaderror, #projecterror { color: #d9423a; overflow-wrap: anywhere; }
+
+/* An empty project, or none: the stage shows what to do next and the mesh tools rest. */
+#placeholder {
+  position: absolute;
+  left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: min(340px, calc(100% - 32px));
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  padding: 18px 16px;
+  text-align: center;
+  background: var(--chip);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+#placeholder p { margin: 0; }
+#placeholder .hint { color: var(--muted); font-size: 13px; }
+body.no-mesh .tools, body.no-mesh .group.right a.btn, body.no-mesh #cmpmode { opacity: 0.4; pointer-events: none; }
+body.no-mesh .subbar { display: none; }
 #stage.dropping::after {
   content: "Drop STL to upload";
   position: absolute;

@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func binarySTL(faces int) []byte {
@@ -194,5 +195,80 @@ func TestHandleUpload(t *testing.T) {
 	want := []string{"bar.stl", "escape.stl", "foo.stl", "foo_v2.stl"}
 	if got := listDir(t, filepath.Join(home, "proj", "stl")); !slices.Equal(got, want) {
 		t.Errorf("stl/ holds %v; want %v", got, want)
+	}
+}
+
+func TestHandleCreateProject(t *testing.T) {
+	home := t.TempDir()
+	os.MkdirAll(filepath.Join(home, "proj", "stl"), 0755)
+	os.WriteFile(filepath.Join(home, "proj", "stl", "foo.stl"), binarySTL(1), 0644)
+	hourAgo := time.Now().Add(-time.Hour)
+	os.Chtimes(filepath.Join(home, "proj", "stl", "foo.stl"), hourAgo, hourAgo)
+	os.Mkdir(filepath.Join(home, "notaproject"), 0755)
+	a := &App{home: home} // creating a project never touches the database
+	mux := http.NewServeMux()
+	a.registerRoutes(mux)
+	if got, _ := json.Marshal((&App{home: t.TempDir()}).scan()); string(got) != "[]" {
+		t.Errorf("a home with no projects lists %s; want []", got)
+	}
+
+	create := func(body string, header ...string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest("POST", "http://athena:10095/api/projects", strings.NewReader(body))
+		if len(header) == 2 {
+			req.Header.Set(header[0], header[1])
+		}
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	rec := create(`{"name":"fresh"}`)
+	if rec.Code != 200 {
+		t.Fatalf("create: status %d: %s", rec.Code, rec.Body)
+	}
+	if !strings.Contains(rec.Body.String(), `"parts":[]`) {
+		t.Errorf("new project should list parts as []: %s", rec.Body)
+	}
+	if st, err := os.Stat(filepath.Join(home, "fresh", "stl")); err != nil || !st.IsDir() {
+		t.Errorf("stl/ not created: %v", err)
+	}
+	// The empty project is listed, first since it is the newest, and an upload goes into it.
+	names := []string{}
+	for _, p := range a.scan() {
+		names = append(names, p.Name)
+	}
+	if !slices.Equal(names, []string{"fresh", "proj"}) {
+		t.Errorf("scan lists %v; want [fresh proj]", names)
+	}
+	req := httptest.NewRequest("POST", "http://athena:10095/api/upload?project=fresh&name=a.stl", strings.NewReader(string(binarySTL(1))))
+	up := httptest.NewRecorder()
+	mux.ServeHTTP(up, req)
+	if up.Code != 200 {
+		t.Errorf("upload into the empty project: status %d: %s", up.Code, up.Body)
+	}
+
+	for body, want := range map[string]int{
+		`{"name":"fresh"}`:       409, // already a project
+		`{"name":"proj"}`:        409,
+		`{"name":"notaproject"}`: 409, // a directory that is not a project stays as it is
+		`{"name":""}`:            400,
+		`{"name":".ssh"}`:        400,
+		`{"name":"../x"}`:        400,
+		`{"name":"a/b"}`:         400,
+		`not json`:               400,
+	} {
+		if got := create(body); got.Code != want {
+			t.Errorf("create %s: status %d; want %d (%s)", body, got.Code, want, strings.TrimSpace(got.Body.String()))
+		}
+	}
+	if got := listDir(t, filepath.Join(home, "notaproject")); len(got) != 0 {
+		t.Errorf("non-project directory gained %v", got)
+	}
+	if got := create(`{"name":"evil"}`, "Origin", "http://evil.example"); got.Code != 403 {
+		t.Errorf("cross-origin create: status %d", got.Code)
+	}
+	if _, err := os.Stat(filepath.Join(home, "evil")); !os.IsNotExist(err) {
+		t.Errorf("cross-origin create made a directory: %v", err)
 	}
 }

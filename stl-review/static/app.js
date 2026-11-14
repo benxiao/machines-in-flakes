@@ -386,6 +386,7 @@ function setView(name) {
       dist = Math.max(dist, z + Math.abs(k.dot(right)) / th, z + Math.abs(k.dot(up)) / tv);
     }
   }
+  if (!dist) dist = bbox.getSize(k).length() / (2 * tv); // nothing loaded: frame the empty bed
   flyTo(c.clone().addScaledVector(dir, dist * 1.1), c);
 }
 
@@ -1139,6 +1140,10 @@ function renderPinList(notes) {
   const open = S.part ? S.annotations.filter((a) => a.part === S.part.name && a.status === 'open').length : 0;
   $('pincount').textContent = open ? `(${open})` : '';
   const f = activeFile();
+  if (!S.part) {
+    $('pins').innerHTML = '<div class="empty">Notes go on a part. Upload one to start.</div>';
+    return;
+  }
   if (!notes.length) {
     $('pins').innerHTML = `<div class="empty">No ${S.showResolved ? '' : 'open '}notes on this part. Choose <b>Brush</b>, paint the area on the part, then <b>Add note</b>.</div>`;
     return;
@@ -1281,24 +1286,36 @@ const ago = (t) => {
   return s < 3600 ? `${Math.round(s / 60)}m` : s < 86400 ? `${Math.round(s / 3600)}h` : `${Math.round(s / 86400)}d`;
 };
 
+const NEW_PROJECT = '/new'; // no project name can contain a '/'
+
 function renderSelectors() {
-  $('project').innerHTML = S.projects.map((p) => opt(p.name, p.name, p === S.project)).join('');
-  $('part').innerHTML = S.project.parts.map((pt) =>
+  $('project').innerHTML = S.projects.map((p) => opt(p.name, p.name, p === S.project)).join('')
+    + opt(NEW_PROJECT, 'New project…', false);
+  const parts = S.project?.parts || [];
+  $('part').innerHTML = parts.map((pt) =>
     opt(pt.name, `${pt.name}${pt.ref ? ' (ref)' : ''} · ${pt.files.length}`, pt === S.part)).join('');
-  const files = S.part.files;
+  const files = S.part?.files || [];
   $('version').innerHTML = files.slice().reverse().map((f) =>
     opt(f.path, `${label(f)} · ${ago(f.mtime)} ago`, f === S.file)).join('');
   const i = files.indexOf(S.file);
   $('prev').disabled = i <= 0;
   $('next').disabled = i >= files.length - 1;
   let html = opt('', 'Compare: off', !S.cmp);
-  for (const pt of S.project.parts) {
+  for (const pt of parts) {
     html += `<optgroup label="${esc(pt.name)}">` + pt.files.slice().reverse()
       .filter((f) => f !== S.file).map((f) => opt(f.path, `vs ${pt === S.part ? "" : pt.name + " "}${label(f)}`, f === S.cmp)).join('') + '</optgroup>';
   }
   $('compare').innerHTML = html;
   for (const b of $('cmpmode').children) b.classList.toggle('on', b.dataset.m === S.cmpMode);
   $('cmpmode').classList.toggle('disabled', !S.cmp);
+  for (const id of ['part', 'version', 'compare']) $(id).disabled = !S.file;
+  document.body.classList.toggle('no-mesh', !S.file);
+  $('placeholder').hidden = !!S.file;
+  $('placeholder').innerHTML = !S.project
+    ? '<p>No projects yet.</p><button data-act="new" class="primary">New project…</button>'
+    : `<p><b>${esc(S.project.name)}</b> has no parts yet.</p>
+       <button data-act="upload" class="primary">⬆ Upload STL</button>
+       <p class="hint">or drop STL files anywhere on the page. Files saved to <span class="mono">~/${esc(S.project.name)}/stl/</span> appear here too.</p>`;
 }
 
 const findFile = (path) => S.project.parts.flatMap((pt) => pt.files).find((f) => f.path === path) || null;
@@ -1318,13 +1335,50 @@ function selectFile(f, { cmp = 'auto', fit = false } = {}) {
 
 function selectProject(p) {
   S.project = p;
-  S.part = p.parts[0];
-  const f = S.part.files[S.part.files.length - 1];
   fetchAnnotations();
+  const pt = p.parts[0];
+  if (!pt) { showNothing(); return; }
+  const f = pt.files[pt.files.length - 1];
   selectFile(f, { cmp: prevVersion(f), fit: true });
 }
 
-$('project').onchange = (e) => selectProject(S.projects.find((p) => p.name === e.target.value));
+// An empty project, or no project at all: clear the scene down to an empty bed and let the
+// placeholder say what to do next.
+const emptyGeo = new BufferGeometry();
+function showNothing() {
+  loadSeq++; // a mesh still loading for the previous project must not land here
+  busy(null); // nor leave its progress message behind
+  S.part = S.file = S.cmp = null;
+  S.flipped = false;
+  showGeo = cmpGeo = null;
+  for (const m of [mainMesh, capMesh, heatMesh, ghostMesh]) m.geometry = emptyGeo;
+  heatMesh.visible = ghostMesh.visible = false;
+  $('legend').hidden = $('flipbtn').hidden = true;
+  $('info').innerHTML = S.project ? `<b>${esc(S.project.name)}</b><br>No parts yet` : '';
+  $('download').removeAttribute('href');
+  $('bambu').removeAttribute('href');
+  setMode('view');
+  bbox = new Box3(new Vector3(-25, -25, 0), new Vector3(25, 25, 10));
+  rebuildGrid();
+  syncSectionRange();
+  renderPins();
+  writeHash();
+  renderSelectors();
+  setView('iso');
+}
+
+$('project').onchange = (e) => {
+  if (e.target.value === NEW_PROJECT) {
+    e.target.value = S.project?.name ?? ''; // stay put until the new one exists
+    openNewProject();
+    return;
+  }
+  selectProject(S.projects.find((p) => p.name === e.target.value));
+};
+$('placeholder').onclick = (e) => {
+  if (e.target.dataset.act === 'upload') $('uploadfile').click();
+  if (e.target.dataset.act === 'new') openNewProject();
+};
 $('part').onchange = (e) => {
   const pt = S.project.parts.find((x) => x.name === e.target.value);
   const f = pt.files[pt.files.length - 1];
@@ -1359,6 +1413,7 @@ $('openpanel').onclick = () => document.body.classList.add('panel-open');
 $('closepanel').onclick = () => document.body.classList.remove('panel-open');
 window.addEventListener('keydown', (e) => {
   if (e.target.matches('input, textarea, select')) return;
+  if (!S.file && e.key !== 'Escape') return;
   if (e.key === ' ' && cmpGeo) { e.preventDefault(); S.flipped = !S.flipped; applyDisplay(); }
   if (e.key === 'Escape') { setMode('view'); closeSheet(); closeUpload(); }
   if (e.key === 'b') setMode('brush');
@@ -1389,7 +1444,9 @@ $('paintnote').onclick = () => {
 // ── URL hash: #p=<project>&f=<path>&c=<path>&m=<mode> ─────────────────────────
 
 function writeHash() {
-  const h = new URLSearchParams({ p: S.project.name, f: S.file.path });
+  const h = new URLSearchParams();
+  if (S.project) h.set('p', S.project.name);
+  if (S.file) h.set('f', S.file.path);
   if (S.cmp) { h.set('c', S.cmp.path); h.set('m', S.cmpMode); }
   history.replaceState(null, '', '#' + h);
 }
@@ -1398,10 +1455,10 @@ function applyHash() {
   const h = new URLSearchParams(location.hash.slice(1));
   const p = S.projects.find((x) => x.name === h.get('p'));
   if (!p) return false;
+  if (h.get('m')) S.cmpMode = h.get('m');
   S.project = p;
   const f = findFile(h.get('f'));
-  if (!f) return false;
-  if (h.get('m')) S.cmpMode = h.get('m');
+  if (!f) { selectProject(p); return true; } // an empty project, or a file that has gone
   fetchAnnotations();
   selectFile(f, { cmp: findFile(h.get('c')), fit: true });
   return true;
@@ -1415,13 +1472,16 @@ async function refreshProjects() {
   const wasLatest = S.part && S.file === S.part.files[S.part.files.length - 1];
   const oldFile = S.file, oldCmp = S.cmp;
   S.projects = await (await fetch('/api/projects')).json();
-  if (!S.project) return;
-  S.project = S.projects.find((p) => p.name === S.project.name) || S.projects[0];
-  if (!S.project) return;
+  S.project = S.projects.find((p) => p.name === S.project?.name) || null;
+  if (!S.project) { // never had one, or it was removed
+    if (S.projects.length) selectProject(S.projects[0]); else showNothing();
+    return;
+  }
   const same = (f) => f && findFile(f.path);
   const cur = same(oldFile);
+  if (!cur && !oldFile && !S.project.parts.length) { renderSelectors(); return; } // still empty
   const part = cur ? partOf(cur) : S.project.parts[0];
-  const newest = part.files[part.files.length - 1];
+  const newest = part?.files[part.files.length - 1];
   if (wasLatest && cur && newest !== cur && newest.mtime > cur.mtime) {
     toast(`${label(newest)} arrived — diffing against ${label(cur)}`);
     selectFile(newest, { cmp: cur });
@@ -1552,6 +1612,42 @@ $('uploadform').onsubmit = async (e) => {
   else closeUpload();
 };
 
+// ── New project ──────────────────────────────────────────────────────────────
+
+function openNewProject() {
+  $('projectname').value = '';
+  $('projecterror').hidden = true;
+  syncProjectPath();
+  $('projectsheet').hidden = false;
+  setTimeout(() => $('projectname').focus(), 50);
+}
+const closeNewProject = () => { $('projectsheet').hidden = true; };
+const syncProjectPath = () => { $('projectpath').textContent = `Creates ~/${$('projectname').value.trim() || '<name>'}/stl/`; };
+
+$('projectname').oninput = syncProjectPath;
+$('projectcancel').onclick = closeNewProject;
+$('projectsheet').onclick = (e) => { if (e.target === $('projectsheet')) closeNewProject(); };
+$('projectsheet').onkeydown = (e) => { e.stopPropagation(); if (e.key === 'Escape') closeNewProject(); };
+$('projectform').onsubmit = async (e) => {
+  e.preventDefault();
+  const name = $('projectname').value.trim();
+  $('projectsave').disabled = true;
+  $('projecterror').hidden = true;
+  try {
+    const res = await fetch('/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+    if (!res.ok) throw new Error((await res.text()).trim());
+    S.projects = await (await fetch('/api/projects')).json();
+    closeNewProject();
+    const p = S.projects.find((x) => x.name === name);
+    if (p) selectProject(p);
+    toast(`Created ~/${name}/stl/`);
+  } catch (err) {
+    $('projecterror').textContent = err.message;
+    $('projecterror').hidden = false;
+  }
+  $('projectsave').disabled = false;
+};
+
 // Files can be dropped anywhere on the page.
 const draggingFiles = (e) => e.dataTransfer?.types.includes('Files');
 window.addEventListener('dragover', (e) => {
@@ -1574,8 +1670,9 @@ async function boot() {
   setMode('view');
   $('chip').hidden = true;
   S.projects = await (await fetch('/api/projects')).json();
-  if (!S.projects.length) { busy('No projects found (looking for ~/*/stl/*.stl)'); return; }
-  if (!applyHash()) selectProject(S.projects[0]);
+  if (!applyHash()) {
+    if (S.projects.length) selectProject(S.projects[0]); else showNothing();
+  }
   resize();
   loop();
   poll();

@@ -205,6 +205,13 @@ func scanProject(dir string) Project {
 	for _, sub := range meshSubdirs {
 		readDir(sub, sub != "stl")
 	}
+	p.Parts = []Part{} // an empty project lists [] rather than null
+	if len(parts) == 0 {
+		// Nothing to date it by but stl/ itself, so a project created a moment ago sorts first.
+		if st, err := os.Stat(filepath.Join(dir, "stl")); err == nil {
+			p.Latest = st.ModTime()
+		}
+	}
 	for _, pt := range parts {
 		sort.Slice(pt.Files, func(i, j int) bool {
 			vi, vj := pt.Files[i].Version, pt.Files[j].Version
@@ -228,11 +235,9 @@ func scanProject(dir string) Project {
 }
 
 func (a *App) scan() []Project {
-	var out []Project
+	out := []Project{}
 	for _, d := range a.projectDirs() {
-		if p := scanProject(d); len(p.Parts) > 0 {
-			out = append(out, p)
-		}
+		out = append(out, scanProject(d))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Latest.After(out[j].Latest) })
 	return out
@@ -323,6 +328,7 @@ func (a *App) handleProjects(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleState(w http.ResponseWriter, r *http.Request) {
 	h := fnv.New64a()
 	for _, p := range a.scan() {
+		fmt.Fprintf(h, "%s;", p.Name) // so a new, still empty project reaches other open pages
 		for _, pt := range p.Parts {
 			for _, f := range pt.Files {
 				fmt.Fprintf(h, "%s/%s:%d:%d;", p.Name, f.Path, f.Size, f.ModTime.UnixNano())
@@ -613,13 +619,57 @@ func checkSTL(head []byte, size int64) error {
 	return errors.New("not a valid STL file")
 }
 
+var (
+	errProjectName   = errors.New("project names may use letters, digits, '.', '_' and '-', starting with a letter or digit")
+	errProjectExists = errors.New("project already exists")
+)
+
+// createProject makes ~/<name>/stl/ for a project that does not exist yet, and returns the HTTP
+// status that fits its error.
+func (a *App) createProject(name string) (int, error) {
+	if !projectNameRe.MatchString(name) {
+		return 400, errProjectName
+	}
+	dir := filepath.Join(a.home, name)
+	// Mkdir, not MkdirAll: a directory that isn't a project must not gain an stl/ folder.
+	if err := os.Mkdir(dir, 0755); errors.Is(err, fs.ErrExist) {
+		if _, ok := a.findProject(name); ok {
+			return 409, fmt.Errorf("%w: %s", errProjectExists, name)
+		}
+		return 409, fmt.Errorf("~/%s already exists but is not a project", name)
+	} else if err != nil {
+		return 500, err
+	}
+	if err := os.Mkdir(filepath.Join(dir, "stl"), 0755); err != nil {
+		os.Remove(dir)
+		return 500, err
+	}
+	return 200, nil
+}
+
+// handleCreateProject makes a new, empty project: POST /api/projects {"name": "<name>"}.
+func (a *App) handleCreateProject(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+		httpError(w, 400, err)
+		return
+	}
+	if code, err := a.createProject(req.Name); err != nil {
+		httpError(w, code, err)
+		return
+	}
+	writeJSON(w, scanProject(filepath.Join(a.home, req.Name)))
+}
+
 // handleUpload saves the request body as a new mesh in ~/<project>/stl/, creating the project if
 // it does not exist: POST /api/upload?project=<name>&name=<file>.stl. Nothing appears to the
 // scanner until the whole file has arrived and passed checkSTL.
 func (a *App) handleUpload(w http.ResponseWriter, r *http.Request) {
 	project := r.URL.Query().Get("project")
 	if !projectNameRe.MatchString(project) {
-		httpError(w, 400, errors.New("project names may use letters, digits, '.', '_' and '-', starting with a letter or digit"))
+		httpError(w, 400, errProjectName)
 		return
 	}
 	name, err := cleanUploadName(r.URL.Query().Get("name"))
@@ -630,25 +680,20 @@ func (a *App) handleUpload(w http.ResponseWriter, r *http.Request) {
 	dir := filepath.Join(a.home, project)
 	stlDir := filepath.Join(dir, "stl")
 	if _, exists := a.findProject(project); !exists {
-		// Mkdir, not MkdirAll: a directory that isn't a project must not gain an stl/ folder.
-		if err := os.Mkdir(dir, 0755); errors.Is(err, fs.ErrExist) {
-			httpError(w, 409, fmt.Errorf("~/%s already exists but is not a project", project))
+		code, err := a.createProject(project)
+		switch {
+		case errors.Is(err, errProjectExists): // another request made it a moment ago
+		case err != nil:
+			httpError(w, code, err)
 			return
-		} else if err != nil {
-			httpError(w, 500, err)
-			return
+		default:
+			// A project made for this upload goes again if the upload fails. These only succeed
+			// on empty directories, so they leave a successful upload alone.
+			defer func() {
+				os.Remove(stlDir)
+				os.Remove(dir)
+			}()
 		}
-		if err := os.Mkdir(stlDir, 0755); err != nil {
-			os.Remove(dir)
-			httpError(w, 500, err)
-			return
-		}
-		// These only succeed on empty directories, so they undo a failed first upload and
-		// leave a successful one alone.
-		defer func() {
-			os.Remove(stlDir)
-			os.Remove(dir)
-		}()
 	}
 
 	// The temp file's name has no .stl extension, so the scanner never sees it.
@@ -709,8 +754,10 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/projects", a.handleProjects)
 	mux.HandleFunc("GET /api/state", a.handleState)
 	mux.HandleFunc("GET /mesh/{project}/{path...}", a.handleMesh)
-	// the app has no login, so at least stop other websites posting files through the browser
-	mux.Handle("POST /api/upload", http.NewCrossOriginProtection().Handler(http.HandlerFunc(a.handleUpload)))
+	// the app has no login, so at least stop other websites writing into ~ through the browser
+	csrf := http.NewCrossOriginProtection()
+	mux.Handle("POST /api/projects", csrf.Handler(http.HandlerFunc(a.handleCreateProject)))
+	mux.Handle("POST /api/upload", csrf.Handler(http.HandlerFunc(a.handleUpload)))
 	mux.HandleFunc("GET /api/annotations", a.handleListAnnotations)
 	mux.HandleFunc("POST /api/annotations", a.handleCreateAnnotation)
 	mux.HandleFunc("PATCH /api/annotations/{id}", a.handleUpdateAnnotation)

@@ -39,6 +39,7 @@
     <div id="toast" hidden></div>
     <div id="busy" hidden></div>
     <button id="flipbtn" class="floating" hidden></button>
+    <div id="placeholder" hidden></div>
   </div>
   <aside id="panel">
     <div class="panel-head">
@@ -100,6 +101,21 @@
       <button id="sheetsave" class="primary">Save</button>
     </div>
   </div>
+</div>
+
+<div id="projectsheet" hidden>
+  <form id="projectform" class="sheet-card">
+    <div class="mono sheet-head">New project</div>
+    <label class="field">Name
+      <input id="projectname" required pattern="[A-Za-z0-9][A-Za-z0-9._\-]*" title="Letters, digits, '.', '_' and '-', starting with a letter or digit" autocapitalize="off" autocomplete="off" spellcheck="false">
+    </label>
+    <div id="projectpath" class="mono sheet-head"></div>
+    <div id="projecterror" hidden></div>
+    <div class="sheet-actions">
+      <button type="button" id="projectcancel">Cancel</button>
+      <button id="projectsave" class="primary">Create</button>
+    </div>
+  </form>
 </div>
 
 <input type="file" id="uploadfile" accept=".stl,model/stl,application/sla,application/octet-stream" multiple hidden>

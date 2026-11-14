@@ -7,10 +7,20 @@ Runs on athena at `http://athena:10095` (declared in `flake.nix` via `makeGoServ
 
 ## Projects
 
-Any `~/<project>/stl/` directory is a project. Files named `<part>_v<N>.stl` group into a part with
+Any `~/<project>/stl/` directory is a project, even an empty one. Files named `<part>_v<N>.stl` group into a part with
 versions; `scan/` and `ref/` subdirectories hold reference meshes (e.g. a 3D scan) to compare against.
 The page polls every 3 s: when a newer version of the part on screen appears, it switches to it and
 diffs against the previous one automatically.
+
+**New project…** at the bottom of the project menu creates an empty `~/<name>/stl/`. The page shows it
+as an empty bed with an upload button, and switches to its first part as soon as one is uploaded or a
+release script saves one there. A name that is already a directory in `~` is refused, so an unrelated
+folder never gains an `stl/` subdirectory.
+
+```bash
+curl -X POST localhost:10095/api/projects -d '{"name":"gps-mount"}'
+# {"name":"gps-mount","dir":"/home/rxiao/gps-mount","parts":[],...}
+```
 
 ## Uploading
 
